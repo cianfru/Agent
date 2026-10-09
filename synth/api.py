@@ -48,7 +48,7 @@ async def _loop(agent: Agent) -> None:
 
 async def _maybe_daily_brief(agent: Agent) -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    if now.hour < agent.s.brief_hour_utc or not agent.brief_synth:
+    if now.hour < agent.s.brief_hour_utc:
         return
     last = agent.store.latest_brief("daily")
     today = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()

@@ -211,17 +211,24 @@ def crowded(source: str, cur: dict) -> list[dict]:
 # ---------------------------------------------------------------- reflex ---
 
 
-def reflex_feeds(cur: dict) -> list[dict]:
+def reflex_feeds(cur: dict, fast_hours: float = 6) -> list[dict]:
     """Reflex's own detections (convergence, anomalies, setups). Dedup is by key, so the
-    same item reappearing on later polls is suppressed by the store's cooldown."""
+    same item reappearing on later polls is suppressed by the store's cooldown.
+
+    Reflex counts a convergence over 24h; only fast ones (all opens within `fast_hours`) score
+    as alerts. Slower ones stay below the alert bar but still show on the dashboard and pulse."""
     out = []
     for c in cur.get("convergences") or []:
         n = c.get("n") or 2
+        span = c.get("span_h")
+        fast = span is None or span <= fast_hours
+        score = (80 + min(15, 5 * (n - 2))) if fast else min(59, 52 + 2 * n)
+        when = f" in {span:g}h" if span is not None else ""
         out.append(_ev(
-            "smart_convergence", c["coin"], c.get("side"), 80 + min(15, 5 * (n - 2)),
-            f"{n} profitable Hyperliquid traders converged {c.get('side')} on {c['coin']} (reflex)",
+            "smart_convergence", c["coin"], c.get("side"), score,
+            f"{n} profitable Hyperliquid traders went {c.get('side')} on {c['coin']}{when} (reflex)",
             f"reflex:{c.get('key') or ('conv:' + c['coin'] + ':' + str(c.get('side')))}",
-            source="reflex", n=n, detail=c.get("detail"), ts=c.get("ts"),
+            source="reflex", n=n, span_h=span, fast=fast, detail=c.get("detail"), ts=c.get("ts"),
         ))
     for a in cur.get("anomalies") or []:
         sev = a.get("severity")
@@ -262,10 +269,11 @@ def lean_flips(source: str, prev: dict, cur: dict) -> list[dict]:
     return out
 
 
-def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float) -> list[dict]:
+def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float,
+            fast_hours: float = 6) -> list[dict]:
     events: list[dict] = list(crowded(source, cur))
     if source == "reflex":
-        events += reflex_feeds(cur)
+        events += reflex_feeds(cur, fast_hours)
     if prev:
         events += engine_changes(source, prev, cur)
         events += wallet_moves(source, prev, cur, wallet_min_usd)

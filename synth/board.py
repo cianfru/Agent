@@ -67,7 +67,12 @@ def smart_board(snaps: dict[str, dict], events: list[dict]) -> list[dict]:
     return rows
 
 
-def pulse_text(events: list[dict], rows: list[dict], hours: float = 1, limit: int = 8) -> str | None:
+def _short(title: str) -> str:
+    """Drop the trailing '(source)' tag: the pulse is read on a phone."""
+    return title.rsplit(" (", 1)[0] if title.endswith(")") else title
+
+
+def pulse_text(events: list[dict], rows: list[dict], hours: float = 1, limit: int = 5) -> str | None:
     """Plain-text pulse of the last `hours`: top events by coin, then where layers line up."""
     if not events:
         return None
@@ -76,11 +81,11 @@ def pulse_text(events: list[dict], rows: list[dict], hours: float = 1, limit: in
     for e in sorted(events, key=lambda e: -e["score"]):
         (by_coin[e["coin"]] if e.get("coin") else market).append(e)
     label = "hour" if hours == 1 else f"{hours:g}h"
-    lines = [f"Last {label}: {len(events)} events on {len(by_coin)} coins"]
-    for e in market[:2]:
-        lines.append(f"- {e['title']}")
+    lines = [f"Last {label}"]
+    for e in market[:1]:
+        lines.append(_short(e["title"]))
     for coin, evs in list(by_coin.items())[:limit]:
-        lines.append(f"{coin}: " + "; ".join(e["title"] for e in evs[:2]))
+        lines.append(_short(evs[0]["title"]) + (f" (+{len(evs) - 1} more)" if len(evs) > 1 else ""))
     aligned = [r for r in rows if abs(r["agree"]) >= 3][:4]
     if aligned:
         lines.append("")

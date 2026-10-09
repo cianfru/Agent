@@ -34,7 +34,7 @@ def test_pulse_text():
     ]
     rows = [{"coin": "ETH", "agree": 3, "layers": 4}]
     text = board.pulse_text(events, rows)
-    assert text.splitlines()[0] == "Last hour: 3 events on 1 coins"
-    assert "- Crowded market" in text and "PUMP: 3 converged long on PUMP; PUMP OI surge" in text
+    assert text.splitlines()[0] == "Last hour"
+    assert "Crowded market" in text and "3 converged long on PUMP (+1 more)" in text
     assert "Layers agreeing: ETH long 3/4" in text
     assert board.pulse_text([], rows) is None

@@ -25,7 +25,7 @@ class FakeSynth:
     def alert(self, event, context):
         self.calls += 1
         return Alert(headline=event["title"][:80], coin=event["coin"], direction="long", conviction=4,
-                     why_it_matters="x", confirms=["c"], contradicts=[]), {"input_tokens": 1}
+                     why="x", against=None), {"input_tokens": 1}
 
 
 def make(tmp_path, snaps):

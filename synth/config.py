@@ -51,6 +51,9 @@ class Settings:
         default_factory=lambda: _float("SYNTH_WALLET_MOVE_MIN_USD", 100_000)
     )
 
+    # Reflex convergences faster than this (first to last open) alert; slower ones are logged only.
+    fast_convergence_hours: float = field(default_factory=lambda: _float("SYNTH_FAST_CONVERGENCE_HOURS", 6))
+
     # Public desk posts (X via Orbio). "draft" stores posts and sends them to you; "live" publishes.
     post_mode: str = field(default_factory=lambda: _env("SYNTH_POST_MODE", "draft"))
     post_hour_utc: int = field(default_factory=lambda: int(_float("SYNTH_POST_HOUR_UTC", 14)))

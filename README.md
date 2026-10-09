@@ -41,6 +41,15 @@ Each poll (every 5 minutes by default) runs four steps:
 
 **Cost.** With Claude Haiku 5.5 ($0.10/$0.50 per million tokens), an alert is about 3K tokens and a brief about 10-15K tokens, roughly $0.001 each. To have the daily brief written by a stronger model, set `SYNTH_BRIEF_MODEL=claude-opus-5-5`; alerts stay on Haiku.
 
+## Daily brief (Telegram, after 08:00 UTC)
+
+The brief has three short sections and is under 15 lines:
+- **Derive smart wallets:** BTC, ETH, HYPE. One line each: the lean of top option wallets (7d, else 30d), their net delta, and whether calls or puts were bought today. Built in code.
+- **Hyperliquid today:** where profitable traders are opening. Convergences from the last 24 hours come first, fastest at the top, then the busiest coins by new opens. Built in code.
+- **Setups:** at most 3, from the model. Each is one line with what would undo it, or "None today".
+
+Reflex flags a convergence when 2+ profitable traders open the same side within 24 hours. The agent alerts only on fast ones, where all the opens came within `SYNTH_FAST_CONVERGENCE_HOURS` (default 6). Slower ones stay on the dashboard and in the pulse but don't ping you.
+
 ## Public desk posts (X via Orbio)
 
 A separate "desk" account posts once a day. The post is written for a phone and runs at most 280 characters:
