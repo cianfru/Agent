@@ -69,16 +69,25 @@ def test_cross_source_confirmation_from_standing_lean():
     events = detectors.reflex_feeds({"convergences": [{"coin": "BTC", "side": "long", "n": 2}]})
     snaps = {"reflex": {}, "cowboy": {"coins": {"BTC": {"wallets_30d": {"state": "up"}}}}}
     (ev,) = detectors.cross_source(events, snaps)
-    assert ev["kind"] == "cross_confirm" and ev["coin"] == "BTC" and ev["score"] == 75
+    assert ev["kind"] == "cross_confirm" and ev["coin"] == "BTC" and ev["score"] == 55  # dashboard, not a ping
 
 
 def test_cross_source_both_fired():
     events = [
-        {"coin": "SOL", "direction": "short", "data": {"source": "reflex"}},
-        {"coin": "SOL", "direction": "short", "data": {"source": "cowboy"}},
+        {"kind": "smart_convergence", "coin": "SOL", "direction": "short", "data": {"source": "reflex"}},
+        {"kind": "wallet_move", "coin": "SOL", "direction": "short", "data": {"source": "cowboy"}},
     ]
     (ev,) = detectors.cross_source(events, {})
-    assert ev["score"] == 85 and ev["data"]["sources"] == ["cowboy", "reflex"]
+    assert ev["score"] == 80 and ev["data"]["sources"] == ["cowboy", "reflex"]
+
+
+def test_engine_events_never_start_a_cross_confirm():
+    events = [
+        {"kind": "signal_change", "coin": "PUMP", "direction": "long", "data": {"source": "cowboy"}},
+        {"kind": "signal_change", "coin": "PUMP", "direction": "long", "data": {"source": "reflex"}},
+    ]
+    snaps = {"reflex": {"coins": {"PUMP": {"smart_lean": "long"}}}, "cowboy": {}}
+    assert detectors.cross_source(events, snaps) == []
 
 
 def test_lean_flip():

@@ -46,6 +46,8 @@ class Settings:
     api_key: str = field(default_factory=lambda: _env("SYNTH_API_KEY"))
     # Only events at or above this score are pushed/summarised as alerts (0-100).
     alert_min_score: float = field(default_factory=lambda: _float("SYNTH_ALERT_MIN_SCORE", 60))
+    # At most this many Telegram alerts per rolling 24h (strongest first); the rest stay on the dashboard.
+    max_alerts_per_day: int = field(default_factory=lambda: int(_float("SYNTH_MAX_ALERTS_PER_DAY", 6)))
     # Minimum USD delta change for a single wallet move to count as an event.
     wallet_move_min_usd: float = field(
         default_factory=lambda: _float("SYNTH_WALLET_MOVE_MIN_USD", 100_000)

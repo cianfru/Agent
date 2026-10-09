@@ -20,7 +20,7 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 COOLDOWN_S = 12 * 3600  # the same event key is not re-alerted within this window
-MAX_ALERTS_PER_CYCLE = 5  # bounds model spend if a feed glitch fires everything at once
+MAX_ALERTS_PER_CYCLE = 2  # bounds noise and model spend if a feed glitch fires everything at once
 HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
 
 
@@ -86,11 +86,13 @@ class Agent:
         alerts = []
         candidates = [
             e for e in sorted(new_events, key=lambda e: -e["score"])
-            if e["score"] >= self.s.alert_min_score
+            if e["score"] >= self.s.alert_min_score and e["kind"] in detectors.ALERT_KINDS
             and not ({e["data"].get("source"), *e["data"].get("sources", [])} & seeding)
         ]
-        for ev in candidates[:MAX_ALERTS_PER_CYCLE]:
+        room = self.s.max_alerts_per_day - self.store.count_briefs("alert_sent", time.time() - 86400)
+        for ev in candidates[:max(0, min(room, MAX_ALERTS_PER_CYCLE))]:
             alerts.append(await self._alert(ev, snaps))
+            self.store.add_brief("alert_sent", {"event_id": ev["id"]})
 
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)

@@ -77,3 +77,32 @@ def test_digest_trims_wallets():
     d = service.build_digest({"cowboy": BASE}, [])
     assert "wallets" not in d["cowboy"]
     assert d["cowboy"]["smart_holders"]["HYPE"][0] == {"rank": 2, "cohort": "Money Printer", "net_delta_usd": 0}
+
+
+def test_only_smart_money_kinds_alert_and_daily_cap(tmp_path):
+    from synth import detectors
+
+    s = Settings(db_path=str(tmp_path / "t.db"), alert_min_score=60, max_alerts_per_day=3)
+    agent = service.Agent(s, Store(s.db_path), FakeSynth())
+    agent.store.put_snapshot("cowboy", {"coins": {}})  # not seeding
+    batches = iter([
+        [{"kind": "signal_change", "coin": "PUMP", "direction": "long", "score": 75, "title": "t", "key": "a",
+          "data": {"source": "cowboy"}}],
+        [{"kind": "smart_convergence", "coin": c, "direction": "long", "score": 90, "title": c, "key": c,
+          "data": {"source": "cowboy"}} for c in ("A", "B")],
+        [{"kind": "smart_convergence", "coin": c, "direction": "long", "score": 90, "title": c, "key": c,
+          "data": {"source": "cowboy"}} for c in ("C", "D")],
+    ])
+
+    async def collect():
+        return {"cowboy": {"coins": {}}}
+
+    agent.collect = collect
+    orig = detectors.run_all
+    detectors.run_all = lambda *a, **k: next(batches)
+    try:
+        assert asyncio.run(agent.cycle())["alerts"] == 0       # engine event: logged, no ping
+        assert asyncio.run(agent.cycle())["alerts"] == 2       # two smart-money events
+        assert asyncio.run(agent.cycle())["alerts"] == 1       # daily cap of 3 reached
+    finally:
+        detectors.run_all = orig

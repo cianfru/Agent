@@ -48,6 +48,8 @@ The brief has three short sections and is under 15 lines:
 - **Hyperliquid today:** where profitable traders are opening. Convergences from the last 24 hours come first, fastest at the top, then the busiest coins by new opens. Built in code.
 - **Setups:** at most 3, from the model. Each is one line with what would undo it, or "None today".
 
+Only smart-money events ping you: convergences, big single-wallet moves, smart-cohort flips, the same move on both venues, and the crowded-market warning. There are at most 2 alerts per poll and `SYNTH_MAX_ALERTS_PER_DAY` (default 6) per 24 hours. Engine signals, skew shifts and Reflex's anomalies and setups only show on the dashboard and in the pulse.
+
 Reflex flags a convergence when 2+ profitable traders open the same side within 24 hours. The agent alerts only on fast ones, where all the opens came within `SYNTH_FAST_CONVERGENCE_HOURS` (default 6). Slower ones stay on the dashboard and in the pulse but don't ping you.
 
 ## Public desk posts (X via Orbio)

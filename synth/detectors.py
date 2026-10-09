@@ -283,18 +283,27 @@ def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float,
     return events
 
 
+# Events about what smart money did. Only these can start an alert (with cross_confirm and crowded);
+# engine, options and Reflex's own anomaly/setup events are context for the pulse and dashboard.
+SMART_KINDS = {"smart_convergence", "wallet_move", "cohort_flip"}
+ALERT_KINDS = SMART_KINDS | {"cross_confirm", "crowded"}
+
+
 def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dict]:
-    """Same coin, same direction, confirmed by an independent source's smart money."""
+    """A smart-money event on one venue confirmed by the other venue's smart money.
+
+    Both venues firing smart-money events the same way scores 80 (alert). One venue's event that
+    only matches the other's standing lean scores 55: worth a dashboard line, not a ping."""
     out = []
     by_coin: dict[tuple[str, str], set[str]] = {}
     for ev in events:
-        if ev.get("coin") and ev.get("direction") in ("long", "short"):
+        if ev.get("kind") in SMART_KINDS and ev.get("coin") and ev.get("direction") in ("long", "short"):
             by_coin.setdefault((ev["coin"], ev["direction"]), set()).add(ev["data"].get("source"))
     for (coin, side), sources in by_coin.items():
         if len(sources) >= 2:
             out.append(_ev(
-                "cross_confirm", coin, side, 85,
-                f"{coin}: {side} events on both {' and '.join(sorted(sources))}",
+                "cross_confirm", coin, side, 80,
+                f"{coin}: smart money {side} on both Hyperliquid and Derive",
                 f"cross:{coin}:{side}", sources=sorted(sources),
             ))
             continue
@@ -306,8 +315,8 @@ def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dic
             lean = _standing_lean(snap, coin)
             if lean == side:
                 out.append(_ev(
-                    "cross_confirm", coin, side, 75,
-                    f"{coin}: {side} event on {src} matches {other} smart-money lean",
+                    "cross_confirm", coin, side, 55,
+                    f"{coin}: {side} move on {src} matches {other} smart-money lean",
                     f"cross:{coin}:{side}", sources=[src, other],
                 ))
     return out
