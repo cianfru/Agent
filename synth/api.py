@@ -15,6 +15,8 @@ If SYNTH_API_KEY is set, every route except /health needs header `X-API-Key`.
 from __future__ import annotations
 
 import asyncio
+import hmac
+import os
 import contextlib
 import datetime as dt
 import logging
@@ -103,7 +105,12 @@ app = FastAPI(title="Market synthesizer", lifespan=lifespan)
 
 
 def auth(x_api_key: str | None = Header(default=None)) -> None:
-    if settings.api_key and x_api_key != settings.api_key:
+    # Fail closed: with no SYNTH_API_KEY the data routes stay shut unless SYNTH_ALLOW_OPEN=1 (local use).
+    if not settings.api_key:
+        if os.environ.get("SYNTH_ALLOW_OPEN") == "1":
+            return
+        raise HTTPException(503, "set SYNTH_API_KEY (or SYNTH_ALLOW_OPEN=1 for local use)")
+    if not hmac.compare_digest(x_api_key or "", settings.api_key):
         raise HTTPException(401, "bad or missing X-API-Key")
 
 

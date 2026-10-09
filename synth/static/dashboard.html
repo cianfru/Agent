@@ -139,6 +139,7 @@ async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { "content-type": "application/json", "x-api-key": KEY, ...(opts.headers || {}) } });
   if (r.status === 401) { $("#keybar").classList.add("on"); throw new Error("API key needed"); }
   const body = await r.json().catch(() => ({}));
+  if (r.status === 503 && /SYNTH_API_KEY/.test(body.detail || "")) $("#status").textContent = body.detail;
   if (!r.ok) throw new Error(body.detail || r.status);
   return body;
 }
