@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desk</title>
+<style>
+  :root {
+    --ground: #0e0d0b; --s1: #161412; --s2: #1e1b18; --border: #3b352f;
+    --t1: #f7f3ed; --t2: #c6beb2; --t3: #8f877c;
+    --up: #9fe6c7; --down: #f4968b; --flat: #aca79f; --accent: #ff5e00;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --ground: #f5f2ec; --s1: #ffffff; --s2: #efebe4; --border: #d9d2c7;
+      --t1: #1d1a16; --t2: #4a443c; --t3: #7a7368; --up: #0f7a55; --down: #b8402f; --flat: #6b665e; --accent: #c24600; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--t1);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding: 16px 20px 0; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  .meta { color: var(--t3); font-size: 12px; font-family: var(--mono); }
+  nav { display: flex; gap: 20px; padding: 12px 20px 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  nav button, .seg button { background: none; border: 0; color: var(--t2); font: inherit; padding: 8px 0; cursor: pointer;
+    border-bottom: 2px solid transparent; white-space: nowrap; }
+  nav button.on, .seg button.on { color: var(--t1); border-bottom-color: var(--accent); }
+  main { padding: 16px 20px 40px; max-width: 1400px; }
+  section { display: none; } section.on { display: block; }
+  .seg { display: flex; gap: 16px; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; gap: 20px; align-items: start; }
+  .grid > * { min-width: 0; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } main { padding: 12px 12px 32px; } header, nav { padding-left: 12px; padding-right: 12px; } }
+  .panel { background: var(--s1); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .panel h2 { font-size: 13px; color: var(--t2); font-weight: 600; margin: 0 0 10px; }
+  .ev { display: grid; grid-template-columns: 44px 52px 1fr 34px; gap: 8px; padding: 7px 0; border-top: 1px solid var(--border);
+    align-items: baseline; }
+  .ev:first-of-type { border-top: 0; }
+  .ev .t, .ev .s { font-family: var(--mono); color: var(--t3); font-size: 12px; }
+  .ev .s { text-align: right; }
+  .ev .c { font-weight: 600; }
+  .long { color: var(--up); } .short { color: var(--down); } .none, .watch { color: var(--flat); }
+  .hot { box-shadow: inset 2px 0 0 var(--accent); padding-left: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--t3); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--s1); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  td.n { font-family: var(--mono); white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+  .muted { color: var(--t3); }
+  .agree { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+  .row-strong td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+  pre { white-space: pre-wrap; font: 13px/1.5 var(--mono); margin: 0; color: var(--t1); }
+  .post { border-top: 1px solid var(--border); padding: 12px 0; }
+  .post:first-child { border-top: 0; }
+  .btn { background: var(--s2); color: var(--t1); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px;
+    font: inherit; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  input[type=text], input[type=password], textarea { background: var(--s2); color: var(--t1); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font: inherit; width: 100%; }
+  .setup { border-top: 1px solid var(--border); padding: 10px 0; }
+  .kv { display: flex; gap: 18px; flex-wrap: wrap; font-family: var(--mono); font-size: 13px; margin-bottom: 10px; }
+  .kv span b { color: var(--t3); font-weight: 400; margin-right: 6px; font-family: inherit; }
+  .empty { color: var(--t3); padding: 12px 0; }
+  #keybar { display: none; padding: 12px 20px; background: var(--s2); border-bottom: 1px solid var(--border); }
+  #keybar.on { display: flex; gap: 10px; align-items: center; }
+  #keybar input { max-width: 320px; }
+</style>
+</head>
+<body>
+<div id="keybar"><span class="muted">API key</span><input id="key" type="password" autocomplete="off"><button class="btn" id="savekey">Save</button></div>
+<header>
+  <h1>Desk</h1>
+  <span class="meta" id="status">loading</span>
+</header>
+<nav id="tabs">
+  <button data-tab="now" class="on">Now</button>
+  <button data-tab="brief">Brief</button>
+  <button data-tab="posts">Posts</button>
+  <button data-tab="picks">Picks</button>
+  <button data-tab="ask">Ask</button>
+</nav>
+<main>
+  <section id="now" class="on">
+    <div class="seg" id="win">
+      <button data-h="1" class="on">1h</button><button data-h="6">6h</button><button data-h="24">24h</button><button data-h="72">3d</button>
+    </div>
+    <div class="kv" id="market"></div>
+    <div class="grid">
+      <div class="panel"><h2 id="evtitle">Events</h2><div id="events"></div></div>
+      <div class="panel">
+        <h2>Smart money now</h2>
+        <div class="scroll"><table id="board"><thead><tr>
+          <th>Coin</th><th>Price</th><th>24h</th><th>Agree</th><th>Engine</th><th>HL smart</th><th>Derive</th><th>Options</th>
+          <th>HL traders</th><th>Derive net 30d</th><th>Latest</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="brief">
+    <div style="margin-bottom:12px"><button class="btn primary" id="mkbrief">Write brief now</button> <span class="muted" id="briefinfo"></span></div>
+    <div class="panel" id="briefbody"><div class="empty">No brief yet.</div></div>
+  </section>
+
+  <section id="posts">
+    <div style="margin-bottom:12px; display:flex; gap:10px; flex-wrap:wrap">
+      <button class="btn primary" id="mkpost">Draft today's post</button>
+      <button class="btn" id="mkscore">Draft scorecard</button>
+      <span class="muted" id="postmode"></span>
+    </div>
+    <div class="panel" id="postlist"></div>
+  </section>
+
+  <section id="picks">
+    <div class="kv" id="score"></div>
+    <div class="panel scroll"><table id="picktable"><thead><tr>
+      <th>#</th><th>When</th><th>From</th><th>Coin</th><th>Side</th><th>Entry</th><th>1d</th><th>3d</th><th>7d</th><th>Why</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section id="ask">
+    <div class="panel">
+      <textarea id="q" rows="3" placeholder="Where are smart wallets on both venues leaning the same way on ETH?"></textarea>
+      <div style="margin-top:10px"><button class="btn primary" id="askbtn">Ask</button></div>
+      <div id="answer" style="margin-top:14px"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let KEY = ""; try { KEY = localStorage.getItem("desk-key") || ""; } catch {}
+let hours = 1;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "content-type": "application/json", "x-api-key": KEY, ...(opts.headers || {}) } });
+  if (r.status === 401) { $("#keybar").classList.add("on"); throw new Error("API key needed"); }
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 503 && /SYNTH_API_KEY/.test(body.detail || "")) $("#status").textContent = body.detail;
+  if (!r.ok) throw new Error(body.detail || r.status);
+  return body;
+}
+$("#savekey").onclick = () => { KEY = $("#key").value.trim(); try { localStorage.setItem("desk-key", KEY); } catch {}
+  $("#keybar").classList.remove("on"); refresh(); };
+
+const usd = (x) => { if (x == null) return "-"; const a = Math.abs(x);
+  const s = a >= 1e6 ? (a / 1e6).toFixed(1) + "M" : a >= 1e3 ? Math.round(a / 1e3) + "K" : Math.round(a);
+  return (x < 0 ? "-$" : "$") + s; };
+const px = (x) => x == null ? "-" : x >= 1000 ? x.toLocaleString("en-US", { maximumFractionDigits: 0 }) : x >= 1 ? x.toFixed(2) : x.toPrecision(3);
+const pct = (x) => x == null ? "-" : (x > 0 ? "+" : "") + x.toFixed(1) + "%";
+const ago = (ts) => { const m = Math.round((Date.now() / 1000 - ts) / 60); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; };
+// "3/3 long", "2 long 1 short", "split" or "-"
+const agreeText = (r) => !r.longs && !r.shorts ? "-" : r.longs && r.shorts
+  ? (r.longs === r.shorts ? "split" : `${r.longs}L ${r.shorts}S`)
+  : `${r.longs || r.shorts}/${r.layers} ${r.longs ? "long" : "short"}`;
+const side = (v) => `<span class="${v || "none"}">${v || "-"}</span>`;
+
+document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  document.querySelectorAll("main section").forEach((s) => s.classList.toggle("on", s.id === b.dataset.tab));
+  load(b.dataset.tab);
+});
+document.querySelectorAll("#win button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#win button").forEach((x) => x.classList.toggle("on", x === b));
+  hours = +b.dataset.h; loadNow();
+});
+
+async function loadStatus() {
+  try {
+    const h = await api("/health"); const c = h.last_cycle || {};
+    const src = Object.entries(c.sources || {}).map(([k, v]) => `${k} ${v.coins}`).join(" · ");
+    $("#status").textContent = c.ts ? `updated ${ago(c.ts)} ago · ${src}${h.llm ? "" : " · no model"}${h.reflex ? "" : " · Reflex off"}` : "waiting for first poll";
+  } catch (e) { $("#status").textContent = String(e.message || e); }
+}
+
+async function loadNow() {
+  const [p, b] = await Promise.all([api(`/pulse?hours=${hours}`), api(`/board?hours=${Math.max(hours, 24)}`)]);
+  $("#evtitle").textContent = `Events, last ${hours === 1 ? "hour" : hours + "h"} (${p.events.length})`;
+  $("#events").innerHTML = p.events.length ? p.events.slice(0, 80).map((e) => `
+    <div class="ev ${e.score >= 70 ? "hot" : ""}">
+      <span class="t">${ago(e.ts)}</span><span class="c ${e.direction || "none"}">${esc(e.coin || "MKT")}</span>
+      <span>${esc(e.title)}</span><span class="s">${Math.round(e.score)}</span>
+    </div>`).join("") : `<div class="empty">Nothing detected in this window.</div>`;
+
+  const m = b.market || {}, cb = m.cowboy || {}, rf = m.reflex || {};
+  const kv = [["Consensus 1d", cb.consensus_1d && `${cb.consensus_1d} ${cb.consensus_1d_strength ?? ""}%`],
+    ["Fear & Greed", cb.fear_greed], ["BTC dom", cb.btc_dominance && cb.btc_dominance + "%"],
+    ["Stables 7d", cb.stablecoin_7d_pct != null && pct(cb.stablecoin_7d_pct)], ["HL funding", rf.funding_mood],
+    ["BTC regime (HL)", rf.btc_regime]].filter(([, v]) => v != null && v !== false);
+  $("#market").innerHTML = kv.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("");
+
+  $("#board tbody").innerHTML = b.rows.length ? b.rows.map((r) => {
+    const a = r.agree, dir = a > 0 ? "long" : a < 0 ? "short" : "none";
+    const hl = r.hl ? `${r.hl.long_n ?? 0}L ${usd(r.hl.long_usd)} / ${r.hl.short_n ?? 0}S ${usd(r.hl.short_usd)}` +
+      (r.hl.convergence ? ` <span class="${r.hl.convergence.side}">conv ${r.hl.convergence.n}</span>` : "") : "-";
+    return `<tr class="${Math.abs(a) >= 3 ? "row-strong" : ""}">
+      <td><b>${esc(r.coin)}</b><div class="muted" style="font-size:12px">${esc(r.regime_1d || "")}</div></td>
+      <td class="n">${px(r.price)}</td><td class="n ${r.chg_24h > 0 ? "long" : r.chg_24h < 0 ? "short" : ""}">${pct(r.chg_24h)}</td>
+      <td class="agree ${dir}">${agreeText(r)}</td>
+      <td>${side(r.votes.engine)}</td><td>${side(r.votes.hl_smart)}</td><td>${side(r.votes.derive)}</td><td>${side(r.votes.options)}</td>
+      <td class="n">${hl}</td><td class="n">${r.derive ? usd(r.derive.net_30d) : "-"}</td>
+      <td style="min-width:220px">${r.top_event ? esc(r.top_event) : '<span class="muted">-</span>'}</td></tr>`;
+  }).join("") : `<tr><td colspan="11" class="empty">No snapshot yet. The first poll fills this.</td></tr>`;
+}
+
+async function loadBrief() {
+  try {
+    const b = await api("/brief");
+    $("#briefinfo").textContent = `written ${ago(b.ts)} ago`;
+    $("#briefbody").innerHTML = `<div class="kv"><span><b>Regime</b>${esc(b.regime)}</span></div>
+      <p>${esc(b.market_read)}</p>` + (b.setups || []).map((s) => `<div class="setup">
+        <b class="${s.direction}">${esc(s.coin)} ${esc(s.direction)}</b> <span class="muted">conviction ${s.conviction}/5</span>
+        <div>${esc(s.thesis)}</div><div class="muted">${(s.evidence || []).map(esc).join(" · ")}</div>
+        <div class="muted">Off if: ${esc(s.invalidation)}</div></div>`).join("") +
+      ((b.risks || []).length ? `<p class="muted">Risks: ${b.risks.map(esc).join("; ")}</p>` : "");
+  } catch (e) { $("#briefbody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+$("#mkbrief").onclick = async () => { $("#briefinfo").textContent = "writing..."; try { await api("/brief", { method: "POST" }); } catch (e) { alert(e.message); } loadBrief(); };
+
+async function loadPosts() {
+  const p = await api("/posts");
+  $("#postmode").textContent = p.mode === "live" ? "Mode: live (publishes through Orbio)" : "Mode: draft (nothing posts until you publish)";
+  $("#postlist").innerHTML = p.posts.length ? p.posts.map((x) => `<div class="post">
+    <div class="kv"><span><b>#${x.id}</b>${esc(x.kind)}</span><span><b>status</b>${esc(x.status)}</span><span><b>${ago(x.ts)} ago</b></span>
+      <span><b>chars</b>${x.text.length}</span>${x.url ? `<span><a href="${esc(x.url)}" target="_blank" rel="noopener">open on X</a></span>` : ""}</div>
+    <pre>${esc(x.text)}</pre>${x.error ? `<div class="short" style="margin-top:6px">${esc(x.error)}</div>` : ""}
+    ${["draft", "failed"].includes(x.status) ? `<div style="margin-top:8px"><button class="btn primary" data-pub="${x.id}">Publish to X</button></div>` : ""}
+  </div>`).join("") : `<div class="empty">No posts yet.</div>`;
+  document.querySelectorAll("[data-pub]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Publish this post to X now?")) return;
+    try { await api(`/posts/${b.dataset.pub}/publish`, { method: "POST" }); } catch (e) { alert(e.message); }
+    loadPosts();
+  });
+}
+$("#mkpost").onclick = async () => { try { await api("/posts/daily", { method: "POST" }); } catch (e) { alert(e.message); } loadPosts(); };
+$("#mkscore").onclick = async () => { try { await api("/posts/scorecard", { method: "POST" }); } catch (e) { alert(e.message); } loadPosts(); };
+
+async function loadPicks() {
+  const { picks } = await api("/picks?limit=200");
+  const done = picks.filter((p) => p.ret_7d != null), wins = done.filter((p) => p.ret_7d > 0);
+  const avg = done.length ? done.reduce((s, p) => s + p.ret_7d, 0) / done.length * 100 : null;
+  $("#score").innerHTML = `<span><b>Picks</b>${picks.length}</span><span><b>Scored 7d</b>${done.length}</span>
+    <span><b>Right way</b>${done.length ? wins.length + "/" + done.length : "-"}</span><span><b>Avg 7d</b>${avg == null ? "-" : pct(avg)}</span>`;
+  const r = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : "short"}">${pct(x * 100)}</span>`;
+  $("#picktable tbody").innerHTML = picks.length ? picks.map((p) => `<tr>
+    <td class="n">${p.id}</td><td class="n">${new Date(p.ts * 1000).toISOString().slice(5, 16).replace("T", " ")}</td>
+    <td>${esc(p.origin)}</td><td><b>${esc(p.coin)}</b></td><td>${side(p.direction)}</td><td class="n">${px(p.entry_price)}</td>
+    <td class="n">${r(p.ret_1d)}</td><td class="n">${r(p.ret_3d)}</td><td class="n">${r(p.ret_7d)}</td>
+    <td class="muted" style="min-width:240px">${esc(p.thesis)}</td></tr>`).join("")
+    : `<tr><td colspan="10" class="empty">No picks yet. Alerts with conviction 3+, brief setups and desk posts land here.</td></tr>`;
+}
+
+$("#askbtn").onclick = async () => {
+  const q = $("#q").value.trim(); if (!q) return;
+  $("#answer").innerHTML = '<span class="muted">thinking...</span>';
+  try { const a = await api("/ask", { method: "POST", body: JSON.stringify({ question: q }) });
+    $("#answer").innerHTML = `<p>${esc(a.answer)}</p>`; }
+  catch (e) { $("#answer").innerHTML = `<span class="short">${esc(e.message)}</span>`; }
+};
+
+function load(tab) {
+  const f = { now: loadNow, brief: loadBrief, posts: loadPosts, picks: loadPicks }[tab];
+  if (f) f().catch((e) => console.warn(e));
+}
+function refresh() { loadStatus(); load(document.querySelector("#tabs .on").dataset.tab); }
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,322 @@
+"""One poll cycle: collect -> detect -> dedupe -> alert -> journal. Plus the daily brief."""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from typing import Any
+
+import httpx
+
+import datetime as dt
+
+from . import detectors, notify, orbio, post
+from .config import Settings
+from .llm import Synthesizer
+from .sources import block0, cowboy, reflex
+from .store import Store
+
+log = logging.getLogger(__name__)
+
+COOLDOWN_S = 12 * 3600  # the same event key is not re-alerted within this window
+MAX_ALERTS_PER_CYCLE = 5  # bounds model spend if a feed glitch fires everything at once
+HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
+
+
+class Agent:
+    def __init__(self, settings: Settings, store: Store, synth: Synthesizer | None = None,
+                 brief_synth: Synthesizer | None = None):
+        self.s = settings
+        self.store = store
+        self.synth = synth
+        self.brief_synth = brief_synth or synth
+        self.reflex = (
+            reflex.ReflexClient(
+                settings.reflex_base_url,
+                access_code=settings.reflex_access_code,
+                token=settings.reflex_token,
+            )
+            if settings.reflex_base_url
+            else None
+        )
+        self.last_cycle: dict[str, Any] = {}
+
+    # ------------------------------------------------------------ collect --
+    async def collect(self) -> dict[str, dict]:
+        snaps: dict[str, dict] = {}
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                snaps["cowboy"] = await cowboy.fetch(self.s.cowboy_base_url, http)
+        except Exception as e:  # noqa: BLE001 - one source down must not stop the other
+            log.warning("cowboy fetch failed: %s", e)
+        if self.reflex:
+            try:
+                snaps["reflex"] = await reflex.fetch(self.reflex)
+            except Exception as e:  # noqa: BLE001
+                log.warning("reflex fetch failed: %s", e)
+        if self.s.coins:
+            keep = set(self.s.coins)
+            for snap in snaps.values():
+                snap["coins"] = {k: v for k, v in snap.get("coins", {}).items() if k in keep}
+        return snaps
+
+    # -------------------------------------------------------------- cycle --
+    async def cycle(self) -> dict:
+        started = time.time()
+        snaps = await self.collect()
+        fresh: list[dict] = []
+        seeding: set[str] = set()
+        for name, cur in snaps.items():
+            prev = self.store.get_snapshot(name)
+            if prev is None:
+                seeding.add(name)
+            for ev in detectors.run_all(name, prev, cur, self.s.wallet_move_min_usd):
+                fresh.append(ev)
+        fresh += detectors.cross_source(fresh, snaps)
+
+        new_events = []
+        for ev in fresh:
+            if self.store.seen_recently(ev["key"], COOLDOWN_S):
+                continue
+            ev["id"] = self.store.add_event(ev)
+            new_events.append(ev)
+
+        alerts = []
+        candidates = [
+            e for e in sorted(new_events, key=lambda e: -e["score"])
+            if e["score"] >= self.s.alert_min_score
+            and not ({e["data"].get("source"), *e["data"].get("sources", [])} & seeding)
+        ]
+        for ev in candidates[:MAX_ALERTS_PER_CYCLE]:
+            alerts.append(await self._alert(ev, snaps))
+
+        for name, cur in snaps.items():
+            self.store.put_snapshot(name, cur)
+        scored = self.score_picks(snaps)
+
+        self.last_cycle = {
+            "ts": started,
+            "secs": round(time.time() - started, 2),
+            "sources": {k: {"coins": len(v.get("coins", {})), "seeded": k in seeding} for k, v in snaps.items()},
+            "new_events": len(new_events),
+            "alerts": len(alerts),
+            "picks_scored": scored,
+        }
+        log.info("cycle %s", self.last_cycle)
+        return {**self.last_cycle, "events": new_events, "alert_bodies": alerts}
+
+    async def _alert(self, ev: dict, snaps: dict[str, dict]) -> dict:
+        context = coin_context(ev.get("coin"), snaps)
+        body: dict
+        if self.synth:
+            try:
+                alert, usage = self.synth.alert(_public(ev), context)
+                body = alert.model_dump()
+                self.store.add_brief("alert", {"event_id": ev["id"], **body}, usage)
+            except Exception as e:  # noqa: BLE001 - fall back to the plain event
+                log.warning("alert synthesis failed: %s", e)
+                body = _plain_alert(ev)
+        else:
+            body = _plain_alert(ev)
+        text = notify.format_alert(body, ev)
+        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+        if ev.get("coin") and body.get("direction") in ("long", "short") and (body.get("conviction") or 0) >= 3:
+            self.store.add_pick("alert", ev["coin"], body["direction"], body.get("conviction"),
+                                price_of(ev["coin"], snaps), body.get("headline", ""),
+                                {"event": _public(ev), "context": context})
+        return {"event_id": ev["id"], **body, "text": text}
+
+    # --------------------------------------------------------------- brief --
+    async def brief(self, snaps: dict[str, dict] | None = None, push: bool = True) -> dict:
+        snaps = snaps or await self.collect()
+        digest = build_digest(snaps, self.store.events(since=time.time() - 86400, limit=40))
+        if not self.brief_synth:
+            raise RuntimeError("no LLM configured (set ANTHROPIC_API_KEY)")
+        brief, usage = self.brief_synth.brief(digest)
+        body = brief.model_dump()
+        self.store.add_brief("daily", body, usage)
+        for s in brief.setups:
+            if s.direction in ("long", "short"):
+                self.store.add_pick("brief", s.coin, s.direction, s.conviction,
+                                    price_of(s.coin, snaps), s.thesis,
+                                    {"setup": s.model_dump(), "coin": coin_context(s.coin, snaps)})
+        if push:
+            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, notify.format_brief(body))
+        return {**body, "usage": usage}
+
+    # --------------------------------------------------------- public posts --
+    async def desk_post(self, publish: bool | None = None) -> dict:
+        """Write today's public post, log its setup as a numbered pick, then draft or publish it."""
+        if not self.synth:
+            raise RuntimeError("no LLM configured (set ANTHROPIC_API_KEY)")
+        snaps = await self.collect()
+        digest = build_digest(snaps, self.store.events(since=time.time() - 86400, limit=40))
+        try:
+            digest["block0"] = await block0.fetch(self.s.block0_stats_url)
+        except Exception as e:  # noqa: BLE001 - the chain line is optional
+            log.warning("block0 stats unavailable: %s", e)
+
+        today = dt.datetime.now(dt.timezone.utc).date()
+        feedback, text, problems, pick_id = "", "", ["not generated"], None
+        for _ in range(2):  # one retry with the lint problems fed back
+            fields, usage = self.synth.desk_post(digest, feedback)
+            self.store.add_brief("desk_post", fields.model_dump(), usage)
+            has_setup = bool(fields.setup_coin) and fields.setup_direction in ("long", "short")
+            if has_setup and pick_id is None:
+                coin = fields.setup_coin.upper().lstrip("$")
+                pick_id = self.store.add_pick(
+                    "post", coin, fields.setup_direction, None, price_of(coin, snaps),
+                    f"{fields.setup_line} | off if: {fields.invalidation_line}",
+                    {"post": fields.model_dump(), "coin": coin_context(coin, snaps)},
+                )
+            elif not has_setup and pick_id is not None:
+                self.store.delete_pick(pick_id)
+                pick_id = None
+            text = post.assemble(fields, pick_id, today)
+            problems = post.lint(text)
+            if not problems:
+                break
+            feedback = "; ".join(problems)
+
+        if problems:
+            if pick_id is not None:
+                self.store.delete_pick(pick_id)
+            pid = self.store.add_post("daily", text, "rejected", None, "; ".join(problems))
+            return {"id": pid, "status": "rejected", "text": text, "problems": problems}
+
+        pid = self.store.add_post("daily", text, "draft", pick_id)
+        live = self.s.post_mode == "live" if publish is None else publish
+        if live:
+            return await self.publish_post(pid)
+        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
+                              f"Draft post #{pid} (approve: POST /posts/{pid}/publish)\n\n{text}")
+        return {"id": pid, "status": "draft", "text": text, "pick_id": pick_id}
+
+    async def weekly_scorecard(self, publish: bool | None = None) -> dict | None:
+        picks = self.store.picks(limit=500, origin="post", since=time.time() - 30 * 86400)
+        text = post.scorecard(picks, dt.datetime.now(dt.timezone.utc).date())
+        if not text:
+            return None
+        problems = post.lint(text)
+        if problems:
+            pid = self.store.add_post("scorecard", text, "rejected", None, "; ".join(problems))
+            return {"id": pid, "status": "rejected", "problems": problems}
+        pid = self.store.add_post("scorecard", text, "draft")
+        live = self.s.post_mode == "live" if publish is None else publish
+        if live:
+            return await self.publish_post(pid)
+        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
+                              f"Draft scorecard #{pid}\n\n{text}")
+        return {"id": pid, "status": "draft", "text": text}
+
+    async def publish_post(self, post_id: int) -> dict:
+        p = self.store.get_post(post_id)
+        if not p:
+            raise KeyError(post_id)
+        if p["status"] in ("published", "running"):
+            return p  # never post twice
+        if problems := post.lint(p["text"]):
+            raise ValueError("; ".join(problems))
+        try:
+            res = await orbio.post_x(self.s.orbio_api_key, p["text"], self.s.orbio_max_cost)
+        except orbio.OrbioError as e:
+            self.store.update_post(post_id, status="failed", error=str(e))
+            return {**p, "status": "failed", "error": str(e)}
+        status = "running" if res.get("status") == "running" else "published"
+        self.store.update_post(post_id, status=status, orbio_post_id=res.get("post_id"), url=res.get("url"),
+                               error=res.get("error"), published_ts=time.time())
+        return self.store.get_post(post_id)
+
+    # ------------------------------------------------------------- journal --
+    def score_picks(self, snaps: dict[str, dict]) -> int:
+        """Fill 1d/3d/7d returns for logged picks once each horizon has passed."""
+        now, n = time.time(), 0
+        for p in self.store.open_picks():
+            px = price_of(p["coin"], snaps)
+            if not px or not p["entry_price"]:
+                continue
+            for h, secs in HORIZONS.items():
+                if p[f"ret_{h}"] is None and now - p["ts"] >= secs:
+                    ret = px / p["entry_price"] - 1
+                    if p["direction"] == "short":
+                        ret = -ret
+                    self.store.set_pick_return(p["id"], h, round(ret, 5))
+                    n += 1
+        return n
+
+
+# ------------------------------------------------------------------ helpers --
+
+
+def make_agent(settings: Settings) -> Agent:
+    synth = brief_synth = None
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        log.warning("no ANTHROPIC_API_KEY: running detection-only (plain alerts, no briefs)")
+        return Agent(settings, Store(settings.db_path))
+    try:
+        synth = Synthesizer(settings.model, settings.effort)
+        if settings.brief_model and settings.brief_model != settings.model:
+            brief_synth = Synthesizer(settings.brief_model, settings.effort)
+    except Exception as e:  # noqa: BLE001 - no key: run detection-only
+        log.warning("LLM disabled: %s", e)
+    return Agent(settings, Store(settings.db_path), synth, brief_synth)
+
+
+def _public(ev: dict) -> dict:
+    return {k: ev[k] for k in ("kind", "coin", "direction", "score", "title", "data") if k in ev}
+
+
+def _plain_alert(ev: dict) -> dict:
+    return {"headline": ev["title"], "coin": ev.get("coin"), "direction": ev.get("direction") or "watch",
+            "conviction": 1 + int(ev["score"] // 25), "why_it_matters": "", "confirms": [], "contradicts": []}
+
+
+def price_of(coin: str | None, snaps: dict[str, dict]) -> float | None:
+    if not coin:
+        return None
+    for name in ("cowboy", "reflex"):
+        px = ((snaps.get(name) or {}).get("coins") or {}).get(coin.upper(), {}).get("price")
+        if px:
+            return float(px)
+    return None
+
+
+def coin_context(coin: str | None, snaps: dict[str, dict]) -> dict:
+    """Everything both sources say about one coin, plus the market backdrop."""
+    out: dict[str, Any] = {"market": {k: v.get("market") for k, v in snaps.items()}}
+    if not coin:
+        return out
+    coin = coin.upper()
+    for name, snap in snaps.items():
+        c = (snap.get("coins") or {}).get(coin)
+        if c:
+            out[name] = c
+        holders = (snap.get("wallets") or {}).get(coin)
+        if holders:
+            out[f"{name}_smart_holders"] = [h for h in holders if h.get("smart")][:8]
+        cohorts = {k: v.get(coin) for k, v in (snap.get("smart_cohorts") or {}).items() if v.get(coin)}
+        if cohorts:
+            out[f"{name}_cohorts"] = cohorts
+        for key in ("convergences", "anomalies", "setups"):
+            items = [i for i in snap.get(key) or [] if i.get("coin") == coin]
+            if items:
+                out[f"{name}_{key}"] = items
+    return out
+
+
+def build_digest(snaps: dict[str, dict], events: list[dict]) -> dict:
+    """Compact, model-ready view of both sources (wallet holder lists are trimmed)."""
+    digest: dict[str, Any] = {"generated_at": int(time.time()), "events_24h": [
+        {k: e[k] for k in ("kind", "coin", "direction", "score", "title")} for e in events
+    ]}
+    for name, snap in snaps.items():
+        slim = {k: v for k, v in snap.items() if k not in ("wallets", "errors")}
+        if snap.get("wallets"):
+            slim["smart_holders"] = {
+                coin: [{k: h[k] for k in ("rank", "cohort", "net_delta_usd") if k in h}
+                       for h in hs if h.get("smart")][:5]
+                for coin, hs in snap["wallets"].items()
+            }
+        digest[name] = slim
+    return digest
