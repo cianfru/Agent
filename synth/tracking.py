@@ -4,6 +4,7 @@ the owner about new fast groups (chart + Follow buttons) and about groups they f
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import defaultdict
@@ -22,6 +23,8 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 FRESH_S = 2 * 3600  # only groups that formed in the last 2h are announced (not a restart's backlog)
+MAX_DERIVE_GROUPS_PER_POLL = 2  # more than this in one poll looks like a feed change, not trading
+DERIVE_DETECTOR = 2  # groups from the full-book detector; earlier ones (top-4 legs) were false and are purged
 
 
 def first_ts_of(key: str | None) -> float | None:
@@ -39,6 +42,13 @@ class GroupTracker:
         self.reflex = reflex_client
         self._hl = hl  # injected in tests; otherwise a client per step (one event loop per step is safe)
         self.hl: HL | None = None
+        self._purge_v1_derive_groups()
+
+    def _purge_v1_derive_groups(self) -> None:
+        for g in self.store.groups(limit=10_000):
+            if g["venue"] == "derive" and g["meta"].get("detector") != DERIVE_DETECTOR:
+                self.store.delete_group(g["id"])
+                log.info("purged false Derive group #%s", g["id"])
 
     # ------------------------------------------------------------------ step --
     async def step(self, snaps: dict[str, dict], prevs: dict[str, dict | None], seeding: set[str],
@@ -61,8 +71,11 @@ class GroupTracker:
         created: list[dict] = []
         if "reflex" in snaps and self.reflex:
             created += await self._hl_groups(snaps["reflex"], mids, now)
+        derive_created: list[dict] = []
         if "cowboy" in snaps:
-            created += self._derive_groups(snaps["cowboy"], prevs.get("cowboy"), now)
+            derive_created = await self._derive_groups(snaps["cowboy"], now)
+            created += derive_created
+        burst = len(derive_created) > MAX_DERIVE_GROUPS_PER_POLL
         changes = await self._track(snaps, mids, now)
 
         announced = 0
@@ -73,7 +86,8 @@ class GroupTracker:
                                     f"group #{g['id']}", {"group_id": g["id"]})
             fast = g["venue"] == "derive" or (g["meta"].get("span_h") or 0) <= self.s.fast_convergence_hours
             source = "reflex" if g["venue"] == "hyperliquid" else "cowboy"
-            if fresh and fast and source not in seeding and self._room() > 0:
+            held_back = burst and g["venue"] == "derive"
+            if fresh and fast and source not in seeding and not held_back and self._room() > 0:
                 await self._announce(g, snaps, mids)
                 announced += 1
         for g, m, change in changes:
@@ -146,13 +160,21 @@ class GroupTracker:
                     best = c
         return (best or {}).get("wallets") or []
 
-    def _derive_groups(self, cb: dict, prev: dict | None, now: float) -> list[dict]:
+    async def _derive_groups(self, cb: dict, now: float) -> list[dict]:
+        """Diff each smart wallet's full Derive book against the previous publication."""
         window = self.s.fast_convergence_hours * 3600
+        state = self.store.get_snapshot("derive_books") or {}
         pending = [o for o in (self.store.get_snapshot("derive_opens") or {}).get("opens", [])
                    if now - o["opened_ts"] <= window]
-        fresh_opens = G.derive_opens(prev, cb, now)
-        pending += fresh_opens
+        if cb.get("revision") and cb.get("revision") != state.get("revision"):
+            smart = sorted({h["address"] for hs in (cb.get("wallets") or {}).values() for h in hs if h.get("smart")})
+            books = await self._books(smart)
+            prev_books = state.get("books") or {}
+            pending += G.book_opens(prev_books, books, now)
+            self.store.put_snapshot("derive_books", {"revision": cb.get("revision"),
+                                                     "books": {**prev_books, **books}})
         self.store.put_snapshot("derive_opens", {"opens": pending})
+
         created = []
         by: dict[tuple[str, str], list[dict]] = defaultdict(list)
         for o in pending:
@@ -170,11 +192,29 @@ class GroupTracker:
             t0 = min(o["opened_ts"] for o in opens)
             span = round((max(o["opened_ts"] for o in opens) - t0) / 3600, 1)
             gid = self.store.add_group("derive", coin, side, f"derive:{coin}:{side}:{int(t0)}",
-                                       (cb.get("coins") or {}).get(coin, {}).get("price"), {"span_h": span}, ts=now)
+                                       (cb.get("coins") or {}).get(coin, {}).get("price"),
+                                       {"span_h": span, "detector": DERIVE_DETECTOR}, ts=now)
             for o in opens:
                 self.store.add_member(gid, o)
             created.append(self.store.get_group(gid))
         return created
+
+    async def _books(self, addresses: list[str]) -> dict[str, dict]:
+        """Full published books (slimmed) for these wallets; wallets Cowboy doesn't publish are skipped."""
+        out: dict[str, dict] = {}
+        sem = asyncio.Semaphore(8)
+        async with httpx.AsyncClient(timeout=20) as http:
+            async def one(addr: str) -> None:
+                async with sem:
+                    try:
+                        book = await cowboy.trader_book(self.s.cowboy_base_url, addr, http)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("derive book %s failed: %s", addr, e)
+                        return
+                    if book is not None:
+                        out[addr] = G.slim_book(book)
+            await asyncio.gather(*(one(a) for a in addresses))
+        return out
 
     # ------------------------------------------------------------ tracking --
     async def _track(self, snaps: dict, mids: dict, now: float) -> list[tuple[dict, dict, str]]:

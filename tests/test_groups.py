@@ -50,16 +50,36 @@ def test_derive_update_closed_and_expired():
     assert ch == "expired"
 
 
-def test_derive_opens_detects_new_smart_legs_only():
-    leg = {"instrument": "BTC-20261030-85000-C", "net": 10, "entry": 2000, "mark": 2100, "delta_usd": 300_000,
-           "expiry": 1793347200}
-    prev = {"wallets": {"BTC": [{"address": "0xa", "smart": True, "legs": []},
-                                {"address": "0xb", "smart": False, "legs": []}]}}
-    cur = {"wallets": {"BTC": [{"address": "0xa", "smart": True, "legs": [leg]},
-                               {"address": "0xb", "smart": False, "legs": [leg]}]}}
-    (o,) = G.derive_opens(prev, cur, now=5)
-    assert (o["address"], o["side"], o["entry_px"], o["opened_ts"]) == ("0xa", "long", 2000, 5)
-    assert G.derive_opens(None, cur, now=5) == []
+def test_book_opens_full_book_baseline_and_spreads():
+    old = {"BTC-20261030-85000-C": {"und": "BTC", "net": 250, "delta_usd": 7.7e6}}
+    new = {
+        **old,
+        # a call spread: long 90k, short 100k -> one long position by its net delta
+        "BTC-20261127-90000-C": {"und": "BTC", "net": 50, "entry": 1500, "delta_usd": 900_000, "expiry": 1795766400},
+        "BTC-20261127-100000-C": {"und": "BTC", "net": -50, "entry": 600, "delta_usd": -400_000, "expiry": 1795766400},
+        # a small hedge on ETH: under the threshold, ignored
+        "ETH-20261030-2000-P": {"und": "ETH", "net": 1, "entry": 50, "delta_usd": -10_000},
+    }
+    opens = G.book_opens({"0xa": old}, {"0xa": new, "0xb": new}, now=7)
+    assert {o["address"] for o in opens} == {"0xa"}  # 0xb has no baseline yet
+    assert {o["instrument"] for o in opens} == {"BTC-20261127-90000-C", "BTC-20261127-100000-C"}
+    assert {o["side"] for o in opens} == {"long"} and opens[0]["wallet_delta_usd"] == 500_000
+    assert G.book_opens({"0xa": new}, {"0xa": new}, now=8) == []  # nothing new, nothing opened
+
+
+def test_derive_caption_one_line_per_wallet():
+    g = {"id": 3, "venue": "derive", "coin": "BTC", "side": "long", "meta": {"span_h": 0.0}}
+    members = [
+        {"address": "0xaaaa000000000000000000000000000000001111", "instrument": "BTC-20261127-90000-C",
+         "size": 50, "size_usd": 900_000, "entry_px": 1500},
+        {"address": "0xaaaa000000000000000000000000000000001111", "instrument": "BTC-20261127-100000-C",
+         "size": -50, "size_usd": -400_000, "entry_px": 600},
+        {"address": "0xbbbb000000000000000000000000000000002222", "instrument": "BTC-20261225-95000-C",
+         "size": 20, "size_usd": 300_000, "entry_px": 900},
+    ]
+    text = G.caption(g, members, 82_400)
+    assert text.splitlines()[0] == "#3 BTC long · 2 smart option wallets within minutes"
+    assert "0xaaaa…1111  delta +$500K · 27 Nov 90000C +50, 27 Nov 100000C -50" in text
 
 
 def test_scoreboard():
@@ -161,3 +181,53 @@ def test_seeding_and_stale_groups_are_recorded_not_announced(tmp_path, monkeypat
                                           "key": "conv:STRK:short:1000:2"}], "coins": {}}}
     out = asyncio.run(tr.step(snaps, {}, {"reflex"}, now=2100.0))
     assert out["groups_created"] == 1 and out["groups_announced"] == 0 and not calls
+
+
+def test_v1_derive_groups_are_purged(tmp_path):
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    store = Store(s.db_path)
+    bad = store.add_group("derive", "BTC", "long", "old", 82000, {"span_h": 0})
+    store.add_member(bad, {"address": "0xa", "side": "long", "instrument": "x", "opened_ts": 1})
+    store.add_pick("group", "BTC", "long", None, 82000, f"group #{bad}", {})
+    good = store.add_group("derive", "ETH", "long", "new", 2480, {"span_h": 1, "detector": tracking.DERIVE_DETECTOR})
+    hl = store.add_group("hyperliquid", "STRK", "short", "hl", 0.07, {})
+    tracking.GroupTracker(s, store, None, FakeHL())
+    assert store.get_group(bad) is None and store.members(bad) == [] and store.picks(origin="group") == []
+    assert store.get_group(good) and store.get_group(hl)
+
+
+def test_derive_group_from_two_publications(tmp_path, monkeypatch):
+    sent = []
+
+    async def fake_text(token, chat, text, buttons=None):
+        sent.append(text)
+
+    monkeypatch.setattr(notify, "telegram", fake_text)
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1")
+    store = Store(s.db_path)
+    tr = tracking.GroupTracker(s, store, None, FakeHL())
+    base = {"BTC-20261030-85000-C": {"und": "BTC", "net": 250, "delta_usd": 7.7e6}}
+    call = {"und": "BTC", "net": 20, "entry": 900, "delta_usd": 300_000, "expiry": 1795766400}
+    rounds = iter([
+        {"0xa": base, "0xb": {}},
+        {"0xa": {**base, "BTC-20261225-95000-C": call}, "0xb": {"BTC-20261225-95000-C": call}},
+    ])
+
+    async def books(addrs):
+        return next(rounds)
+
+    monkeypatch.setattr(tr, "_books", books)
+
+    async def no_book(*a):
+        return None
+
+    monkeypatch.setattr(tracking.cowboy, "trader_book", no_book)
+    cb = {"coins": {"BTC": {"price": 82_400}},
+          "wallets": {"BTC": [{"address": "0xa", "smart": True}, {"address": "0xb", "smart": True}]}}
+    out = asyncio.run(tr.step({"cowboy": {**cb, "revision": "r1"}}, {}, set(), now=1000.0))
+    assert out["groups_created"] == 0  # first publication: baseline only
+    out = asyncio.run(tr.step({"cowboy": {**cb, "revision": "r1"}}, {}, set(), now=1300.0))
+    assert out["groups_created"] == 0  # same publication: books not re-read
+    out = asyncio.run(tr.step({"cowboy": {**cb, "revision": "r2"}}, {}, set(), now=1600.0))
+    assert out["groups_created"] == 1 and out["groups_announced"] == 1
+    assert sent[0].startswith("#1 BTC long · 2 smart option wallets")
