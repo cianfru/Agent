@@ -41,6 +41,29 @@ Each poll (every 5 minutes by default) runs four steps:
 
 **Cost.** With Claude Haiku 5.5 ($0.10/$0.50 per million tokens), an alert is about 3K tokens and a brief about 10-15K tokens, roughly $0.001 each. To have the daily brief written by a stronger model, set `SYNTH_BRIEF_MODEL=claude-opus-5-5`; alerts stay on Haiku.
 
+## Public desk posts (X via Orbio)
+
+A separate "desk" account posts once a day. The post is written for a phone and runs at most 280 characters:
+- the market backdrop
+- where profitable Hyperliquid traders and Derive's top option wallets line up
+- at most one setup with what would undo it (or "No setup today")
+- an optional Robinhood Chain fact from Block0's public weekly numbers (`agent-data/stats.json`)
+
+Rules, enforced in code (`synth/post.py`):
+- No links: Orbio refuses linked posts.
+- No forecast or hype words: Block0's list plus the products' banned words.
+- Every setup is logged as a numbered pick before the outcome.
+- A failing draft is retried once with the problems fed back, then rejected.
+
+On Mondays a scorecard built in code (no model) posts the 7-day results: hits, average move, best and worst, misses included.
+
+- `SYNTH_POST_MODE=draft` (default): posts are stored and sent to your Telegram. `POST /posts/{id}/publish` approves and publishes one.
+- `SYNTH_POST_MODE=live`: posts publish through Orbio's gateway (`social.post`, about $0.019 per post).
+  - Needs `ORBIO_API_KEY`, and the desk X account connected in Orbio's dashboard (only the owner can do that).
+  - A post is never sent twice.
+
+The agent has no token. Launching one on Orbio waits until the posts show they are useful.
+
 ## API
 
 | Route | |
@@ -51,6 +74,10 @@ Each poll (every 5 minutes by default) runs four steps:
 | `GET /brief` / `POST /brief?push=true` | Latest daily brief / write one now |
 | `POST /ask` `{"question": "..."}` | Question answered from current data and the last 7 days of events |
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
+| `GET /posts` | Desk posts (draft, published, failed, rejected) |
+| `POST /posts/daily?publish=false` | Write today's post now |
+| `POST /posts/scorecard?publish=false` | Build the weekly scorecard now |
+| `POST /posts/{id}/publish` | Approve a draft: publish it via Orbio |
 | `POST /cycle` | Run one poll now |
 
 If `SYNTH_API_KEY` is set, every route except `/health` needs the header `X-API-Key`.
@@ -71,7 +98,8 @@ Deploy: the `Dockerfile` runs `python -m synth serve`. On Railway, mount a volum
 
 - `ANTHROPIC_API_KEY`: without it the agent still detects and pushes plain-text alerts.
 - `REFLEX_ACCESS_CODE`: a dedicated, revocable invite code (Reflex owner: `POST /api/owner/invites`). Without it only Cowboy is read.
-- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: optional, for push.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: optional, for push (and for receiving draft posts).
+- `ORBIO_API_KEY`: only when publishing desk posts.
 
 Reflex counts every request as activity, which raises its Railway cost, so keep `SYNTH_POLL_SECONDS` at a few minutes. ETag/304 is used to keep egress low.
 

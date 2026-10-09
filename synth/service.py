@@ -9,10 +9,12 @@ from typing import Any
 
 import httpx
 
-from . import detectors, notify
+import datetime as dt
+
+from . import detectors, notify, orbio, post
 from .config import Settings
 from .llm import Synthesizer
-from .sources import cowboy, reflex
+from .sources import block0, cowboy, reflex
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -142,6 +144,89 @@ class Agent:
         if push:
             await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, notify.format_brief(body))
         return {**body, "usage": usage}
+
+    # --------------------------------------------------------- public posts --
+    async def desk_post(self, publish: bool | None = None) -> dict:
+        """Write today's public post, log its setup as a numbered pick, then draft or publish it."""
+        if not self.synth:
+            raise RuntimeError("no LLM configured (set ANTHROPIC_API_KEY)")
+        snaps = await self.collect()
+        digest = build_digest(snaps, self.store.events(since=time.time() - 86400, limit=40))
+        try:
+            digest["block0"] = await block0.fetch(self.s.block0_stats_url)
+        except Exception as e:  # noqa: BLE001 - the chain line is optional
+            log.warning("block0 stats unavailable: %s", e)
+
+        today = dt.datetime.now(dt.timezone.utc).date()
+        feedback, text, problems, pick_id = "", "", ["not generated"], None
+        for _ in range(2):  # one retry with the lint problems fed back
+            fields, usage = self.synth.desk_post(digest, feedback)
+            self.store.add_brief("desk_post", fields.model_dump(), usage)
+            has_setup = bool(fields.setup_coin) and fields.setup_direction in ("long", "short")
+            if has_setup and pick_id is None:
+                coin = fields.setup_coin.upper().lstrip("$")
+                pick_id = self.store.add_pick(
+                    "post", coin, fields.setup_direction, None, price_of(coin, snaps),
+                    f"{fields.setup_line} | off if: {fields.invalidation_line}",
+                    {"post": fields.model_dump(), "coin": coin_context(coin, snaps)},
+                )
+            elif not has_setup and pick_id is not None:
+                self.store.delete_pick(pick_id)
+                pick_id = None
+            text = post.assemble(fields, pick_id, today)
+            problems = post.lint(text)
+            if not problems:
+                break
+            feedback = "; ".join(problems)
+
+        if problems:
+            if pick_id is not None:
+                self.store.delete_pick(pick_id)
+            pid = self.store.add_post("daily", text, "rejected", None, "; ".join(problems))
+            return {"id": pid, "status": "rejected", "text": text, "problems": problems}
+
+        pid = self.store.add_post("daily", text, "draft", pick_id)
+        live = self.s.post_mode == "live" if publish is None else publish
+        if live:
+            return await self.publish_post(pid)
+        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
+                              f"Draft post #{pid} (approve: POST /posts/{pid}/publish)\n\n{text}")
+        return {"id": pid, "status": "draft", "text": text, "pick_id": pick_id}
+
+    async def weekly_scorecard(self, publish: bool | None = None) -> dict | None:
+        picks = self.store.picks(limit=500, origin="post", since=time.time() - 30 * 86400)
+        text = post.scorecard(picks, dt.datetime.now(dt.timezone.utc).date())
+        if not text:
+            return None
+        problems = post.lint(text)
+        if problems:
+            pid = self.store.add_post("scorecard", text, "rejected", None, "; ".join(problems))
+            return {"id": pid, "status": "rejected", "problems": problems}
+        pid = self.store.add_post("scorecard", text, "draft")
+        live = self.s.post_mode == "live" if publish is None else publish
+        if live:
+            return await self.publish_post(pid)
+        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
+                              f"Draft scorecard #{pid}\n\n{text}")
+        return {"id": pid, "status": "draft", "text": text}
+
+    async def publish_post(self, post_id: int) -> dict:
+        p = self.store.get_post(post_id)
+        if not p:
+            raise KeyError(post_id)
+        if p["status"] in ("published", "running"):
+            return p  # never post twice
+        if problems := post.lint(p["text"]):
+            raise ValueError("; ".join(problems))
+        try:
+            res = await orbio.post_x(self.s.orbio_api_key, p["text"], self.s.orbio_max_cost)
+        except orbio.OrbioError as e:
+            self.store.update_post(post_id, status="failed", error=str(e))
+            return {**p, "status": "failed", "error": str(e)}
+        status = "running" if res.get("status") == "running" else "published"
+        self.store.update_post(post_id, status=status, orbio_post_id=res.get("post_id"), url=res.get("url"),
+                               error=res.get("error"), published_ts=time.time())
+        return self.store.get_post(post_id)
 
     # ------------------------------------------------------------- journal --
     def score_picks(self, snaps: dict[str, dict]) -> int:

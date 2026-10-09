@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS picks (
     ret_3d REAL,
     ret_7d REAL
 );
+CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL,
+    pick_id INTEGER,
+    orbio_post_id TEXT,
+    url TEXT,
+    error TEXT,
+    published_ts REAL
+);
 CREATE TABLE IF NOT EXISTS briefs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -136,12 +148,56 @@ class Store:
             self._db.execute(f"UPDATE picks SET ret_{horizon}=? WHERE id=?", (ret, pick_id))
             self._db.commit()
 
-    def picks(self, limit: int = 100) -> list[dict]:
-        rows = self._db.execute(
-            "SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d "
-            "FROM picks ORDER BY ts DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+    def picks(self, limit: int = 100, origin: str | None = None, since: float = 0) -> list[dict]:
+        q = ("SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d "
+             "FROM picks WHERE ts>=?")
+        args: list[Any] = [since]
+        if origin:
+            q += " AND origin=?"
+            args.append(origin)
+        q += " ORDER BY ts DESC LIMIT ?"
+        args.append(limit)
+        return [dict(r) for r in self._db.execute(q, args).fetchall()]
+
+    def delete_pick(self, pick_id: int) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM picks WHERE id=?", (pick_id,))
+            self._db.commit()
+
+    # public posts --------------------------------------------------------
+    def add_post(self, kind: str, text: str, status: str, pick_id: int | None = None,
+                 error: str | None = None) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO posts(ts, kind, text, status, pick_id, error) VALUES(?,?,?,?,?,?)",
+                (time.time(), kind, text, status, pick_id, error),
+            )
+            self._db.commit()
+            return cur.lastrowid
+
+    def update_post(self, pid: int, **fields: Any) -> None:
+        allowed = {"status", "orbio_post_id", "url", "error", "published_ts", "text"}
+        cols = {k: v for k, v in fields.items() if k in allowed}
+        if not cols:
+            return
+        with self._lock:
+            self._db.execute(
+                f"UPDATE posts SET {', '.join(f'{k}=?' for k in cols)} WHERE id=?", (*cols.values(), pid)
+            )
+            self._db.commit()
+
+    def get_post(self, post_id: int) -> dict | None:
+        row = self._db.execute("SELECT * FROM posts WHERE id=?", (post_id,)).fetchone()
+        return dict(row) if row else None
+
+    def posts(self, limit: int = 50, kind: str | None = None, since: float = 0) -> list[dict]:
+        q, args = "SELECT * FROM posts WHERE ts>=?", [since]
+        if kind:
+            q += " AND kind=?"
+            args.append(kind)
+        q += " ORDER BY ts DESC LIMIT ?"
+        args.append(limit)
+        return [dict(r) for r in self._db.execute(q, args).fetchall()]
 
     # briefs -------------------------------------------------------------
     def add_brief(self, kind: str, body: dict, usage: dict | None = None) -> int:

@@ -51,6 +51,17 @@ class Settings:
         default_factory=lambda: _float("SYNTH_WALLET_MOVE_MIN_USD", 100_000)
     )
 
+    # Public desk posts (X via Orbio). "draft" stores posts and sends them to you; "live" publishes.
+    post_mode: str = field(default_factory=lambda: _env("SYNTH_POST_MODE", "draft"))
+    post_hour_utc: int = field(default_factory=lambda: int(_float("SYNTH_POST_HOUR_UTC", 14)))
+    orbio_api_key: str = field(default_factory=lambda: _env("ORBIO_API_KEY"))
+    orbio_max_cost: float = field(default_factory=lambda: _float("ORBIO_MAX_COST", 0.03))
+    block0_stats_url: str = field(
+        default_factory=lambda: _env(
+            "BLOCK0_STATS_URL", "https://raw.githubusercontent.com/cianfru/Block0/agent-data/stats.json"
+        )
+    )
+
     # Optional Telegram push.
     telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
     telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))

@@ -34,6 +34,7 @@ async def _loop(agent: Agent) -> None:
         try:
             await agent.cycle()
             await _maybe_daily_brief(agent)
+            await _maybe_desk_posts(agent)
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
@@ -48,6 +49,18 @@ async def _maybe_daily_brief(agent: Agent) -> None:
     if last and last["ts"] >= today:
         return
     await agent.brief()
+
+
+async def _maybe_desk_posts(agent: Agent) -> None:
+    """One daily post after SYNTH_POST_HOUR_UTC; the scorecard on Mondays at the same hour."""
+    now = dt.datetime.now(dt.timezone.utc)
+    if now.hour < agent.s.post_hour_utc or not agent.synth:
+        return
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    if not agent.store.posts(limit=1, kind="daily", since=today):
+        await agent.desk_post()
+    if now.weekday() == 0 and not agent.store.posts(limit=1, kind="scorecard", since=today):
+        await agent.weekly_scorecard()
 
 
 settings = config.load()
@@ -123,6 +136,39 @@ def ask(q: Question):
 @app.get("/picks", dependencies=[Depends(auth)])
 def picks(limit: int = 100):
     return {"picks": agent.store.picks(limit)}
+
+
+@app.get("/posts", dependencies=[Depends(auth)])
+def list_posts(limit: int = 50, kind: str | None = None):
+    return {"mode": settings.post_mode, "posts": agent.store.posts(limit, kind)}
+
+
+@app.post("/posts/daily", dependencies=[Depends(auth)])
+async def make_desk_post(publish: bool = False):
+    """Write today's post now. publish=false (default) keeps it as a draft whatever the mode."""
+    try:
+        return await agent.desk_post(publish=publish)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e)) from e
+
+
+@app.post("/posts/scorecard", dependencies=[Depends(auth)])
+async def make_scorecard(publish: bool = False):
+    out = await agent.weekly_scorecard(publish=publish)
+    if out is None:
+        raise HTTPException(404, "no setups with a 7-day result yet")
+    return out
+
+
+@app.post("/posts/{post_id}/publish", dependencies=[Depends(auth)])
+async def publish(post_id: int):
+    """Approve a draft: publish it to X through Orbio."""
+    try:
+        return await agent.publish_post(post_id)
+    except KeyError as e:
+        raise HTTPException(404, "no such post") from e
+    except ValueError as e:
+        raise HTTPException(422, f"post fails the checks: {e}") from e
 
 
 @app.post("/cycle", dependencies=[Depends(auth)])

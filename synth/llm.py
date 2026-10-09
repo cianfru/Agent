@@ -104,5 +104,20 @@ class Synthesizer:
             max_tokens=1500,
         )
 
+    def desk_post(self, digest: dict, feedback: str = ""):
+        from .post import DeskPost
+
+        task = (
+            "Fill the fields of today's public post for a market-structure desk account on X. Readers are "
+            "crypto traders on a phone. Pick at most ONE setup where the RCCE engine, options (skew/flow) and "
+            "smart money on Hyperliquid and Derive agree; if they do not agree anywhere, set setup_direction "
+            "'none'. Plain words, numbers from the data, no forecasts: describe what the data shows now. "
+            "Never use: will, expect, likely, predict, target, probability, odds, buy, moon, gem, alpha, "
+            "guaranteed. No links or domains. Tickers without $."
+        )
+        if feedback:
+            task += f"\nThe previous draft was rejected: {feedback}. Fix that."
+        return self._parse(DeskPost, task, digest, max_tokens=2000)
+
     def ask(self, question: str, digest: dict) -> tuple[Answer, dict]:
         return self._parse(Answer, f"Answer this question from the data only: {question}", digest)
