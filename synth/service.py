@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
 import time
@@ -9,8 +10,7 @@ from typing import Any
 
 import httpx
 
-import datetime as dt
-
+from . import brief as brief_mod
 from . import detectors, notify, orbio, post
 from .config import Settings
 from .llm import Synthesizer
@@ -20,7 +20,7 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 COOLDOWN_S = 12 * 3600  # the same event key is not re-alerted within this window
-MAX_ALERTS_PER_CYCLE = 5  # bounds model spend if a feed glitch fires everything at once
+MAX_ALERTS_PER_CYCLE = 2  # bounds noise and model spend if a feed glitch fires everything at once
 HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
 
 
@@ -71,7 +71,8 @@ class Agent:
             prev = self.store.get_snapshot(name)
             if prev is None:
                 seeding.add(name)
-            for ev in detectors.run_all(name, prev, cur, self.s.wallet_move_min_usd):
+            for ev in detectors.run_all(name, prev, cur, self.s.wallet_move_min_usd,
+                                            self.s.fast_convergence_hours):
                 fresh.append(ev)
         fresh += detectors.cross_source(fresh, snaps)
 
@@ -85,11 +86,13 @@ class Agent:
         alerts = []
         candidates = [
             e for e in sorted(new_events, key=lambda e: -e["score"])
-            if e["score"] >= self.s.alert_min_score
+            if e["score"] >= self.s.alert_min_score and e["kind"] in detectors.ALERT_KINDS
             and not ({e["data"].get("source"), *e["data"].get("sources", [])} & seeding)
         ]
-        for ev in candidates[:MAX_ALERTS_PER_CYCLE]:
+        room = self.s.max_alerts_per_day - self.store.count_briefs("alert_sent", time.time() - 86400)
+        for ev in candidates[:max(0, min(room, MAX_ALERTS_PER_CYCLE))]:
             alerts.append(await self._alert(ev, snaps))
+            self.store.add_brief("alert_sent", {"event_id": ev["id"]})
 
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
@@ -129,21 +132,33 @@ class Agent:
 
     # --------------------------------------------------------------- brief --
     async def brief(self, snaps: dict[str, dict] | None = None, push: bool = True) -> dict:
+        """Derive and Hyperliquid sections in code; the model adds up to 3 setups."""
         snaps = snaps or await self.collect()
-        digest = build_digest(snaps, self.store.events(since=time.time() - 86400, limit=40))
-        if not self.brief_synth:
-            raise RuntimeError("no LLM configured (set ANTHROPIC_API_KEY)")
-        brief, usage = self.brief_synth.brief(digest)
-        body = brief.model_dump()
-        self.store.add_brief("daily", body, usage)
-        for s in brief.setups:
-            if s.direction in ("long", "short"):
-                self.store.add_pick("brief", s.coin, s.direction, s.conviction,
-                                    price_of(s.coin, snaps), s.thesis,
+        body: dict[str, Any] = {
+            "derive": brief_mod.derive_lines(snaps.get("cowboy")),
+            "hyperliquid": brief_mod.hl_today(snaps.get("reflex"), self.s.fast_convergence_hours),
+            "setups": [],
+        }
+        usage = None
+        if self.brief_synth:
+            candidates = {r["coin"] for r in body["hyperliquid"]} | {d["coin"] for d in body["derive"]}
+            digest = {
+                "derive": body["derive"],
+                "hyperliquid_today": body["hyperliquid"],
+                "events_24h": [{k: e[k] for k in ("coin", "direction", "score", "title")}
+                               for e in self.store.events(since=time.time() - 86400, min_score=50, limit=25)],
+                "coins": {c: coin_context(c, snaps) for c in sorted(candidates)},
+            }
+            setups, usage = self.brief_synth.brief(digest)
+            body["setups"] = [s.model_dump() for s in setups.setups[:3]]
+            for s in setups.setups[:3]:
+                self.store.add_pick("brief", s.coin, s.direction, s.conviction, price_of(s.coin, snaps),
+                                    f"{s.why} | off if: {s.off_if}",
                                     {"setup": s.model_dump(), "coin": coin_context(s.coin, snaps)})
+        self.store.add_brief("daily", body, usage)
         if push:
-            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, notify.format_brief(body))
-        return {**body, "usage": usage}
+            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, brief_mod.format_brief(body))
+        return {**body, "text": brief_mod.format_brief(body), "usage": usage}
 
     # --------------------------------------------------------- public posts --
     async def desk_post(self, publish: bool | None = None) -> dict:
@@ -173,7 +188,7 @@ class Agent:
             elif not has_setup and pick_id is not None:
                 self.store.delete_pick(pick_id)
                 pick_id = None
-            text = post.assemble(fields, pick_id, today)
+            text = post.assemble(fields, self._public_no(pick_id), today)
             problems = post.lint(text)
             if not problems:
                 break
@@ -190,11 +205,13 @@ class Agent:
         if live:
             return await self.publish_post(pid)
         await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                              f"Draft post #{pid} (approve: POST /posts/{pid}/publish)\n\n{text}")
+                              f"Draft desk post (approve it in the dashboard, Posts tab)\n\n{text}")
         return {"id": pid, "status": "draft", "text": text, "pick_id": pick_id}
 
     async def weekly_scorecard(self, publish: bool | None = None) -> dict | None:
-        picks = self.store.picks(limit=500, origin="post", since=time.time() - 30 * 86400)
+        nos = self._public_numbers()
+        picks = [{**p, "id": nos.get(p["id"], p["id"])}
+                 for p in self.store.picks(limit=500, origin="post", since=time.time() - 30 * 86400)]
         text = post.scorecard(picks, dt.datetime.now(dt.timezone.utc).date())
         if not text:
             return None
@@ -207,8 +224,16 @@ class Agent:
         if live:
             return await self.publish_post(pid)
         await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                              f"Draft scorecard #{pid}\n\n{text}")
+                              f"Draft scorecard (approve it in the dashboard, Posts tab)\n\n{text}")
         return {"id": pid, "status": "draft", "text": text}
+
+    def _public_numbers(self) -> dict[int, int]:
+        """Desk setups are numbered 1, 2, 3... in the order they were logged (alert/brief picks excluded)."""
+        ids = sorted(p["id"] for p in self.store.picks(limit=1_000_000, origin="post"))
+        return {pid: i + 1 for i, pid in enumerate(ids)}
+
+    def _public_no(self, pick_id: int | None) -> int | None:
+        return self._public_numbers().get(pick_id) if pick_id else None
 
     async def publish_post(self, post_id: int) -> dict:
         p = self.store.get_post(post_id)
@@ -269,7 +294,7 @@ def _public(ev: dict) -> dict:
 
 def _plain_alert(ev: dict) -> dict:
     return {"headline": ev["title"], "coin": ev.get("coin"), "direction": ev.get("direction") or "watch",
-            "conviction": 1 + int(ev["score"] // 25), "why_it_matters": "", "confirms": [], "contradicts": []}
+            "conviction": 1 + int(ev["score"] // 25), "why": "", "against": None}
 
 
 def price_of(coin: str | None, snaps: dict[str, dict]) -> float | None:

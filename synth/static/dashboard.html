@@ -210,12 +210,12 @@ async function loadBrief() {
   try {
     const b = await api("/brief");
     $("#briefinfo").textContent = `written ${ago(b.ts)} ago`;
-    $("#briefbody").innerHTML = `<div class="kv"><span><b>Regime</b>${esc(b.regime)}</span></div>
-      <p>${esc(b.market_read)}</p>` + (b.setups || []).map((s) => `<div class="setup">
-        <b class="${s.direction}">${esc(s.coin)} ${esc(s.direction)}</b> <span class="muted">conviction ${s.conviction}/5</span>
-        <div>${esc(s.thesis)}</div><div class="muted">${(s.evidence || []).map(esc).join(" · ")}</div>
-        <div class="muted">Off if: ${esc(s.invalidation)}</div></div>`).join("") +
-      ((b.risks || []).length ? `<p class="muted">Risks: ${b.risks.map(esc).join("; ")}</p>` : "");
+    const sec = (title, rows) => rows && rows.length ? `<h2 style="margin-top:4px">${title}</h2>` +
+      rows.map((r) => `<div class="setup"><span class="${r.lean || r.side || r.direction || "none"}">${esc(r.text)}</span></div>`).join("") : "";
+    const setups = (b.setups || []).map((s) => ({ direction: s.direction,
+      text: `${s.coin} ${s.direction}: ${s.why} Off if: ${s.off_if}` }));
+    $("#briefbody").innerHTML = sec("Derive smart wallets", b.derive) + sec("Hyperliquid today", b.hyperliquid) +
+      (setups.length ? sec("Setups", setups) : '<h2>Setups</h2><div class="empty">None today: the data does not line up.</div>');
   } catch (e) { $("#briefbody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 $("#mkbrief").onclick = async () => { $("#briefinfo").textContent = "writing..."; try { await api("/brief", { method: "POST" }); } catch (e) { alert(e.message); } loadBrief(); };

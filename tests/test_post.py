@@ -14,7 +14,7 @@ DAY = dt.date(2026, 10, 9)
 def fields(**kw):
     base = dict(
         regime_line="Breadth: 80% of coins trending up, F&G 59",
-        smart_money_line="HL profitable traders 7 long / 2 short HYPE; Derive top wallets +$3.4M BTC delta",
+        smart_money_line="Top HL traders 7 long / 2 short HYPE; Derive whales net long BTC $3.4M",
         setup_coin="HYPE", setup_direction="long",
         setup_line="Engine trending up 4h+1d, 30d skew toward calls.",
         invalidation_line="1d close back under 38",
@@ -25,10 +25,16 @@ def fields(**kw):
 
 
 def test_lint_catches_forecast_words_links_and_length():
-    assert post.lint("BTC will rip") == ['forbidden word "will"']
-    assert "link" in post.lint("see cowboy.trading")[0]
-    assert post.lint("x" * 281) == ["length 281 > 280"]
-    assert post.lint("Breadth 80% trending up") == []
+    ok = "\nNot advice."
+    assert post.lint("BTC will rip" + ok) == ['forbidden word "will"']
+    assert "link" in post.lint("see cowboy.trading" + ok)[0]
+    assert post.lint("x" * 281) == ["length 281 > 280", "missing the not-advice footer"]
+    assert post.lint("Breadth 80% trending up" + ok) == []
+
+
+def test_lint_catches_jargon_and_missing_footer():
+    assert post.lint("BTC STRONG_LONG, rr25 -0.015\nNot advice.") == ['internal jargon "STRONG_LONG": use plain words']
+    assert post.lint("BTC trending up") == ["missing the not-advice footer"]
 
 
 def test_assemble_fits_and_numbers_the_pick():
@@ -36,6 +42,11 @@ def test_assemble_fits_and_numbers_the_pick():
     assert len(text) <= 280 and post.lint(text) == []
     assert text.startswith("Desk read 9 Oct")
     assert "Setup #12: $HYPE long bias." in text and "Off if: 1d close back under 38" in text
+
+
+def test_footer_never_dropped():
+    for f in (fields(), fields(smart_money_line="y" * 75, setup_line="z" * 60, regime_line="w" * 55)):
+        assert post.assemble(f, 1, DAY).splitlines()[-1] in (post.FOOTER, post.SHORT_FOOTER)
 
 
 def test_assemble_drops_optional_lines_when_long():
@@ -134,3 +145,12 @@ def test_orbio_not_connected_marks_failed(tmp_path):
         respx.post("https://api.orbio.so/api/v1/tools/social.post").respond(409, json={})
         out = asyncio.run(a.desk_post(publish=True))
     assert out["status"] == "failed" and "not connected" in out["error"]
+
+
+def test_desk_setups_numbered_apart_from_alert_picks(tmp_path):
+    a = agent_with(tmp_path, [fields(), fields(setup_coin="BTC")])
+    for _ in range(5):
+        a.store.add_pick("alert", "ETH", "long", 3, 2500.0, "x", {})
+    first = asyncio.run(a.desk_post())
+    second = asyncio.run(a.desk_post())
+    assert "Setup #1: $HYPE" in first["text"] and "Setup #2: $BTC" in second["text"]

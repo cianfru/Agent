@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -80,6 +81,12 @@ class ReflexClient:
 
 def _coin(sym: str) -> str:
     return sym.split("/")[0].split("-")[0].upper()
+
+
+def _span_h(detail: str | None) -> float | None:
+    """Reflex's convergence detail reads 'N profitable traders opened <side> within <H>h at ...'."""
+    m = re.search(r"within (\d+(?:\.\d+)?)h", detail or "")
+    return float(m.group(1)) if m else None
 
 
 def _lean(row: dict) -> str | None:
@@ -158,7 +165,7 @@ async def fetch(rc: ReflexClient) -> dict:
 
     convergences = [
         {"coin": _coin(i["symbol"]), "side": i.get("side"), "n": i.get("n"), "ts": i.get("timestamp"),
-         "detail": i.get("detail"), "key": i.get("dedup_key")}
+         "span_h": _span_h(i.get("detail")), "detail": i.get("detail"), "key": i.get("dedup_key")}
         for i in (got.get("convergence") or {}).get("items") or []
     ]
     anomalies = [

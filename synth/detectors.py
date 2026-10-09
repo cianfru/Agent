@@ -211,17 +211,24 @@ def crowded(source: str, cur: dict) -> list[dict]:
 # ---------------------------------------------------------------- reflex ---
 
 
-def reflex_feeds(cur: dict) -> list[dict]:
+def reflex_feeds(cur: dict, fast_hours: float = 6) -> list[dict]:
     """Reflex's own detections (convergence, anomalies, setups). Dedup is by key, so the
-    same item reappearing on later polls is suppressed by the store's cooldown."""
+    same item reappearing on later polls is suppressed by the store's cooldown.
+
+    Reflex counts a convergence over 24h; only fast ones (all opens within `fast_hours`) score
+    as alerts. Slower ones stay below the alert bar but still show on the dashboard and pulse."""
     out = []
     for c in cur.get("convergences") or []:
         n = c.get("n") or 2
+        span = c.get("span_h")
+        fast = span is None or span <= fast_hours
+        score = (80 + min(15, 5 * (n - 2))) if fast else min(59, 52 + 2 * n)
+        when = f" in {span:g}h" if span is not None else ""
         out.append(_ev(
-            "smart_convergence", c["coin"], c.get("side"), 80 + min(15, 5 * (n - 2)),
-            f"{n} profitable Hyperliquid traders converged {c.get('side')} on {c['coin']} (reflex)",
+            "smart_convergence", c["coin"], c.get("side"), score,
+            f"{n} profitable Hyperliquid traders went {c.get('side')} on {c['coin']}{when} (reflex)",
             f"reflex:{c.get('key') or ('conv:' + c['coin'] + ':' + str(c.get('side')))}",
-            source="reflex", n=n, detail=c.get("detail"), ts=c.get("ts"),
+            source="reflex", n=n, span_h=span, fast=fast, detail=c.get("detail"), ts=c.get("ts"),
         ))
     for a in cur.get("anomalies") or []:
         sev = a.get("severity")
@@ -262,10 +269,11 @@ def lean_flips(source: str, prev: dict, cur: dict) -> list[dict]:
     return out
 
 
-def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float) -> list[dict]:
+def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float,
+            fast_hours: float = 6) -> list[dict]:
     events: list[dict] = list(crowded(source, cur))
     if source == "reflex":
-        events += reflex_feeds(cur)
+        events += reflex_feeds(cur, fast_hours)
     if prev:
         events += engine_changes(source, prev, cur)
         events += wallet_moves(source, prev, cur, wallet_min_usd)
@@ -275,18 +283,27 @@ def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float) ->
     return events
 
 
+# Events about what smart money did. Only these can start an alert (with cross_confirm and crowded);
+# engine, options and Reflex's own anomaly/setup events are context for the pulse and dashboard.
+SMART_KINDS = {"smart_convergence", "wallet_move", "cohort_flip"}
+ALERT_KINDS = SMART_KINDS | {"cross_confirm", "crowded"}
+
+
 def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dict]:
-    """Same coin, same direction, confirmed by an independent source's smart money."""
+    """A smart-money event on one venue confirmed by the other venue's smart money.
+
+    Both venues firing smart-money events the same way scores 80 (alert). One venue's event that
+    only matches the other's standing lean scores 55: worth a dashboard line, not a ping."""
     out = []
     by_coin: dict[tuple[str, str], set[str]] = {}
     for ev in events:
-        if ev.get("coin") and ev.get("direction") in ("long", "short"):
+        if ev.get("kind") in SMART_KINDS and ev.get("coin") and ev.get("direction") in ("long", "short"):
             by_coin.setdefault((ev["coin"], ev["direction"]), set()).add(ev["data"].get("source"))
     for (coin, side), sources in by_coin.items():
         if len(sources) >= 2:
             out.append(_ev(
-                "cross_confirm", coin, side, 85,
-                f"{coin}: {side} events on both {' and '.join(sorted(sources))}",
+                "cross_confirm", coin, side, 80,
+                f"{coin}: smart money {side} on both Hyperliquid and Derive",
                 f"cross:{coin}:{side}", sources=sorted(sources),
             ))
             continue
@@ -298,8 +315,8 @@ def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dic
             lean = _standing_lean(snap, coin)
             if lean == side:
                 out.append(_ev(
-                    "cross_confirm", coin, side, 75,
-                    f"{coin}: {side} event on {src} matches {other} smart-money lean",
+                    "cross_confirm", coin, side, 55,
+                    f"{coin}: {side} move on {src} matches {other} smart-money lean",
                     f"cross:{coin}:{side}", sources=[src, other],
                 ))
     return out

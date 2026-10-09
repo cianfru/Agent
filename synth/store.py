@@ -209,6 +209,9 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
+    def count_briefs(self, kind: str, since: float) -> int:
+        return self._db.execute("SELECT COUNT(*) FROM briefs WHERE kind=? AND ts>=?", (kind, since)).fetchone()[0]
+
     def latest_brief(self, kind: str) -> dict | None:
         row = self._db.execute(
             "SELECT * FROM briefs WHERE kind=? ORDER BY ts DESC LIMIT 1", (kind,)

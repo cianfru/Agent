@@ -27,6 +27,13 @@ LINK = re.compile(
 )
 
 
+FOOTER = "Context, not advice. Scorecard Mondays."
+SHORT_FOOTER = "Not advice."
+# Engine and options codes that mean nothing to a reader on X.
+JARGON = re.compile(r"\b(STRONG_LONG|LIGHT_LONG|RISK_OFF|TRIM_HARD|NO_LONG|REVIVAL_SEED|MARKUP|MARKDOWN|REACC|ACCUM|"
+                    r"BLOWOFF|rr25|z_?1d|z_?4h|taker|delta)\b")
+
+
 def lint(text: str) -> list[str]:
     problems = []
     if not text or not text.strip():
@@ -37,27 +44,31 @@ def lint(text: str) -> list[str]:
         problems.append(f'forbidden word "{m.group(0)}"')
     if m := LINK.search(text):
         problems.append(f'link "{m.group(0)}"')
+    if m := JARGON.search(text):
+        problems.append(f'internal jargon "{m.group(0)}": use plain words')
+    if FOOTER not in text and SHORT_FOOTER not in text and "scorecard" not in text.lower():
+        problems.append("missing the not-advice footer")
     return problems
 
 
 class DeskPost(BaseModel):
     """Fields the model fills; code assembles and length-checks the post."""
 
-    regime_line: str = Field(description="Market backdrop in <=55 chars, e.g. 'Breadth: 80% of coins trending up, F&G 59'.")
+    regime_line: str = Field(description="Market backdrop in <=55 chars, plain words, e.g. '80% of coins trending up, Fear & Greed 59'.")
     smart_money_line: str = Field(
-        description="Where profitable Hyperliquid traders and Derive's top option wallets line up, <=75 chars, with numbers."
+        description="Where profitable Hyperliquid traders and Derive's top option wallets line up, <=75 chars, with numbers, e.g. 'Top traders: $129M long vs $39M short; Derive whales long BTC'."
     )
     setup_coin: str | None = Field(description="Ticker of the one setup, or null when nothing lines up.")
     setup_direction: str = Field(description="'long', 'short' or 'none'.")
-    setup_line: str = Field(description="Why the data lines up for that coin, <=60 chars, numbers only from the input.")
-    invalidation_line: str = Field(description="What in the data would undo it, <=40 chars.")
+    setup_line: str = Field(description="Why the data lines up for that coin, <=60 chars, plain words with numbers from the input, e.g. 'trend up on daily, call buying $6M'.")
+    invalidation_line: str = Field(description="What in the data would undo it, <=40 chars, plain words, e.g. 'daily trend turns down'.")
     chain_line: str | None = Field(
         default=None, description="Optional Robinhood Chain launch fact from block0, <=60 chars, or null."
     )
 
 
 def assemble(p: DeskPost, pick_no: int | None, day: dt.date) -> str:
-    """Build the post, dropping optional lines until it fits."""
+    """Build the post. The optional chain line goes first; the "not advice" footer always stays."""
     head = f"Desk read {day.strftime('%-d %b')}"
     setup = []
     if p.setup_coin and p.setup_direction in ("long", "short"):
@@ -66,12 +77,9 @@ def assemble(p: DeskPost, pick_no: int | None, day: dt.date) -> str:
                  f"Off if: {p.invalidation_line}"]
     else:
         setup = ["No setup today: sources disagree."]
-    footer = "Context, not advice. Scorecard Mondays."
     optional = [p.chain_line] if p.chain_line else []
-    for extra, foot in ((optional, footer), ([], footer), ([], "")):
-        lines = [head, p.regime_line, p.smart_money_line, *setup, *extra]
-        if foot:
-            lines.append(foot)
+    for extra, foot in ((optional, FOOTER), ([], FOOTER), ([], SHORT_FOOTER)):
+        lines = [head, p.regime_line, p.smart_money_line, *setup, *extra, foot]
         text = "\n".join(line.strip() for line in lines if line and line.strip())
         if len(text) <= MAX_LEN:
             return text

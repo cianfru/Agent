@@ -24,33 +24,30 @@ Rules:
 - Prefer agreement across independent evidence (engine regime + options skew/flow + smart wallets). One source alone is low conviction.
 - Say plainly when evidence conflicts or data is stale/missing.
 - Conviction 1-5: 5 only when engine, options and smart money all agree and nothing is overheated.
+- "Overheated" means heat above 80 only; below that, do not call a coin hot or overheated.
+- Only propose a setup for a coin the snapshot covers (a price and an engine reading); coins mentioned only in events are context, not setups.
 - This is decision support, not financial advice; never size positions."""
 
 
 class Setup(BaseModel):
     coin: str
-    direction: Literal["long", "short", "watch"]
+    direction: Literal["long", "short"]
     conviction: int = Field(ge=1, le=5)
-    thesis: str = Field(description="One or two sentences.")
-    evidence: list[str] = Field(description="Concrete data points, each with numbers and source.")
-    invalidation: str = Field(description="What in the data would kill the idea.")
+    why: str = Field(description="One short sentence, <=90 chars, with the numbers that line up.")
+    off_if: str = Field(description="What would undo it, <=50 chars.")
 
 
-class Brief(BaseModel):
-    regime: Literal["risk_on", "neutral", "risk_off"]
-    market_read: str = Field(description="3-5 sentence read of overall market structure.")
-    setups: list[Setup] = Field(description="Best opportunities, strongest first; max 5.")
-    risks: list[str] = Field(description="Things that could go wrong; max 4.")
+class Setups(BaseModel):
+    setups: list[Setup] = Field(description="0 to 3 setups, strongest first. Empty if nothing lines up.")
 
 
 class Alert(BaseModel):
-    headline: str = Field(description="Under 90 characters, e.g. '2 smart wallets added $1.2M long HYPE'.")
+    headline: str = Field(description="<=70 chars, e.g. 'STRK short: 4 profitable traders in 3h'.")
     coin: str | None
     direction: Literal["long", "short", "watch"]
     conviction: int = Field(ge=1, le=5)
-    why_it_matters: str = Field(description="2-3 sentences tying the event to the wider structure.")
-    confirms: list[str]
-    contradicts: list[str]
+    why: str = Field(description="One sentence, <=120 chars: what else in the data backs it.")
+    against: str | None = Field(default=None, description="<=80 chars: the main thing against it, or null.")
 
 
 class Answer(BaseModel):
@@ -88,18 +85,22 @@ class Synthesizer:
         }
         return response.parsed_output, usage
 
-    def brief(self, digest: dict) -> tuple[Brief, dict]:
+    def brief(self, digest: dict) -> tuple[Setups, dict]:
         return self._parse(
-            Brief,
-            "Write the market brief: overall regime, then the best setups ranked by conviction.",
+            Setups,
+            "Pick today's setups for a trader who reads this on a phone: at most 3, only where Derive "
+            "smart wallets, Hyperliquid profitable traders and price action point the same way. "
+            "Favour what is moving today (fast convergences, fresh opens). Short and plain: no regime "
+            "names or engine codes. Return an empty list if nothing lines up.",
             digest,
+            max_tokens=2000,
         )
 
     def alert(self, event: dict, context: dict) -> tuple[Alert, dict]:
         return self._parse(
             Alert,
-            "Explain this event for a trader who will read it on their phone. "
-            "Check it against the coin context and say whether the rest of the data confirms it.",
+            "Write a phone alert for this event: a short headline, one sentence on what else in the "
+            "coin context backs it, and the main thing against it if any. No regime names or engine codes.",
             {"event": event, "context": context},
             max_tokens=1500,
         )
@@ -111,7 +112,10 @@ class Synthesizer:
             "Fill the fields of today's public post for a market-structure desk account on X. Readers are "
             "crypto traders on a phone. Pick at most ONE setup where the RCCE engine, options (skew/flow) and "
             "smart money on Hyperliquid and Derive agree; if they do not agree anywhere, set setup_direction "
-            "'none'. Plain words, numbers from the data, no forecasts: describe what the data shows now. "
+            "'none'. Plain words a retail trader understands, numbers from the data, no forecasts: describe "
+            "what the data shows now. Never write internal codes (STRONG_LONG, MARKUP, REACC, rr25, z-score, "
+            "taker, delta): say 'trending up', 'cooling off', 'puts priced above calls', 'call buying', "
+            "'net long'. "
             "Never use: will, expect, likely, predict, target, probability, odds, buy, moon, gem, alpha, "
             "guaranteed. No links or domains. Tickers without $."
         )
