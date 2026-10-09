@@ -1,0 +1,103 @@
+"""Telegram bot input: Follow / Unfollow / Ignore buttons and two commands.
+
+Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat is obeyed.
+  /following  open groups you follow, trader by trader
+  /groups     the latest groups and how they ended
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from . import groups as G
+from . import notify
+
+log = logging.getLogger(__name__)
+
+HELP = ("Outrider tracks smart traders who converge on a coin. Tap Follow on a group to get a message "
+        "when each trader closes.\n/following  groups you follow\n/groups  latest groups")
+
+
+def group_lines(store, g: dict) -> list[str]:
+    members = store.members(g["id"])
+    lines = [f"#{g['id']} {g['coin']} {g['side']} · {g['status']}" + (" · following" if g["followed"] else "")]
+    for m in members:
+        state = m["status"]
+        if state in ("closed", "expired"):
+            state += f" @ {G.px(m.get('exit_px'))} {G.pct(m.get('pnl_pct'))}" + (" ≈" if m.get("approx") else "")
+        elif m.get("last_px") and m.get("entry_px"):
+            now = G.SIGN[g["side"]] * (m["last_px"] / m["entry_px"] - 1)
+            state += f" · {G.pct(now)} now"
+        inst = f" {m['instrument']}" if m.get("instrument") else ""
+        lines.append(f"  {G.short_addr(m['address'])}{inst} @ {G.px(m.get('entry_px'))} · {state}")
+    return lines
+
+
+async def handle(agent, update: dict) -> None:
+    s, store = agent.s, agent.store
+    chat = str(s.telegram_chat_id)
+    cq = update.get("callback_query")
+    if cq:
+        msg = cq.get("message") or {}
+        if str((msg.get("chat") or {}).get("id")) != chat:
+            return
+        action, _, gid_s = (cq.get("data") or "").partition(":")
+        try:
+            gid = int(gid_s)
+        except ValueError:
+            return
+        g = store.get_group(gid)
+        if not g:
+            await notify.tg(s.telegram_token, "answerCallbackQuery", callback_query_id=cq["id"], text="Unknown group")
+            return
+        if action == "f":
+            agent.tracker.set_follow(gid, True)
+            text, markup = f"Following #{gid}: you'll get a message as each trader closes.", notify.follow_buttons(gid, True)
+        elif action == "u":
+            agent.tracker.set_follow(gid, False)
+            text, markup = f"Stopped following #{gid}. Still recorded on the dashboard.", notify.follow_buttons(gid)
+        else:
+            text, markup = f"Ignored #{gid}. Still recorded on the dashboard.", {"inline_keyboard": []}
+        await notify.tg(s.telegram_token, "answerCallbackQuery", callback_query_id=cq["id"], text=text)
+        await notify.tg(s.telegram_token, "editMessageReplyMarkup", chat_id=chat,
+                        message_id=msg.get("message_id"), reply_markup=markup)
+        return
+    msg = update.get("message") or {}
+    if str((msg.get("chat") or {}).get("id")) != chat:
+        return
+    cmd = (msg.get("text") or "").strip().split()[0:1]
+    if cmd == ["/following"]:
+        gs = [g for g in store.groups(limit=200) if g["followed"] and g["status"] == "open"]
+        lines = [ln for g in gs for ln in group_lines(store, g)] or ["You're not following any open group."]
+    elif cmd == ["/groups"]:
+        lines = [ln for g in store.groups(limit=5) for ln in group_lines(store, g)] or ["No groups yet."]
+    else:
+        lines = [HELP]
+    await notify.telegram(s.telegram_token, chat, "\n".join(lines))
+
+
+async def run(agent) -> None:
+    """Long-poll Telegram for button taps and commands until cancelled."""
+    if not (agent.s.telegram_token and agent.s.telegram_chat_id):
+        return
+    offset = None
+    while True:
+        try:
+            params = {"timeout": 25, "allowed_updates": ["message", "callback_query"]}
+            if offset is not None:
+                params["offset"] = offset
+            updates = await notify.tg(agent.s.telegram_token, "getUpdates", http_timeout=35, **params)
+            for u in updates or []:
+                offset = u["update_id"] + 1
+                try:
+                    await handle(agent, u)
+                except Exception:  # noqa: BLE001
+                    log.exception("telegram update failed")
+            if updates is None:
+                await asyncio.sleep(5)  # error (e.g. another instance polling during a deploy)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("telegram loop error")
+            await asyncio.sleep(5)

@@ -40,14 +40,17 @@ def test_hl_today_fast_convergence_first_and_stale_dropped():
 
 
 def test_format_brief_is_short():
+    g = {"id": 7, "coin": "STRK", "side": "short", "venue": "hyperliquid"}
+    members = [{"status": "open", "entry_px": 0.0712, "size_usd": 1, "last_px": 0.0732},
+               {"status": "closed", "entry_px": 0.0743, "size_usd": 1, "last_px": 0.0732}]
     body = {"derive": brief.derive_lines(COWBOY), "hyperliquid": brief.hl_today(REFLEX, now=NOW),
-            "setups": [{"coin": "STRK", "direction": "short", "why": "4 traders short in 3h, price weak.",
-                        "off_if": "back above 0.074"}]}
+            "groups": [{"id": 7, "text": brief.group_line(g, members)}]}
     text = brief.format_brief(body, dt.date(2026, 10, 10))
     assert text.splitlines()[0] == "Outrider · 10 Oct"
-    assert "STRK short: 4 traders short in 3h, price weak. Off if: back above 0.074" in text
+    assert ("#7 STRK short · 1/2 still in · entries 0.0712–0.0743 · now 0.0732 · all losing above 0.0743"
+            in text)
     assert len(text.splitlines()) <= 15
-    assert "None today" in brief.format_brief({"setups": []})
+    assert "None open" in brief.format_brief({})
 
 
 def test_slow_convergence_logged_below_alert_bar():

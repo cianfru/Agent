@@ -86,9 +86,23 @@ def _holders(doc: dict) -> list[dict]:
                 "win_rate": h.get("win_rate"),
                 "pnl_usd": h.get("option_pnl"),
                 "net_delta_usd": round(h.get("net_delta_usd") or 0),
+                "legs": [
+                    {"instrument": lg.get("instrument"), "net": lg.get("net"), "entry": lg.get("entry"),
+                     "mark": lg.get("mark"), "delta_usd": round(lg.get("delta_usd") or 0), "expiry": lg.get("expiry")}
+                    for lg in h.get("legs") or [] if lg.get("instrument")
+                ],
             }
         )
     return out
+
+
+async def trader_book(base_url: str, address: str, client: httpx.AsyncClient) -> dict | None:
+    """One trader's open options keyed by instrument, or None if Cowboy does not publish the trader."""
+    r = await client.get(f"{base_url}/traders/{address.lower()}.json")
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return {lg["instrument"]: lg for lg in (r.json().get("book") or []) if lg.get("instrument")}
 
 
 async def fetch(base_url: str, client: httpx.AsyncClient | None = None) -> dict:

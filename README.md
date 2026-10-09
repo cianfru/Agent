@@ -41,12 +41,27 @@ Each poll (every 5 minutes by default) runs four steps:
 
 **Cost.** With Claude Haiku 5.5 ($0.10/$0.50 per million tokens), an alert is about 3K tokens and a brief about 10-15K tokens, roughly $0.001 each. To have the daily brief written by a stronger model, set `SYNTH_BRIEF_MODEL=claude-opus-5-5`; alerts stay on Haiku.
 
+## Groups: smart traders tracked to their close
+
+Every convergence becomes a numbered group (`#7 STRK short`), and every trader in it is tracked until they close.
+
+- **Hyperliquid groups** come from Reflex's convergences. Reflex gives each trader's wallet, entry, size and time (`/api/hyperlens/opens/{coin}`). Each wallet is then read straight from Hyperliquid's free public API (`synth/hyperliquid.py`). A close is priced from the trader's own closing fills, which also give realised PnL. If no fills are found, the price is the mid when the position was seen gone, marked ≈.
+- **Derive groups** form when 2+ smart option wallets open legs in the same direction on one coin within `SYNTH_FAST_CONVERGENCE_HOURS`. Each leg is followed in the trader's published book (`traders/{address}.json`). A leg that disappears before expiry is closed (at its last mark, marked ≈); after expiry it is expired.
+- **New fast groups** that formed in the last 2 hours arrive on Telegram as a chart and a caption, with **Follow / Ignore** buttons.
+  - The chart shows 48 hours of price, each entry, and the line beyond which every trader in the group is losing.
+  - The caption lists each wallet with size and entry, the entry range, the price now, and that line.
+- **Followed groups** message you when a trader cuts size by half or more or closes (exit, result, time held), and with a summary when all are out. Unfollowed groups are recorded only.
+- **On the dashboard:** the Groups tab shows every group trader by trader, with a Follow toggle and the scoreboard (closed in profit, average result).
+- **In Telegram:** `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
+
+Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
+
 ## Daily brief (Telegram, after 08:00 UTC)
 
 The brief has three short sections and is under 15 lines:
 - **Derive smart wallets:** BTC, ETH, HYPE. One line each: the lean of top option wallets (7d, else 30d), their net delta, and whether calls or puts were bought today. Built in code.
 - **Hyperliquid today:** where profitable traders are opening. Convergences from the last 24 hours come first, fastest at the top, then the busiest coins by new opens. Built in code.
-- **Setups:** at most 3, from the model. Each is one line with what would undo it, or "None today".
+- **Open groups:** smart traders who converged and are still in, with how many are still in, their entry range, the price now, and the losing line. Built in code; there is no model in the brief.
 
 Only smart-money events ping you: convergences, big single-wallet moves, smart-cohort flips, the same move on both venues, and the crowded-market warning. There are at most 2 alerts per poll and `SYNTH_MAX_ALERTS_PER_DAY` (default 6) per 24 hours. Engine signals, skew shifts and Reflex's anomalies and setups only show on the dashboard and in the pulse.
 

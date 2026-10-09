@@ -28,7 +28,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import board, config, notify
+from . import board, bot, config, notify
+from . import groups as G
 from .service import Agent, build_digest, coin_context, make_agent
 
 log = logging.getLogger(__name__)
@@ -95,10 +96,12 @@ agent = make_agent(settings)
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
-    task = asyncio.create_task(_loop(agent)) if settings.poll_seconds > 0 else None
+    tasks = [asyncio.create_task(_loop(agent))] if settings.poll_seconds > 0 else []
+    if settings.poll_seconds > 0:
+        tasks.append(asyncio.create_task(bot.run(agent)))
     yield
-    if task:
-        task.cancel()
+    for t in tasks:
+        t.cancel()
 
 
 app = FastAPI(title="Market synthesizer", lifespan=lifespan)
@@ -222,6 +225,32 @@ async def publish(post_id: int):
         raise HTTPException(404, "no such post") from e
     except ValueError as e:
         raise HTTPException(422, f"post fails the checks: {e}") from e
+
+
+@app.get("/groups", dependencies=[Depends(auth)])
+def list_groups(limit: int = 100):
+    """Every convergence group, trader by trader, plus the running scoreboard."""
+    gs = agent.store.groups(limit=limit)
+    members = {g["id"]: agent.store.members(g["id"]) for g in gs}
+    out = []
+    coins = {n: (snap or {}).get("coins") or {} for n, snap in _snaps().items()}
+    for g in gs:
+        ms = members[g["id"]]
+        if g["venue"] == "hyperliquid":  # member last_px is Hyperliquid's mid for the coin
+            last = next((m.get("last_px") for m in ms if m.get("last_px")), None)
+        else:  # member last_px is an option mark: compare the coin's index instead
+            last = (coins.get("cowboy", {}).get(g["coin"]) or {}).get("price")
+        out.append({**g, "members": ms, "levels": G.levels(g, ms) if g["venue"] == "hyperliquid" else {},
+                    "now_px": last, "move_pct": G.side_move(g, last)})
+    return {"groups": out, "scoreboard": G.scoreboard(gs, members)}
+
+
+@app.post("/groups/{gid}/follow", dependencies=[Depends(auth)])
+def follow_group(gid: int, on: bool = True):
+    g = agent.tracker.set_follow(gid, on)
+    if not g:
+        raise HTTPException(404, "no such group")
+    return g
 
 
 @app.post("/cycle", dependencies=[Depends(auth)])
