@@ -62,6 +62,10 @@ class Settings:
         )
     )
 
+    # Hourly pulse to Telegram (code-built, no model): events at or above this score in the last hour.
+    pulse_minutes: float = field(default_factory=lambda: _float("SYNTH_PULSE_MINUTES", 60))
+    pulse_min_score: float = field(default_factory=lambda: _float("SYNTH_PULSE_MIN_SCORE", 40))
+
     # Optional Telegram push.
     telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
     telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))

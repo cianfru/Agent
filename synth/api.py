@@ -20,10 +20,13 @@ import datetime as dt
 import logging
 import time
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import config
+from . import board, config, notify
 from .service import Agent, build_digest, coin_context, make_agent
 
 log = logging.getLogger(__name__)
@@ -35,6 +38,7 @@ async def _loop(agent: Agent) -> None:
             await agent.cycle()
             await _maybe_daily_brief(agent)
             await _maybe_desk_posts(agent)
+            await _maybe_pulse(agent)
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
@@ -63,6 +67,26 @@ async def _maybe_desk_posts(agent: Agent) -> None:
         await agent.weekly_scorecard()
 
 
+async def _maybe_pulse(agent: Agent) -> None:
+    every = agent.s.pulse_minutes * 60
+    if every <= 0:
+        return
+    last = agent.store.latest_brief("pulse")
+    if last and time.time() - last["ts"] < every:
+        return
+    since = time.time() - every
+    events = agent.store.events(since=since, min_score=agent.s.pulse_min_score, limit=200)
+    text = board.pulse_text(events, board.smart_board(_snaps(), events), hours=agent.s.pulse_minutes / 60)
+    agent.store.add_brief("pulse", {"text": text, "events": len(events)})
+    if text:
+        await notify.telegram(agent.s.telegram_token, agent.s.telegram_chat_id, text)
+
+
+def _snaps() -> dict:
+    return {n: s for n in ("cowboy", "reflex") if (s := agent.store.get_snapshot(n))}
+
+
+STATIC = Path(__file__).parent / "static"
 settings = config.load()
 agent = make_agent(settings)
 
@@ -81,6 +105,28 @@ app = FastAPI(title="Market synthesizer", lifespan=lifespan)
 def auth(x_api_key: str | None = Header(default=None)) -> None:
     if settings.api_key and x_api_key != settings.api_key:
         raise HTTPException(401, "bad or missing X-API-Key")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard():
+    return FileResponse(STATIC / "dashboard.html")
+
+
+@app.get("/board", dependencies=[Depends(auth)])
+def smart_money_board(hours: float = 24):
+    """Where the layers line up per coin, plus recent events."""
+    events = agent.store.events(time.time() - hours * 3600, limit=500)
+    return {"rows": board.smart_board(_snaps(), events),
+            "market": {n: s.get("market") for n, s in _snaps().items()},
+            "as_of": {n: s.get("generated_at") for n, s in _snaps().items()}}
+
+
+@app.get("/pulse", dependencies=[Depends(auth)])
+def pulse(hours: float = 1, min_score: float = 0):
+    """What happened in the last `hours`, grouped by coin."""
+    events = agent.store.events(time.time() - hours * 3600, min_score=min_score, limit=500)
+    return {"hours": hours, "events": events,
+            "text": board.pulse_text(events, board.smart_board(_snaps(), events), hours=hours)}
 
 
 @app.get("/health")

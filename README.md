@@ -64,11 +64,26 @@ On Mondays a scorecard built in code (no model) posts the 7-day results: hits, a
 
 The agent has no token. Launching one on Orbio waits until the posts show they are useful.
 
+## Dashboard
+
+Open the service's root URL (`/`) for a private dashboard. If `SYNTH_API_KEY` is set, the page asks for the key once and keeps it in the browser.
+
+- **Now:** events over the last 1h, 6h, 24h or 3d, plus a "smart money now" board. The board shows one row per coin with four readings: engine, Hyperliquid profitable traders, Derive smart wallets and options tone. The row says how many agree (for example `3/4 long`, `2L 1S`, `split`). Coins where 3 or more agree are marked.
+- **Brief:** the latest daily brief, or write one now.
+- **Posts:** desk drafts and published posts, with a Publish button.
+- **Picks:** every logged pick with 1d, 3d and 7d results and a running hit rate.
+- **Ask:** a free-form question answered from current data.
+
+The **hourly pulse** is a plain-text summary of the last hour's events by coin, plus coins where the layers agree. It is built in code (no model cost) and sent to Telegram only when something happened. Set the cadence with `SYNTH_PULSE_MINUTES` and the bar with `SYNTH_PULSE_MIN_SCORE`.
+
 ## API
 
 | Route | |
 |---|---|
 | `GET /health` | Liveness and last poll stats (no auth) |
+| `GET /` | Dashboard |
+| `GET /pulse?hours=1` | Last hours' events by coin, with the pulse text |
+| `GET /board` | Smart money board: where the layers agree per coin |
 | `GET /events?hours=24&coin=&min_score=` | Detected events |
 | `GET /coin/{coin}` | Both products' current view of a coin, plus 7 days of its events |
 | `GET /brief` / `POST /brief?push=true` | Latest daily brief / write one now |
