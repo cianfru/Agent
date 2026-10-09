@@ -272,6 +272,14 @@ class Store:
                                  (*cols.values(), gid))
                 self._db.commit()
 
+    def delete_group(self, gid: int) -> None:
+        """Remove a group, its members and its scoring pick (used to purge false groups)."""
+        with self._lock:
+            self._db.execute("DELETE FROM members WHERE group_id=?", (gid,))
+            self._db.execute("DELETE FROM groups WHERE id=?", (gid,))
+            self._db.execute("DELETE FROM picks WHERE origin='group' AND thesis=?", (f"group #{gid}",))
+            self._db.commit()
+
     def add_member(self, gid: int, m: dict) -> int | None:
         with self._lock:
             cur = self._db.execute(

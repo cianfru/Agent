@@ -65,11 +65,18 @@ def levels(group: dict, members: list[dict]) -> dict:
 # ----------------------------------------------------------- text, for TG --
 
 
+def _span(g: dict) -> str:
+    span = g["meta"].get("span_h")
+    if span is None:
+        return ""
+    return " within minutes" if span < 0.25 else f" in {span:g}h"
+
+
+
 def caption(group: dict, members: list[dict], now_px: float | None) -> str:
     g, n = group, len(members)
     if g["venue"] == "hyperliquid":
-        span = g["meta"].get("span_h")
-        head = f"#{g['id']} {g['coin']} {g['side']} · {n} profitable traders" + (f" in {span:g}h" if span else "")
+        head = f"#{g['id']} {g['coin']} {g['side']} · {n} profitable traders{_span(g)}"
         lines = [head]
         lines += [f"{short_addr(m['address'])}  {usd(m.get('size_usd')).lstrip('+')} @ {px(m['entry_px'])}"
                   for m in members[:6]]
@@ -79,13 +86,16 @@ def caption(group: dict, members: list[dict], now_px: float | None) -> str:
             word = "above" if g["side"] == "short" else "below"
             lines.append(f"{word.capitalize()} {px(lv['all_losing'])} every {g['side']} here is losing.")
         return "\n".join(lines)
-    head = f"#{g['id']} {g['coin']} {g['side']} · {len({m['address'] for m in members})} smart option wallets"
-    if g["meta"].get("span_h") is not None:
-        head += f" in {g['meta']['span_h']:g}h"
+    wallets: dict[str, list[dict]] = {}
+    for m in members:
+        wallets.setdefault(m["address"], []).append(m)
+    head = f"#{g['id']} {g['coin']} {g['side']} · {len(wallets)} smart option wallets{_span(g)}"
     lines = [head]
-    for m in members[:6]:
-        lines.append(f"{short_addr(m['address'])}  {m['instrument']} {m['size']:+g} @ {px(m['entry_px'])}"
-                     + (f" · delta {usd(m['size_usd'])}" if m.get("size_usd") else ""))
+    for addr, legs in list(wallets.items())[:6]:
+        net = sum(m.get("size_usd") or 0 for m in legs)
+        shown = ", ".join(f"{short_inst(m['instrument'])} {m['size']:+g}" for m in legs[:2])
+        more = f" (+{len(legs) - 2})" if len(legs) > 2 else ""
+        lines.append(f"{short_addr(addr)}  delta {usd(net)} · {shown}{more}")
     if now_px:
         lines.append(f"Index now {px(now_px)}")
     return "\n".join(lines)
@@ -187,24 +197,47 @@ def derive_update(m: dict, leg: dict | None, now: float) -> tuple[dict, str | No
 # ------------------------------------------------------- derive detection --
 
 
-def derive_opens(prev: dict | None, cur: dict, now: float, min_delta_usd: float = 25_000) -> list[dict]:
-    """New legs held by smart Derive wallets since the previous snapshot. Pure."""
-    if not prev:
-        return []
+def slim_book(book: dict | None) -> dict:
+    """Keep only what detection and tracking need from a published book."""
+    return {inst: {k: lg.get(k) for k in ("und", "net", "entry", "mark", "delta_usd", "expiry")}
+            for inst, lg in (book or {}).items()}
+
+
+def book_opens(prev_books: dict[str, dict], books: dict[str, dict], now: float,
+               min_delta_usd: float = 25_000) -> list[dict]:
+    """New positions per smart wallet, from its FULL published book (not the top-4 legs per coin).
+
+    A wallet with no previous book only sets its baseline. Per wallet and coin, the direction is the
+    sign of the new legs' combined delta, so a spread (long one call, short another) counts once, by
+    its net; below `min_delta_usd` net it is ignored. Pure."""
     out = []
-    pw, cw = prev.get("wallets") or {}, cur.get("wallets") or {}
-    for coin, holders in cw.items():
-        if coin not in pw:
+    for addr, book in books.items():
+        prev = prev_books.get(addr)
+        if prev is None:
             continue
-        before = {h["address"]: {lg["instrument"] for lg in h.get("legs") or []} for h in pw[coin]}
-        for h in holders:
-            if not h.get("smart") or h["address"] not in before:
+        by_coin: dict[str, list[tuple[str, dict]]] = {}
+        for inst, lg in book.items():
+            if inst not in prev:
+                by_coin.setdefault(lg.get("und") or inst.split("-")[0], []).append((inst, lg))
+        for coin, legs in by_coin.items():
+            net = sum(lg.get("delta_usd") or 0 for _, lg in legs)
+            if abs(net) < min_delta_usd:
                 continue
-            for lg in h.get("legs") or []:
-                if lg["instrument"] in before[h["address"]] or abs(lg.get("delta_usd") or 0) < min_delta_usd:
-                    continue
-                out.append({"coin": coin, "address": h["address"], "instrument": lg["instrument"],
-                            "side": "long" if lg["delta_usd"] > 0 else "short", "size": lg.get("net"),
-                            "entry_px": lg.get("entry"), "size_usd": lg.get("delta_usd"),
-                            "expiry": lg.get("expiry"), "opened_ts": now, "rank": h.get("rank")})
+            side = "long" if net > 0 else "short"
+            for inst, lg in legs:
+                out.append({"coin": coin, "address": addr, "instrument": inst, "side": side,
+                            "size": lg.get("net"), "entry_px": lg.get("entry"), "size_usd": lg.get("delta_usd"),
+                            "expiry": lg.get("expiry"), "opened_ts": now, "wallet_delta_usd": round(net)})
     return out
+
+
+def short_inst(inst: str) -> str:
+    """'BTC-20261030-85000-C' -> '30 Oct 85000C'"""
+    try:
+        _, day, strike, kind = inst.split("-")
+        import datetime as dt
+
+        d = dt.datetime.strptime(day, "%Y%m%d")
+        return f"{d.day} {d.strftime('%b')} {strike.replace('_', '.')}{kind}"
+    except ValueError:
+        return inst
