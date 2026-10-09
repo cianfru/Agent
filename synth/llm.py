@@ -24,6 +24,8 @@ Rules:
 - Prefer agreement across independent evidence (engine regime + options skew/flow + smart wallets). One source alone is low conviction.
 - Say plainly when evidence conflicts or data is stale/missing.
 - Conviction 1-5: 5 only when engine, options and smart money all agree and nothing is overheated.
+- "Overheated" means heat above 80 only; below that, do not call a coin hot or overheated.
+- Only propose a setup for a coin the snapshot covers (a price and an engine reading); coins mentioned only in events are context, not setups.
 - This is decision support, not financial advice; never size positions."""
 
 
@@ -111,7 +113,10 @@ class Synthesizer:
             "Fill the fields of today's public post for a market-structure desk account on X. Readers are "
             "crypto traders on a phone. Pick at most ONE setup where the RCCE engine, options (skew/flow) and "
             "smart money on Hyperliquid and Derive agree; if they do not agree anywhere, set setup_direction "
-            "'none'. Plain words, numbers from the data, no forecasts: describe what the data shows now. "
+            "'none'. Plain words a retail trader understands, numbers from the data, no forecasts: describe "
+            "what the data shows now. Never write internal codes (STRONG_LONG, MARKUP, REACC, rr25, z-score, "
+            "taker, delta): say 'trending up', 'cooling off', 'puts priced above calls', 'call buying', "
+            "'net long'. "
             "Never use: will, expect, likely, predict, target, probability, odds, buy, moon, gem, alpha, "
             "guaranteed. No links or domains. Tickers without $."
         )

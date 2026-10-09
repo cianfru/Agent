@@ -173,7 +173,7 @@ class Agent:
             elif not has_setup and pick_id is not None:
                 self.store.delete_pick(pick_id)
                 pick_id = None
-            text = post.assemble(fields, pick_id, today)
+            text = post.assemble(fields, self._public_no(pick_id), today)
             problems = post.lint(text)
             if not problems:
                 break
@@ -190,11 +190,13 @@ class Agent:
         if live:
             return await self.publish_post(pid)
         await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                              f"Draft post #{pid} (approve: POST /posts/{pid}/publish)\n\n{text}")
+                              f"Draft desk post (approve it in the dashboard, Posts tab)\n\n{text}")
         return {"id": pid, "status": "draft", "text": text, "pick_id": pick_id}
 
     async def weekly_scorecard(self, publish: bool | None = None) -> dict | None:
-        picks = self.store.picks(limit=500, origin="post", since=time.time() - 30 * 86400)
+        nos = self._public_numbers()
+        picks = [{**p, "id": nos.get(p["id"], p["id"])}
+                 for p in self.store.picks(limit=500, origin="post", since=time.time() - 30 * 86400)]
         text = post.scorecard(picks, dt.datetime.now(dt.timezone.utc).date())
         if not text:
             return None
@@ -207,8 +209,16 @@ class Agent:
         if live:
             return await self.publish_post(pid)
         await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                              f"Draft scorecard #{pid}\n\n{text}")
+                              f"Draft scorecard (approve it in the dashboard, Posts tab)\n\n{text}")
         return {"id": pid, "status": "draft", "text": text}
+
+    def _public_numbers(self) -> dict[int, int]:
+        """Desk setups are numbered 1, 2, 3... in the order they were logged (alert/brief picks excluded)."""
+        ids = sorted(p["id"] for p in self.store.picks(limit=1_000_000, origin="post"))
+        return {pid: i + 1 for i, pid in enumerate(ids)}
+
+    def _public_no(self, pick_id: int | None) -> int | None:
+        return self._public_numbers().get(pick_id) if pick_id else None
 
     async def publish_post(self, post_id: int) -> dict:
         p = self.store.get_post(post_id)
