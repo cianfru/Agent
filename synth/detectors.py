@@ -286,7 +286,8 @@ def run_all(source: str, prev: dict | None, cur: dict, wallet_min_usd: float,
 # Events about what smart money did. Only these can start an alert (with cross_confirm and crowded);
 # engine, options and Reflex's own anomaly/setup events are context for the pulse and dashboard.
 SMART_KINDS = {"smart_convergence", "wallet_move", "cohort_flip"}
-ALERT_KINDS = SMART_KINDS | {"cross_confirm", "crowded"}
+# Convergences are announced as groups (synth/tracking.py), with a chart and Follow buttons.
+ALERT_KINDS = (SMART_KINDS - {"smart_convergence"}) | {"cross_confirm", "crowded"}
 
 
 def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dict]:

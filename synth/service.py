@@ -16,6 +16,7 @@ from .config import Settings
 from .llm import Synthesizer
 from .sources import block0, cowboy, reflex
 from .store import Store
+from .tracking import GroupTracker
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class Agent:
             if settings.reflex_base_url
             else None
         )
+        self.tracker = GroupTracker(settings, store, self.reflex)
         self.last_cycle: dict[str, Any] = {}
 
     # ------------------------------------------------------------ collect --
@@ -67,8 +69,9 @@ class Agent:
         snaps = await self.collect()
         fresh: list[dict] = []
         seeding: set[str] = set()
+        prevs = {name: self.store.get_snapshot(name) for name in snaps}
         for name, cur in snaps.items():
-            prev = self.store.get_snapshot(name)
+            prev = prevs[name]
             if prev is None:
                 seeding.add(name)
             for ev in detectors.run_all(name, prev, cur, self.s.wallet_move_min_usd,
@@ -94,6 +97,11 @@ class Agent:
             alerts.append(await self._alert(ev, snaps))
             self.store.add_brief("alert_sent", {"event_id": ev["id"]})
 
+        try:
+            tracked = await self.tracker.step(snaps, prevs, seeding)
+        except Exception as e:  # noqa: BLE001 - tracking must not stop the poll
+            log.exception("group tracking failed: %s", e)
+            tracked = {}
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
         scored = self.score_picks(snaps)
@@ -105,6 +113,7 @@ class Agent:
             "new_events": len(new_events),
             "alerts": len(alerts),
             "picks_scored": scored,
+            **tracked,
         }
         log.info("cycle %s", self.last_cycle)
         return {**self.last_cycle, "events": new_events, "alert_bodies": alerts}
@@ -112,7 +121,7 @@ class Agent:
     async def _alert(self, ev: dict, snaps: dict[str, dict]) -> dict:
         context = coin_context(ev.get("coin"), snaps)
         body: dict
-        if self.synth:
+        if self.synth and self.s.llm_alerts:
             try:
                 alert, usage = self.synth.alert(_public(ev), context)
                 body = alert.model_dump()
@@ -132,33 +141,20 @@ class Agent:
 
     # --------------------------------------------------------------- brief --
     async def brief(self, snaps: dict[str, dict] | None = None, push: bool = True) -> dict:
-        """Derive and Hyperliquid sections in code; the model adds up to 3 setups."""
+        """Built in code: Derive lean, Hyperliquid today, and the open groups with their levels."""
         snaps = snaps or await self.collect()
+        open_groups = [g for g in self.store.groups(status="open", limit=50) if time.time() - g["ts"] <= 3 * 86400]
+        rows = sorted(((g, self.store.members(g["id"])) for g in open_groups), key=lambda gm: -len(gm[1]))[:4]
         body: dict[str, Any] = {
             "derive": brief_mod.derive_lines(snaps.get("cowboy")),
             "hyperliquid": brief_mod.hl_today(snaps.get("reflex"), self.s.fast_convergence_hours),
-            "setups": [],
+            "groups": [{"id": g["id"], "text": brief_mod.group_line(g, ms)} for g, ms in rows],
         }
-        usage = None
-        if self.brief_synth:
-            candidates = {r["coin"] for r in body["hyperliquid"]} | {d["coin"] for d in body["derive"]}
-            digest = {
-                "derive": body["derive"],
-                "hyperliquid_today": body["hyperliquid"],
-                "events_24h": [{k: e[k] for k in ("coin", "direction", "score", "title")}
-                               for e in self.store.events(since=time.time() - 86400, min_score=50, limit=25)],
-                "coins": {c: coin_context(c, snaps) for c in sorted(candidates)},
-            }
-            setups, usage = self.brief_synth.brief(digest)
-            body["setups"] = [s.model_dump() for s in setups.setups[:3]]
-            for s in setups.setups[:3]:
-                self.store.add_pick("brief", s.coin, s.direction, s.conviction, price_of(s.coin, snaps),
-                                    f"{s.why} | off if: {s.off_if}",
-                                    {"setup": s.model_dump(), "coin": coin_context(s.coin, snaps)})
-        self.store.add_brief("daily", body, usage)
+        self.store.add_brief("daily", body)
+        text = brief_mod.format_brief(body)
         if push:
-            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, brief_mod.format_brief(body))
-        return {**body, "text": brief_mod.format_brief(body), "usage": usage}
+            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+        return {**body, "text": text}
 
     # --------------------------------------------------------- public posts --
     async def desk_post(self, publish: bool | None = None) -> dict:

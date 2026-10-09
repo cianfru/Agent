@@ -28,9 +28,28 @@ class FakeSynth:
                      why="x", against=None), {"input_tokens": 1}
 
 
+class FakeHL:
+    async def mids(self):
+        return {}
+
+    async def positions(self, address):
+        return {}
+
+    async def closing_fills(self, *a):
+        return []
+
+    async def candles(self, *a):
+        return []
+
+
+def offline(agent):
+    agent.tracker._hl = FakeHL()
+    return agent
+
+
 def make(tmp_path, snaps):
-    s = Settings(db_path=str(tmp_path / "t.db"), alert_min_score=60)
-    agent = service.Agent(s, Store(s.db_path), FakeSynth())
+    s = Settings(db_path=str(tmp_path / "t.db"), alert_min_score=60, llm_alerts=True)
+    agent = offline(service.Agent(s, Store(s.db_path), FakeSynth()))
     it = iter(snaps)
 
     async def collect():
@@ -51,8 +70,8 @@ def test_first_cycle_seeds_then_convergence_alerts_once(tmp_path):
 
     second = asyncio.run(agent.cycle())
     kinds = {e["kind"] for e in second["events"]}
-    assert "smart_convergence" in kinds
-    assert second["alerts"] >= 1
+    assert "smart_convergence" in kinds  # logged; groups announce convergences
+    assert second["alerts"] >= 1         # the two big wallet moves ping
     assert agent.synth.calls == second["alerts"]
     # conviction 4 long alert is journalled with the entry price
     picks = agent.store.picks()
@@ -83,14 +102,14 @@ def test_only_smart_money_kinds_alert_and_daily_cap(tmp_path):
     from synth import detectors
 
     s = Settings(db_path=str(tmp_path / "t.db"), alert_min_score=60, max_alerts_per_day=3)
-    agent = service.Agent(s, Store(s.db_path), FakeSynth())
+    agent = offline(service.Agent(s, Store(s.db_path), FakeSynth()))
     agent.store.put_snapshot("cowboy", {"coins": {}})  # not seeding
     batches = iter([
         [{"kind": "signal_change", "coin": "PUMP", "direction": "long", "score": 75, "title": "t", "key": "a",
           "data": {"source": "cowboy"}}],
-        [{"kind": "smart_convergence", "coin": c, "direction": "long", "score": 90, "title": c, "key": c,
+        [{"kind": "wallet_move", "coin": c, "direction": "long", "score": 90, "title": c, "key": c,
           "data": {"source": "cowboy"}} for c in ("A", "B")],
-        [{"kind": "smart_convergence", "coin": c, "direction": "long", "score": 90, "title": c, "key": c,
+        [{"kind": "wallet_move", "coin": c, "direction": "long", "score": 90, "title": c, "key": c,
           "data": {"source": "cowboy"}} for c in ("C", "D")],
     ])
 

@@ -38,6 +38,8 @@ class Settings:
     # The daily brief can use a stronger model (e.g. claude-opus-5-5); defaults to SYNTH_MODEL.
     brief_model: str = field(default_factory=lambda: _env("SYNTH_BRIEF_MODEL"))
     effort: str = field(default_factory=lambda: _env("SYNTH_EFFORT", "low"))
+    # Alerts are built in code; set SYNTH_LLM_ALERTS=1 to have the model word them instead.
+    llm_alerts: bool = field(default_factory=lambda: _env("SYNTH_LLM_ALERTS") == "1")
 
     # Service.
     db_path: str = field(default_factory=lambda: _env("SYNTH_DB", "synth.db"))

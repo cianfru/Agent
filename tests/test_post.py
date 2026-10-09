@@ -92,6 +92,8 @@ class FakeSynth:
 def agent_with(tmp_path, outputs, **settings):
     s = Settings(db_path=str(tmp_path / "t.db"), orbio_api_key="k", **settings)
     a = service.Agent(s, Store(s.db_path), FakeSynth(outputs))
+    from tests.test_service import FakeHL
+    a.tracker._hl = FakeHL()
 
     async def collect():
         return {"cowboy": {"coins": {"HYPE": {"price": 40.0}}, "market": {}}}

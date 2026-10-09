@@ -2,7 +2,7 @@
 
   Derive      BTC / ETH / HYPE: which way smart option wallets lean, plus the number behind it
   Hyperliquid where profitable traders are opening today: fast convergences first, then busy coins
-The model only adds up to 3 setups on top (synth/llm.py `Setups`).
+  Open groups smart traders who converged and are still in, with their entries and the losing line
 """
 
 from __future__ import annotations
@@ -78,10 +78,24 @@ def format_brief(body: dict, day: dt.date | None = None) -> str:
         lines += ["", "Derive smart wallets"] + [d["text"] for d in body["derive"]]
     if body.get("hyperliquid"):
         lines += ["", "Hyperliquid today"] + [h["text"] for h in body["hyperliquid"]]
-    setups = body.get("setups") or []
-    lines += ["", "Setups"]
-    if setups:
-        lines += [f"{s['coin']} {s['direction']}: {s['why']} Off if: {s['off_if']}" for s in setups]
-    else:
-        lines.append("None today: the data does not line up.")
+    lines += ["", "Open groups"]
+    lines += [g["text"] for g in body.get("groups") or []] or ["None open: no smart traders converging right now."]
     return "\n".join(lines)
+
+
+def group_line(g: dict, members: list[dict]) -> str:
+    """'#7 STRK short · 3/4 still in · entries 0.0587–0.0743 · now 0.0732 · all losing above 0.0743'"""
+    from . import groups as G
+
+    still = sum(1 for m in members if m["status"] in ("open", "reduced"))
+    parts = [f"#{g['id']} {g['coin']} {g['side']}", f"{still}/{len(members)} still in"]
+    now = next((m.get("last_px") for m in members if m.get("last_px")), None)
+    if g["venue"] == "hyperliquid":
+        lv = G.levels(g, members)
+        if lv:
+            parts.append(f"entries {G.px(lv['lo'])}–{G.px(lv['hi'])}")
+            parts.append(f"now {G.px(now)}")
+            parts.append(f"all losing {'above' if g['side'] == 'short' else 'below'} {G.px(lv['all_losing'])}")
+    else:
+        parts.append(", ".join(sorted({m["instrument"] for m in members if m.get("instrument")}))[:60])
+    return " · ".join(parts)

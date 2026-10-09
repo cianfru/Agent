@@ -76,6 +76,7 @@
 </header>
 <nav id="tabs">
   <button data-tab="now" class="on">Now</button>
+  <button data-tab="groups">Groups</button>
   <button data-tab="brief">Brief</button>
   <button data-tab="posts">Posts</button>
   <button data-tab="picks">Picks</button>
@@ -97,6 +98,11 @@
         </tr></thead><tbody></tbody></table></div>
       </div>
     </div>
+  </section>
+
+  <section id="groups">
+    <div class="kv" id="gscore"></div>
+    <div id="glist"></div>
   </section>
 
   <section id="brief">
@@ -212,10 +218,8 @@ async function loadBrief() {
     $("#briefinfo").textContent = `written ${ago(b.ts)} ago`;
     const sec = (title, rows) => rows && rows.length ? `<h2 style="margin-top:4px">${title}</h2>` +
       rows.map((r) => `<div class="setup"><span class="${r.lean || r.side || r.direction || "none"}">${esc(r.text)}</span></div>`).join("") : "";
-    const setups = (b.setups || []).map((s) => ({ direction: s.direction,
-      text: `${s.coin} ${s.direction}: ${s.why} Off if: ${s.off_if}` }));
     $("#briefbody").innerHTML = sec("Derive smart wallets", b.derive) + sec("Hyperliquid today", b.hyperliquid) +
-      (setups.length ? sec("Setups", setups) : '<h2>Setups</h2><div class="empty">None today: the data does not line up.</div>');
+      ((b.groups || []).length ? sec("Open groups", b.groups) : '<h2>Open groups</h2><div class="empty">None open.</div>');
   } catch (e) { $("#briefbody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 $("#mkbrief").onclick = async () => { $("#briefinfo").textContent = "writing..."; try { await api("/brief", { method: "POST" }); } catch (e) { alert(e.message); } loadBrief(); };
@@ -237,6 +241,44 @@ async function loadPosts() {
 }
 $("#mkpost").onclick = async () => { try { await api("/posts/daily", { method: "POST" }); } catch (e) { alert(e.message); } loadPosts(); };
 $("#mkscore").onclick = async () => { try { await api("/posts/scorecard", { method: "POST" }); } catch (e) { alert(e.message); } loadPosts(); };
+
+const short = (a) => a && a.length > 12 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
+const held = (a, b) => { const h = Math.max(0, ((b || Date.now() / 1000) - a) / 3600);
+  return h < 1 ? Math.round(h * 60) + "m" : h < 48 ? Math.round(h) + "h" : Math.round(h / 24) + "d"; };
+async function loadGroups() {
+  const { groups, scoreboard: sb } = await api("/groups");
+  const avg = sb.avg_closed_pct == null ? "-" : pct(sb.avg_closed_pct * 100);
+  $("#gscore").innerHTML = `<span><b>Groups</b>${sb.groups}</span><span><b>Open</b>${sb.open}</span>
+    <span><b>Closed</b>${sb.closed}</span><span><b>Closed in profit</b>${sb.closed ? sb.closed_in_profit + "/" + sb.closed : "-"}</span>
+    <span><b>Avg result</b>${avg}</span>`;
+  $("#glist").innerHTML = groups.length ? groups.map((g) => {
+    const lv = g.levels || {}, still = g.members.filter((m) => ["open", "reduced"].includes(m.status)).length;
+    const line = lv.lo != null ? `entries ${px(lv.lo)}–${px(lv.hi)} · now ${px(g.now_px)} · all losing ${g.side === "short" ? "above" : "below"} ${px(lv.all_losing)}` : "";
+    const rows = g.members.map((m) => {
+      const done = ["closed", "expired"].includes(m.status);
+      const res = done ? m.pnl_pct : (m.last_px && m.entry_px ? (g.side === "short" ? -1 : 1) * (m.last_px / m.entry_px - 1) : null);
+      return `<tr><td class="n">${esc(short(m.address))}</td><td>${esc(m.instrument || "")}</td>
+        <td class="n">${px(m.entry_px)}</td><td class="n">${m.size_usd ? usd(m.size_usd) : "-"}</td>
+        <td>${esc(m.status)}${m.approx ? ' <span class="muted">≈</span>' : ""}</td><td class="n">${done ? px(m.exit_px) : "-"}</td>
+        <td class="n"><span class="${res > 0 ? "long" : res < 0 ? "short" : ""}">${res == null ? "-" : pct(res * 100)}</span>${done ? "" : ' <span class="muted">now</span>'}</td>
+        <td class="n">${held(m.opened_ts, done ? m.exit_ts : null)}</td></tr>`;
+    }).join("");
+    return `<div class="panel" style="margin-bottom:14px">
+      <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap">
+        <h2 style="margin:0">#${g.id} <span class="${g.side}">${esc(g.coin)} ${esc(g.side)}</span></h2>
+        <span class="muted">${esc(g.venue)} · ${ago(g.ts)} ago · ${still}/${g.members.length} still in · ${esc(g.status)}</span>
+        <span class="muted">${g.move_pct == null ? "" : "price " + pct(g.move_pct * 100) + " their way"}</span>
+        <button class="btn ${g.followed ? "" : "primary"}" data-follow="${g.id}" data-on="${g.followed ? 0 : 1}" style="margin-left:auto">${g.followed ? "Unfollow" : "Follow"}</button>
+      </div>
+      ${line ? `<div class="muted" style="margin:6px 0 4px">${line}</div>` : ""}
+      <div class="scroll"><table><thead><tr><th>Wallet</th><th></th><th>Entry</th><th>Size</th><th>Status</th><th>Exit</th><th>Result</th><th>Held</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
+  }).join("") : '<div class="panel empty">No groups yet. Each convergence of smart traders lands here and is tracked until they close.</div>';
+  document.querySelectorAll("[data-follow]").forEach((b) => b.onclick = async () => {
+    try { await api(`/groups/${b.dataset.follow}/follow?on=${b.dataset.on === "1"}`, { method: "POST" }); } catch (e) { alert(e.message); }
+    loadGroups();
+  });
+}
 
 async function loadPicks() {
   const { picks } = await api("/picks?limit=200");
@@ -262,7 +304,7 @@ $("#askbtn").onclick = async () => {
 };
 
 function load(tab) {
-  const f = { now: loadNow, brief: loadBrief, posts: loadPosts, picks: loadPicks }[tab];
+  const f = { now: loadNow, groups: loadGroups, brief: loadBrief, posts: loadPosts, picks: loadPicks }[tab];
   if (f) f().catch((e) => console.warn(e));
 }
 function refresh() { loadStatus(); load(document.querySelector("#tabs .on").dataset.tab); }
