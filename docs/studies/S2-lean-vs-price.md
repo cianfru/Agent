@@ -88,3 +88,71 @@ wallets were picked on out of the headline. That is less biased for history than
 - **Bias rule unchanged:** the "in profit before this month" condition still favours wallets that did well, so
   "traders right at extremes" stays a non-verdict in Part B.
 - **Secondary:** the S1 roster (the original declaration) is run the same way and reported beside it, no verdict.
+
+## Results, part B (run 10 October 2026)
+
+![Lean vs price](S2-lean-vs-price.png)
+
+**Short answer.** The share of these traders' positions that are long does not mark tops or bottoms, and it does
+not lead the next 3 days. It moves against the recent move: after the market rises they hold fewer longs, after
+it falls more. They buy dips and take profit into strength, at the level of the whole group. No result clears its
+bar: **context, not a signal**.
+
+### Fixes and deviations (made before the run whose numbers are below)
+
+1. **Fill pull.** The declaration assumed Hyperliquid serves only a wallet's 10,000 most recent fills. It serves
+   older ones too, oldest first, so the pull, which stopped at 10,000, left 271 busy wallets' histories ending
+   weeks or months early (positions frozen in the past; found by comparing the rebuild with live positions:
+   48% of coins on the same side). Each was continued forward to now, up to 40 more pages; 7 could not reach now
+   and are left out (1 in the headline roster). Coverage now starts on 1 October 2025 unless the TWAP list is full.
+2. **TWAP slices before 1 October 2025** are dropped (they opened positions whose closes fell outside the window).
+3. **End check.** A wallet-coin history whose rebuilt position now is on a different side than the wallet's live
+   position (read on 10 October) is left out entirely: 168 of 7,586 in the headline roster, 108 in S1's. Causes
+   seen: liquidations (closed by the liquidation engine, no fill) and the window edge. After fixes 1 to 3, 86% of
+   sampled live positions matched the rebuild; the remainder are mostly trades made after the pull.
+4. **Two earlier runs on the flawed data were discarded.** Their numbers were seen; they pointed the same way (no
+   lead, lean moving against the past move).
+
+### Data
+
+- Headline roster: 544 wallets; 6 bot-like and 1 incomplete left out; 472 with perpetual fills. Covered from the
+  start: 348, rising to 472 at the end. 1,223 positions at the end.
+- Headline bars: 1 October 2025 to 3 September 2026 (2,007 to 2,247 bars by test). Average share long: 69.5%.
+  The population is long-biased: no coin ever had 20% or fewer of 10+ holders long.
+
+### Test by test (headline: Reflex's roster rule, outcomes ending before the month the wallets were picked on)
+
+| Test | Result | Verdict |
+|---|---|---|
+| 1. Follows the past 3 days | Spearman -0.16 [-0.27, -0.03] | lean moves **against** the past move |
+| 1. Leads the next 3 days | -0.03 [-0.13, +0.09] | no lead |
+| 2. Most short (20 episodes), basket 3 days | -0.25%, 50% up (all bars -0.85%) | context |
+| 2. Most long (40 episodes), basket 3 days | +0.25%, 52.5% up | context |
+| 3. Around 32 market tops / 41 bottoms | share long moves under 1 point from 7 days before to 7 after | no tell |
+| 3. Around 35 BTC tops | BTC share long 2.4 points higher 3 days before the top than at it | they trim into BTC strength |
+| 4. Coins at 80%+ long (173 episodes, 30 coins), 3 days vs basket | +0.11%, 51% up; no coin ever at 20% or less | context |
+
+"Late to trends" as declared (lean rising after rises) does **not** hold: the lean falls after rises. That fits
+Reflex's earlier finding that they open after spikes on a coin: they chase a single coin's move but the group
+as a whole takes profit into a market rally and buys a decline.
+
+**BTC (description only).** When they were most short on BTC (26 episodes) BTC fell further: -1.05% at 3 days
+(38% up), -4.35% at 7 days (27% up); when most long, +1.05% (60% up) and +0.65% (63% up). This is the "traders
+right" pattern the bias rule covers: in part B it is not a verdict; part A (Reflex's live record) can test it.
+
+### Beside the headline (no verdicts)
+
+- **Including the month the wallets were picked on:** the same picture (follow -0.17, lead -0.06; extremes flat).
+- **S1's roster** (picked on profit up to 10 September, so known winners for the whole history): lead +0.12
+  [+0.03, +0.23], most long +1.44% at 3 days (68% up), most short -1.33%. Exactly the hindsight the bias rule
+  warned about: wallets picked for having been right look right in the past. The headline roster, picked on one
+  month, does not.
+
+### What this means for the agent
+
+- The share long is a description of the crowd of profitable traders, not a timing tool. The pulse shows it as
+  that.
+- Its most useful reading is the change against the move: a market rising while the lean falls is these traders
+  taking profit, and a market falling while the lean rises is them buying it.
+- The only place they look early is BTC, and that cannot be separated from hindsight here. Part A and the
+  entity map (E1, separating big money from the crowd) are the next steps.
