@@ -88,6 +88,7 @@
       <button data-h="1" class="on">1h</button><button data-h="6">6h</button><button data-h="24">24h</button><button data-h="72">3d</button>
     </div>
     <div class="kv" id="market"></div>
+    <div class="panel" style="margin-bottom:16px"><h2>Market read</h2><pre id="read"></pre></div>
     <div class="grid">
       <div class="panel"><h2 id="evtitle">Events</h2><div id="events"></div></div>
       <div class="panel">
@@ -184,6 +185,7 @@ async function loadStatus() {
 
 async function loadNow() {
   const [p, b] = await Promise.all([api(`/pulse?hours=${hours}`), api(`/board?hours=${Math.max(hours, 24)}`)]);
+  $("#read").textContent = p.text || "";
   $("#evtitle").textContent = `Events, last ${hours === 1 ? "hour" : hours + "h"} (${p.events.length})`;
   $("#events").innerHTML = p.events.length ? p.events.slice(0, 80).map((e) => `
     <div class="ev ${e.score >= 70 ? "hot" : ""}">

@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from . import brief as brief_mod
-from . import detectors, notify, orbio, post
+from . import detectors, notify, orbio, post, stories
 from .config import Settings
 from .llm import Synthesizer
 from .sources import block0, cowboy, reflex
@@ -70,6 +70,7 @@ class Agent:
         fresh: list[dict] = []
         seeding: set[str] = set()
         prevs = {name: self.store.get_snapshot(name) for name in snaps}
+        self._record_sentiment(snaps.get("reflex"))
         for name, cur in snaps.items():
             prev = prevs[name]
             if prev is None:
@@ -102,6 +103,10 @@ class Agent:
         except Exception as e:  # noqa: BLE001 - tracking must not stop the poll
             log.exception("group tracking failed: %s", e)
             tracked = {}
+        try:
+            tracked["toxic_alerts"] = await self._toxic_alerts(snaps.get("reflex"), seeding)
+        except Exception as e:  # noqa: BLE001
+            log.warning("toxic flow check failed: %s", e)
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
         scored = self.score_picks(snaps)
@@ -155,6 +160,62 @@ class Agent:
         if push:
             await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
         return {**body, "text": text}
+
+    # ------------------------------------------------------------ market read --
+    def _record_sentiment(self, reflex: dict | None) -> None:
+        """Keep 48h of market-wide smart-money totals, so a read can say what changed."""
+        sent = stories.sentiment(reflex)
+        if not sent:
+            return
+        hist = (self.store.get_snapshot("sentiment_history") or {}).get("rows", [])
+        now = time.time()
+        hist = [h for h in hist if now - h["ts"] <= 48 * 3600]
+        hist.append({"ts": now, "long_usd": sent["long_usd"], "short_usd": sent["short_usd"]})
+        self.store.put_snapshot("sentiment_history", {"rows": hist})
+
+    def market_read(self, since_ts: float | None = None) -> dict:
+        """Overall lean, change since `since_ts`, Derive lean, and coins where smart money and data agree."""
+        now = time.time()
+        since_ts = since_ts or now - 4 * 3600
+        snaps = {n: s for n in ("cowboy", "reflex") if (s := self.store.get_snapshot(n))}
+        sent = stories.sentiment(snaps.get("reflex"))
+        hist = (self.store.get_snapshot("sentiment_history") or {}).get("rows", [])
+        recent = [g for g in self.store.groups(limit=100)
+                  if g["status"] == "open" or (g.get("closed_ts") or 0) >= since_ts]
+        recent = [(g, self.store.members(g["id"])) for g in recent if now - g["ts"] <= 24 * 3600]
+        events = self.store.events(since=since_ts, limit=300)
+        found = stories.coin_stories(snaps.get("reflex"), recent, events)
+        in_story = {s["coin"] for s in found}
+        toxic_only = [t for t in stories.toxic_flows(snaps.get("reflex"), recent, events) if t["coin"] not in in_story]
+        text = stories.format_read(sent, stories.change(hist, since_ts), brief_mod.derive_lines(snaps.get("cowboy")),
+                                   found, dt.datetime.fromtimestamp(now, dt.timezone.utc),
+                                   dt.datetime.fromtimestamp(since_ts, dt.timezone.utc), toxic_only)
+        return {"text": text, "sentiment": sent, "stories": found, "toxic": toxic_only}
+
+    async def _toxic_alerts(self, reflex: dict | None, seeding: set[str]) -> int:
+        """Ping at once when flow is critically one-sided (VPIN >= 70%) and smart money is on that side."""
+        if not reflex or "reflex" in seeding:
+            return 0
+        now = time.time()
+        recent = [(g, self.store.members(g["id"])) for g in self.store.groups(status="open", limit=100)
+                  if now - g["ts"] <= 24 * 3600]
+        events = self.store.events(since=now - 24 * 3600, limit=300)
+        sent = 0
+        for t in stories.toxic_flows(reflex, recent, events):
+            if not t["aligned"] or t["vpin"] < stories.VPIN_CRITICAL:
+                continue
+            key = f"toxic:{t['coin']}:{t['flow']}"
+            if self.store.seen_recently(key, COOLDOWN_S):
+                continue
+            text = stories.toxic_alert_text(t)
+            self.store.add_event({"key": key, "kind": "toxic_flow", "coin": t["coin"], "direction": t["flow"],
+                                  "score": 90, "title": text.splitlines()[0], "data": {"source": "reflex", **t}})
+            if self.s.max_alerts_per_day - self.store.count_briefs("alert_sent", now - 86400) <= 0:
+                continue
+            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+            self.store.add_brief("alert_sent", {"toxic": t["coin"]})
+            sent += 1
+        return sent
 
     # --------------------------------------------------------- public posts --
     async def desk_post(self, publish: bool | None = None) -> dict:

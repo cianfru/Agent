@@ -71,18 +71,18 @@ async def _maybe_desk_posts(agent: Agent) -> None:
 
 
 async def _maybe_pulse(agent: Agent) -> None:
-    every = agent.s.pulse_minutes * 60
-    if every <= 0:
+    """The market read, once per configured UTC hour (default 06, 10, 14, 18): none at night."""
+    now = dt.datetime.now(dt.timezone.utc)
+    if now.hour not in agent.s.pulse_hours_utc:
         return
+    slot = now.replace(minute=0, second=0, microsecond=0).timestamp()
     last = agent.store.latest_brief("pulse")
-    if last and time.time() - last["ts"] < every:
+    if last and last["ts"] >= slot:
         return
-    since = time.time() - every
-    events = agent.store.events(since=since, min_score=agent.s.pulse_min_score, limit=200)
-    text = board.pulse_text(events, board.smart_board(_snaps(), events), hours=agent.s.pulse_minutes / 60)
-    agent.store.add_brief("pulse", {"text": text, "events": len(events)})
-    if text:
-        await notify.telegram(agent.s.telegram_token, agent.s.telegram_chat_id, text)
+    since = max(last["ts"] if last else 0, time.time() - 12 * 3600)
+    read = agent.market_read(since)
+    agent.store.add_brief("pulse", {"text": read["text"], "stories": len(read["stories"])})
+    await notify.telegram(agent.s.telegram_token, agent.s.telegram_chat_id, read["text"])
 
 
 def _snaps() -> dict:
@@ -132,11 +132,12 @@ def smart_money_board(hours: float = 24):
 
 
 @app.get("/pulse", dependencies=[Depends(auth)])
-def pulse(hours: float = 1, min_score: float = 0):
-    """What happened in the last `hours`, grouped by coin."""
+def pulse(hours: float = 4, min_score: float = 0):
+    """Events of the last `hours`, and the market read for that window."""
     events = agent.store.events(time.time() - hours * 3600, min_score=min_score, limit=500)
-    return {"hours": hours, "events": events,
-            "text": board.pulse_text(events, board.smart_board(_snaps(), events), hours=hours)}
+    read = agent.market_read(time.time() - hours * 3600)
+    return {"hours": hours, "events": events, "text": read["text"], "stories": read["stories"],
+            "sentiment": read["sentiment"]}
 
 
 @app.get("/health")

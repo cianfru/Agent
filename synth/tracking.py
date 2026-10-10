@@ -45,10 +45,14 @@ class GroupTracker:
         self._purge_v1_derive_groups()
 
     def _purge_v1_derive_groups(self) -> None:
+        """Remove Derive groups that cannot be right: the old top-4-legs detector's, and every Derive group
+        while they are off (Cowboy's books update once a day, so their 'opens' arrive in daily bursts)."""
         for g in self.store.groups(limit=10_000):
-            if g["venue"] == "derive" and g["meta"].get("detector") != DERIVE_DETECTOR:
+            if g["venue"] != "derive":
+                continue
+            if not self.s.derive_groups or g["meta"].get("detector") != DERIVE_DETECTOR:
                 self.store.delete_group(g["id"])
-                log.info("purged false Derive group #%s", g["id"])
+                log.info("purged Derive group #%s", g["id"])
 
     # ------------------------------------------------------------------ step --
     async def step(self, snaps: dict[str, dict], prevs: dict[str, dict | None], seeding: set[str],
@@ -72,7 +76,7 @@ class GroupTracker:
         if "reflex" in snaps and self.reflex:
             created += await self._hl_groups(snaps["reflex"], mids, now)
         derive_created: list[dict] = []
-        if "cowboy" in snaps:
+        if "cowboy" in snaps and self.s.derive_groups:
             derive_created = await self._derive_groups(snaps["cowboy"], now)
             created += derive_created
         burst = len(derive_created) > MAX_DERIVE_GROUPS_PER_POLL

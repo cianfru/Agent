@@ -46,7 +46,7 @@ Each poll (every 5 minutes by default) runs four steps:
 Every convergence becomes a numbered group (`#7 STRK short`), and every trader in it is tracked until they close.
 
 - **Hyperliquid groups** come from Reflex's convergences. Reflex gives each trader's wallet, entry, size and time (`/api/hyperlens/opens/{coin}`). Each wallet is then read straight from Hyperliquid's free public API (`synth/hyperliquid.py`). A close is priced from the trader's own closing fills, which also give realised PnL. If no fills are found, the price is the mid when the position was seen gone, marked ≈.
-- **Derive groups** form when 2+ smart option wallets open legs in the same direction on one coin within `SYNTH_FAST_CONVERGENCE_HOURS`. Each leg is followed in the trader's published book (`traders/{address}.json`). A leg that disappears before expiry is closed (at its last mark, marked ≈); after expiry it is expired.
+- **Derive groups are off by default** (`SYNTH_DERIVE_GROUPS=1` turns them on). Cowboy builds each trader's book from its daily trader history, so new positions show up once a day in a burst, a day or two late, which can't be timed as convergences. Turn them on once Cowboy publishes positions as they trade. When on: Derive groups form when 2+ smart option wallets open legs in the same direction on one coin within `SYNTH_FAST_CONVERGENCE_HOURS`. Each leg is followed in the trader's published book (`traders/{address}.json`). A leg that disappears before expiry is closed (at its last mark, marked ≈); after expiry it is expired.
 - **New fast groups** that formed in the last 2 hours arrive on Telegram as a chart and a caption, with **Follow / Ignore** buttons.
   - The chart shows 48 hours of price, each entry, and the line beyond which every trader in the group is losing.
   - The caption lists each wallet with size and entry, the entry range, the price now, and that line.
@@ -100,7 +100,17 @@ Open the service's root URL (`/`) for a private dashboard. If `SYNTH_API_KEY` is
 - **Picks:** every logged pick with 1d, 3d and 7d results and a running hit rate.
 - **Ask:** a free-form question answered from current data.
 
-The **hourly pulse** is a plain-text summary of the last hour's events by coin, plus coins where the layers agree. It is built in code (no model cost) and sent to Telegram only when something happened. Set the cadence with `SYNTH_PULSE_MINUTES` and the bar with `SYNTH_PULSE_MIN_SCORE`.
+The **market read** goes to Telegram at `SYNTH_PULSE_HOURS_UTC` (default 06, 10, 14 and 18 UTC; none at night). It is built in code (`synth/stories.py`), with no model cost:
+- **The overall smart-money lean on Hyperliquid:** shorts $ vs longs $, positions opened each side in 24 hours, and the change since the last read.
+- **One Derive line** for BTC, ETH and HYPE.
+- **"Where it's crowding":** coins where smart money is moving and market data or a second smart signal agrees, for example `STRK short · shorts piling in · 4 smart shorts in 3h (#7) · open interest +34% · funding negative: shorts crowded`.
+
+**Toxic flow (VPIN)** gets priority. VPIN is Reflex's measure of how one-sided taker flow is: 55% and up is toxic, 70% and up is critical. Its side comes from the coin's CVD reading.
+- A coin with toxic flow goes to the top of "Where it's crowding".
+- Toxic coins with no smart-money story get their own line.
+- Critical flow on the same side as smart money is an immediate Telegram alert. It counts toward the daily cap and isn't repeated within 12 hours.
+
+Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell imbalance, funding extreme) is never sent. It only appears as context for smart money. The same read is shown at the top of the dashboard's Now tab.
 
 ## API
 
