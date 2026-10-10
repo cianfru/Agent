@@ -14,7 +14,9 @@ Each poll reads every tracked trader from Hyperliquid's public API (one light re
 - logs every new position as a pick scored at 14 and 30 days (the forward record);
 - keeps, from the daily scan of big accounts in profit all-time ($500K+), their long and short per coin ("big money"):
   Reflex's profitable traders are picked by monthly return, which a $200M account cannot make, so the biggest and
-  steadiest money is invisible there; the board and the build-up alert show both;
+  steadiest money is invisible there; the board and the build-up alert show both. Big money counts owners, one vote
+  each (owner, 10 October 2026): an owner's wallets (`synth/data/owners.json`, from study E1) are netted per coin and
+  vote long or short from $25K, with dollars beside, so one giant account (or a hedge) cannot decide the reading;
 - alerts on a **conviction** bet (a new position at least 2x the trader's usual size within 4 hours, S3's rule) and on a
   **build-up** (3+ tracked traders adding to one coin within 72 hours, $250K+ in all, while its price moved under 15%:
   the shape NEAR had before its move). BTC and ETH are left out of the build-up alert (owner, 10 October 2026): they
@@ -42,6 +44,7 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 SEED = Path(__file__).parent / "data" / "position_traders.json"
+OWNERS = Path(__file__).parent / "data" / "owners.json"
 LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
 
 CONVICTION_X = 2.0                 # times the trader's usual (median) position size
@@ -64,7 +67,37 @@ BUILD_MIN_TOTAL_USD = 250_000
 BUILD_MAX_MOVE = 0.15
 BUILD_COOLDOWN_S = 72 * 3600
 MAX_BUILD_ALERTS_PER_DAY = 3
+BIG_MIN_VOTE_USD = 25_000          # an owner's net position in a coin counts as a big-money vote from $25K
 MAJORS = ("BTC", "ETH")            # direction, not build-ups: shown on their own, left out of the build-up alert
+
+
+def load_owners(path: Path = OWNERS) -> dict[str, str]:
+    """Wallet -> owner (the group's first wallet), for wallets known to share one owner."""
+    try:
+        groups = json.loads(path.read_text()).get("groups") or []
+    except (OSError, ValueError):
+        return {}
+    return {w.lower(): g[0].lower() for g in groups for w in g}
+
+
+def owner_votes(states: dict[str, dict], owners: dict[str, str], min_usd: float = BIG_MIN_VOTE_USD) -> dict:
+    """Per coin, one vote per owner: its wallets' positions netted, long or short from `min_usd`, the net dollars
+    beside. Pure."""
+    net: dict[tuple[str, str], float] = {}
+    for a, st in states.items():
+        o = owners.get(a.lower(), a.lower())
+        for coin, p in (st.get("positions") or {}).items():
+            v = abs(p["notional"]) * (1 if p["side"] == "long" else -1)
+            net[(o, coin)] = net.get((o, coin), 0.0) + v
+    agg: dict[str, dict] = {}
+    for (_, coin), v in net.items():
+        if abs(v) < min_usd:
+            continue
+        c = agg.setdefault(coin, {"long_n": 0, "short_n": 0, "long_usd": 0, "short_usd": 0})
+        side = "long" if v > 0 else "short"
+        c[f"{side}_n"] += 1
+        c[f"{side}_usd"] += round(abs(v))
+    return agg
 
 
 def load_seed(path: Path = SEED) -> dict:
@@ -121,9 +154,11 @@ def build_text(b: dict) -> str:
              f"{move}{hold}"]
     lines.append(f"Against: {usd(b.get('against_usd') or 0)} {other} among tracked traders")
     bm = b.get("big_money")
-    if bm:
-        lean = "agrees" if (bm["long_usd"] > bm["short_usd"]) == (b["side"] == "long") else "leans the other way"
-        lines.append(f"Big money (daily): {usd(bm['long_usd'])} long / {usd(bm['short_usd'])} short, {lean}")
+    if bm and bm["long_n"] + bm["short_n"]:
+        mine, theirs = (bm["long_n"], bm["short_n"]) if b["side"] == "long" else (bm["short_n"], bm["long_n"])
+        lean = "agrees" if mine > theirs else "leans the other way" if theirs > mine else "is split"
+        lines.append(f"Big money (daily): {bm['long_n']} owners long ({usd(bm['long_usd'])}) / {bm['short_n']} short "
+                     f"({usd(bm['short_usd'])}), {lean}")
     lines.append("Context, not a signal.")
     return "\n".join(lines)
 
@@ -341,7 +376,9 @@ class PositionTraders:
     # ------------------------------------------------------------- discovery --
     def discover_due(self, now: float | None = None) -> bool:
         last = self.store.latest_brief("pt_discover")
-        return not self.discovering and (last is None or (now or time.time()) - last["ts"] >= DISCOVER_EVERY_S)
+        bm = self.store.latest_brief("pt_bigmoney")
+        stale = bm is not None and bm.get("counted") != "owners"     # a scan from before owners were counted
+        return not self.discovering and (last is None or stale or (now or time.time()) - last["ts"] >= DISCOVER_EVERY_S)
 
     async def discover(self, now: float | None = None, rows: list[dict] | None = None, hl: HL | None = None) -> dict:
         """Find traders riding big open winners: leaderboard (daily download) -> positions now -> the riding rule."""
@@ -370,29 +407,30 @@ class PositionTraders:
             self.discovering = False
 
     def big_money(self) -> dict[str, dict]:
-        """Per coin, from the last daily scan: big accounts in profit all-time, long and short (count and dollars)."""
+        """Per coin, from the last daily scan: big accounts in profit all-time, owners long and short, dollars beside."""
         b = self.store.latest_brief("pt_bigmoney")
         return (b or {}).get("coins") or {}
 
     async def _scan(self, hl: HL, cands: dict[str, dict], now: float) -> int:
         found, addrs = 0, list(cands)
-        agg: dict[str, dict] = {}
+        held: dict[str, dict] = {}
         for i in range(0, len(addrs), 4):
             chunk = addrs[i:i + 4]
             states = await asyncio.gather(*(hl.account(a) for a in chunk), return_exceptions=True)
             for a, st in zip(chunk, states):
                 if isinstance(st, Exception) or not st:
                     continue
-                for coin, p in (st.get("positions") or {}).items():
-                    c = agg.setdefault(coin, {"long_n": 0, "short_n": 0, "long_usd": 0, "short_usd": 0})
-                    c[f"{p['side']}_n"] += 1
-                    c[f"{p['side']}_usd"] += round(p["notional"])
+                if st.get("positions"):
+                    held[a] = {"positions": st["positions"]}
                 q = ride_qualifies(st, cands[a])
                 if q:
                     self.store.pt_list_upsert(a, q, now)
                     found += 1
             await asyncio.sleep(1.0)   # about 4 reads a second: well inside the per-IP budget
-        self.store.add_brief("pt_bigmoney", {"coins": agg, "wallets": len(addrs)})
+        owners = load_owners()
+        agg = owner_votes(held, owners)
+        self.store.add_brief("pt_bigmoney", {"coins": agg, "wallets": len(addrs), "counted": "owners",
+                                             "owners": len({owners.get(a, a) for a in held})})
         return found
 
     # ----------------------------------------------------------------- board --

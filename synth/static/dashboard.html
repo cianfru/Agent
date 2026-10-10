@@ -155,7 +155,7 @@
     <div class="kpis" id="kpis"></div>
     <div class="card" style="margin-bottom:16px">
       <h2>Direction: BTC and ETH</h2>
-      <p class="hint">Where each group's money points on the two majors, 50% marked in the middle. A read of sentiment; build-up alerts and the tables below are about the other coins.</p>
+      <p class="hint">Share of each group long on the two majors, counting people (one vote per trader; per owner for big money), 50% in the middle, dollars on hover. A read of sentiment; build-up alerts and the tables below are about the other coins.</p>
       <div class="grid g2e" id="direction" style="margin:0"></div>
     </div>
     <div class="grid g2">
@@ -179,8 +179,8 @@
     </div>
     <div class="card" style="margin-bottom:16px">
       <h2>Three lenses on the other coins</h2>
-      <div class="legend"><span><i style="background:var(--crowd)"></i>Crowd: Reflex's profitable traders (30%+ monthly return)</span><span><i style="background:var(--tracked)"></i>Tracked: proven and riding winners</span><span><i style="background:var(--big)"></i>Big money: $500K+ accounts in profit all-time (daily)</span></div>
-      <p class="hint">Each bar is that group's money, long (green) against short (red). When the three agree the picture is clean; when they disagree, the small fast winners and the big steady money are on opposite sides.</p>
+      <div class="legend"><span><i style="background:var(--crowd)"></i>Crowd: Reflex's profitable traders (30%+ monthly return)</span><span><i style="background:var(--tracked)"></i>Tracked: proven and riding winners</span><span><i style="background:var(--big)"></i>Big money: $500K+ accounts in profit all-time, one vote per owner (daily)</span></div>
+      <p class="hint">Each bar counts people long (green) against short (red), one vote per trader (per owner for big money), with their dollars under it. When the three agree the picture is clean; when they disagree, the small fast winners and the big steady money are on opposite sides.</p>
       <div class="scroll"><table id="lenses"><thead><tr><th>Coin</th><th>Price</th><th style="color:var(--crowd)">Crowd</th><th style="color:var(--tracked)">Tracked</th><th style="color:var(--big)">Big money</th><th>Read</th></tr></thead><tbody></tbody></table></div>
     </div>
     <details class="card"><summary><b>Market read</b> <span class="muted">(the text sent to Telegram)</span></summary><pre id="read" style="margin-top:12px"></pre></details>
@@ -409,9 +409,9 @@ function groupedBars(el, groups, series, opts = {}) {
 }
 
 function lensCell(x, color) {
-  if (!x || (!x.long_usd && !x.short_usd)) return '<span class="muted">-</span>';
-  const tot = x.long_usd + x.short_usd, l = 100 * x.long_usd / tot;
-  return `<div class="lens"><div class="bar" title="${Math.round(l)}% long by money"><i class="l" style="width:${l}%"></i><i class="s" style="width:${100 - l}%"></i></div>
+  if (!x || (!x.long_n && !x.short_n)) return '<span class="muted">-</span>';
+  const tot = x.long_n + x.short_n, l = 100 * x.long_n / tot;
+  return `<div class="lens"><div class="bar" title="${Math.round(l)}% of them long"><i class="l" style="width:${l}%"></i><i class="s" style="width:${100 - l}%"></i></div>
     <div class="lbl"><span class="long">${x.long_n != null ? x.long_n + " · " : ""}${usd(x.long_usd)}</span><span class="short">${x.short_n != null ? x.short_n + " · " : ""}${usd(x.short_usd)}</span></div></div>`;
 }
 const AGREE = { "all long": ["al", "all long"], "all short": ["as", "all short"], "disagree": ["dis", "disagree"], "mixed": ["mx", "mixed"], "one lens": ["mx", "one lens"] };
@@ -435,13 +435,13 @@ async function loadDesk() {
     (cy && cy.type ? `; market <span class="acc">risk-${cy.type}</span> for ${cy.age_days} days.` : ".");
   $("#subline").textContent = [
     c.change_24h != null ? `Crowd ${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} points in 24h.` : "",
-    bm.share_long != null ? `Big money (accounts of $500K+ in profit all-time) is ${bm.share_long.toFixed(0)}% long by dollars: ${usd(bm.long_usd)} long against ${usd(bm.short_usd)} short.` : "",
+    bm.share_long != null ? `Big money (accounts of $500K+ in profit all-time, one vote per owner): ${bm.share_long.toFixed(0)}% of their positions long, ${usd(bm.long_usd)} long against ${usd(bm.short_usd)} short.` : "",
     cy && cy.median_days ? `Past risk-${cy.type} runs lasted ${Math.round(cy.median_days)} days on the median; ${cy.lasted_30_more} of ${cy.reached_age} that reached day ${cy.age_days} lasted 30 more.` : "",
     `${k.alerts_24h} alerts in 24 hours.`].filter(Boolean).join(" ");
   const tile = (label, v, d, dir, sp) => `<div class="kpi ${dir}"><b>${label}</b><div class="v">${v}</div><div class="d">${d}</div>${sp || ""}</div>`;
   $("#kpis").innerHTML =
     tile("Crowd long", c.share_long == null ? "-" : c.share_long.toFixed(1) + "%", c.change_24h == null ? "profitable traders" : `${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} pts 24h`, cls(c.share_long), spark(c.spark, cssv("--crowd"))) +
-    tile("Big money long", bm.share_long == null ? "-" : bm.share_long.toFixed(0) + "%", bm.ts ? `by dollars · ${ago(bm.ts)} ago` : "first scan pending", cls(bm.share_long)) +
+    tile("Big money long", bm.share_long == null ? "-" : bm.share_long.toFixed(0) + "%", bm.ts ? `${bm.owners ? bm.owners + " owners" : "owners"} · ${ago(bm.ts)} ago` : "first scan pending", cls(bm.share_long)) +
     tile("Tracked long", tr.share_long == null ? "-" : tr.share_long.toFixed(0) + "%", `${tr.traders} traders · ${tr.riding} riding`, cls(tr.share_long)) +
     tile("Uptrend share", cy && cy.uptrend != null ? cy.uptrend.toFixed(0) + "%" : "-", cy && cy.type ? `risk-${cy.type} · day ${cy.age_days}` : "Reflex history pending", cy && cy.type === "on" ? "up" : cy && cy.type === "off" ? "down" : "") +
     tile("BTC", k.btc && k.btc.price ? px(k.btc.price) : "-", k.btc && k.btc.change_24h != null ? pct(k.btc.change_24h) + " 24h" : "", k.btc && k.btc.change_24h > 0 ? "up" : k.btc && k.btc.change_24h < 0 ? "down" : "") +
@@ -460,8 +460,8 @@ function alertCard(a) {
   if (m) {
     head = `${m[1]} <span class="${m[2]}">${m[2]}</span>`;
     body = `${m[3]} tracked traders added ${m[4]} in 3 days${/n\/a/.test(m[5]) ? "" : " · " + m[5].split(" · ")[0]}`;
-    const b = a.text.match(/Big money \(daily\): ([^\n]*), (agrees|leans the other way)/);
-    if (b) bm = `<span class="${b[2] === "agrees" ? "up-t" : "down-t"}">big money ${b[2]}</span> <span class="muted">(${esc(b[1])})</span>`;
+    const b = a.text.match(/Big money \(daily\): ([^\n]*), (agrees|leans the other way|is split)/);
+    if (b) bm = `<span class="${b[2] === "agrees" ? "up-t" : b[2] === "is split" ? "muted" : "down-t"}">big money ${b[2]}</span> <span class="muted">(${esc(b[1])})</span>`;
     head = `<span class="k">build-up</span>${head}`;
     return `<div class="alert ${kc}"><span class="h">${head}</span><span class="w">${ago(a.ts)}</span><span class="t">${esc(body)}</span>${bm ? `<span class="bm">${bm}</span>` : ""}</div>`;
   }
@@ -488,7 +488,7 @@ function renderDirection() {
   }).join("");
   d.direction.forEach((m, k) => stackChart($("#dirchart" + k), m.series.map((p) => p[0]), [
     { label: m.coin, vals: m.series.map((p) => p[2]), color: cssv("--t1"), h: 64, fmt: (v) => px(v) },
-    { label: "Crowd, % long by money", vals: m.series.map((p) => p[1]), color: cssv("--crowd"), h: 58, fmt: (v) => v.toFixed(0) + "%", ref: 50, area: true },
+    { label: "Crowd, % of traders long", vals: m.series.map((p) => p[1]), color: cssv("--crowd"), h: 58, fmt: (v) => v.toFixed(0) + "%", ref: 50, area: true },
   ], { aria: `${m.coin} and the share of the crowd's money long, 7 days`, empty: "The line fills as the agent polls." }));
 }
 function renderCrowd() {
@@ -606,7 +606,7 @@ async function loadTraders() { ptData = await api("/position-traders"); renderTr
 function renderTraders() {
   const d = ptData; if (!d) return;
   const disc = d.discover ? ` Riders last scanned ${ago(d.discover.ts)} ago: ${d.discover.riding} of ${d.discover.candidates} big accounts.` : " Riders: first scan pending.";
-  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3, ${d.as_of}). Riding winners: $250K+ open profit with a real winner, in profit all-time, found daily.${disc} Big money: every account of $500K+ in profit all-time, long and short per coin from the daily scan (by dollars; the biggest of them never make Reflex's monthly-return list). Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
+  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3, ${d.as_of}). Riding winners: $250K+ open profit with a real winner, in profit all-time, found daily.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
   const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
   const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
   $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>
@@ -629,7 +629,7 @@ function renderTraders() {
       <td class="n"><span class="short">${c.short_n}</span> ${usd(c.short_usd)}</td>
       <td><div class="lsbar" title="${Math.round(100 * c.long_usd / tot)}% long by money"><i class="l" style="width:${100 * c.long_usd / tot}%"></i><i class="s" style="width:${100 * c.short_usd / tot}%"></i></div></td>
       <td class="n">${h == null ? "-" : Math.round(h) + "d"}</td>
-      <td class="n">${c.big_money ? `<span class="long">${usd(c.big_money.long_usd)}</span> / <span class="short">${usd(c.big_money.short_usd)}</span>` : "-"}</td></tr>`; }).join("")
+      <td class="n">${c.big_money ? `<span class="long">${c.big_money.long_n} · ${usd(c.big_money.long_usd)}</span> / <span class="short">${c.big_money.short_n} · ${usd(c.big_money.short_usd)}</span>` : "-"}</td></tr>`; }).join("")
     : '<tr><td colspan="6" class="empty">No positions read yet. The first poll fills this.</td></tr>';
   $("#ptlist").innerHTML = traders.map((t) => {
     const pos = t.positions.length ? `<div class="scroll"><table><thead><tr><th>Coin</th><th>Side</th><th>Value</th><th>Entry</th><th>Held</th><th>PnL</th></tr></thead><tbody>${
