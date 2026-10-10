@@ -52,7 +52,7 @@ Every convergence becomes a numbered group (`#7 STRK short`), and every trader i
   - The caption lists each wallet with size and entry, the entry range, the price now, and that line.
 - **Followed groups** message you when a trader cuts size by half or more or closes (exit, result, time held), and with a summary when all are out. Unfollowed groups are recorded only.
 - **On the dashboard:** the Groups tab shows every group trader by trader, with a Follow toggle and the scoreboard (closed in profit, average result).
-- **In Telegram:** `/now` sends the live pulse; `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
+- **In Telegram:** `/now` sends the live pulse; `/positions` what the proven position traders hold; `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
 
 Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
 
@@ -69,6 +69,27 @@ Where it shows:
 - **Dashboard, Now tab:** the Pulse panel follows the 1h / 6h / 24h / 3d selector. Tiles show long and short positions now with their change; the share of positions that are long, as a line you can hover; and coins moving long (green) and moving short (red). Event cards are green or red by direction too.
 - **Telegram:** the market read (06, 10, 14, 18 UTC) now comes as a picture: the 24h line of the share long, and a map of the most active coins with their L / S change and net size in the last 1h, 6h and 24h, coloured by direction. Send `/now` at any time for the same picture with a two-line summary.
 - **API:** `GET /flow?hours=6` (JSON) and `GET /flow.png` (the picture).
+
+## Proven position traders (study S3)
+
+The traders who hold size for days or weeks and have a record of doing it well, picked by study S3
+(`docs/studies/S3-position-traders.md`): 5+ positions held 3+ days, those at least half the size they trade, profitable
+with a profit factor of 1.5+. The list (66 traders on 10 October 2026, with their records, usual position size and
+since-when for what they held) is `synth/data/position_traders.json`.
+
+Each poll reads every one of them from Hyperliquid's public API, one light request each (`synth/position_traders.py`):
+- **What they hold now:** coin, side, value, entry, how long they have held it, unrealised PnL, and the trader's leverage
+  (open position value over account value).
+- **New positions** of $10K or more are logged as picks entered at Hyperliquid's mid, scored at 14 and 30 days
+  (the forward record that confirms or kills S3's result). Positions held when the agent first sees a trader are the
+  starting point: no alert, no pick.
+- **Conviction alert** (Telegram, at most 5 a day): a new position worth at least twice the trader's usual size within
+  4 hours of opening, the one S3 result that met its bar (pending the forward record). One line: coin, side, size,
+  how many times their usual, the record and leverage now.
+
+Where it shows: the dashboard's **Traders** tab (by coin: traders long and short and dollars each side; each trader's
+record and positions; filter to leverage 5x or less; the forward record), `GET /position-traders`, and `/positions` in
+Telegram.
 
 ## Daily brief (Telegram, after 08:00 UTC)
 
@@ -141,6 +162,7 @@ Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell im
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
+| `GET /position-traders` | Proven position traders: records, what they hold now and since when, the forward record |
 | `GET /study` | Convergences by the engine's reading when they formed, and how they went |
 | `GET /posts` | Desk posts (draft, published, failed, rejected) |
 | `POST /posts/daily?publish=false` | Write today's post now |
