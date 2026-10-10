@@ -52,7 +52,7 @@ Every convergence becomes a numbered group (`#7 STRK short`), and every trader i
   - The caption lists each wallet with size and entry, the entry range, the price now, and that line.
 - **Followed groups** message you when a trader cuts size by half or more or closes (exit, result, time held), and with a summary when all are out. Unfollowed groups are recorded only.
 - **On the dashboard:** the Groups tab shows every group trader by trader, with a Follow toggle and the scoreboard (closed in profit, average result).
-- **In Telegram:** `/now` sends the live pulse; `/positions` what the proven position traders hold; `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
+- **In Telegram:** `/now` sends the live pulse; `/positions` what the tracked traders hold and are adding; `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
 
 Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
 
@@ -70,26 +70,33 @@ Where it shows:
 - **Telegram:** the market read (06, 10, 14, 18 UTC) now comes as a picture: the 24h line of the share long, and a map of the most active coins with their L / S change and net size in the last 1h, 6h and 24h, coloured by direction. Send `/now` at any time for the same picture with a two-line summary.
 - **API:** `GET /flow?hours=6` (JSON) and `GET /flow.png` (the picture).
 
-## Proven position traders (study S3)
+## Tracked traders: proven and riding winners
 
-The traders who hold size for days or weeks and have a record of doing it well, picked by study S3
-(`docs/studies/S3-position-traders.md`): 5+ positions held 3+ days, those at least half the size they trade, profitable
-with a profit factor of 1.5+. The list (66 traders on 10 October 2026, with their records, usual position size and
-since-when for what they held) is `synth/data/position_traders.json`.
+Two groups, both read every poll from Hyperliquid's public API, one light request per trader (`synth/position_traders.py`):
+- **Proven** (study S3 with the owner's amendment; `synth/data/position_traders.json`, 100 on 10 October 2026): 5+
+  positions held 3+ days, **open ones counted at their unrealised PnL**, those positions at least half the size the
+  trader trades, in profit with a profit factor of 1.5+. Closed positions are not the only record: the trader who opened
+  NEAR near the bottom and still holds it counts.
+- **Riding winners**, found once a day from Hyperliquid's leaderboard (accounts of $500K+, in profit all-time, not market
+  makers): open positions with $250K+ unrealised profit, one of them up 20%+ on its value. No history needed. A rider who
+  stops qualifying for 14 days drops off.
 
-Each poll reads every one of them from Hyperliquid's public API, one light request each (`synth/position_traders.py`):
-- **What they hold now:** coin, side, value, entry, how long they have held it, unrealised PnL, and the trader's leverage
-  (open position value over account value).
-- **New positions** of $10K or more are logged as picks entered at Hyperliquid's mid, scored at 14 and 30 days
-  (the forward record that confirms or kills S3's result). Positions held when the agent first sees a trader are the
-  starting point: no alert, no pick.
-- **Conviction alert** (Telegram, at most 5 a day): a new position worth at least twice the trader's usual size within
-  4 hours of opening, the one S3 result that met its bar (pending the forward record). One line: coin, side, size,
-  how many times their usual, the record and leverage now.
+Leverage is shown for every trader (low under 3x, moderate 3-5x, high over 5x), never used to leave anyone out.
 
-Where it shows: the dashboard's **Traders** tab (by coin: traders long and short and dollars each side; each trader's
-record and positions; filter to leverage 5x or less; the forward record), `GET /position-traders`, and `/positions` in
-Telegram.
+What the agent does with them:
+- **Holdings:** coin, side, value, entry, held since (unknown for riders until the agent sees them open something),
+  unrealised PnL, leverage now.
+- **Adding:** every add and cut is recorded; the dashboard shows, per coin and side, how many traders added and the net
+  dollars over 24 hours and 7 days.
+- **Build-up alert** (Telegram, at most 3 a day, one per coin and side per 72 hours): 3+ tracked traders each add $25K+,
+  $250K+ in all, within 72 hours, while the price moved under 15%. The shape NEAR had before its move. Context, not a
+  signal.
+- **Conviction alert** (at most 5 a day): a new position at least 2x the trader's usual size within 4 hours of opening.
+- **Forward record:** every new position of $10K+ is a pick at Hyperliquid's mid, scored at 14 and 30 days.
+
+Where it shows: the dashboard's **Traders** tab (by coin; what they are adding; each trader with group, record,
+leverage and positions; filters for proven, riding and leverage 5x or less), `GET /position-traders`, and `/positions`
+in Telegram (holdings by coin and what they added this week).
 
 ## Daily brief (Telegram, after 08:00 UTC)
 
@@ -162,7 +169,7 @@ Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell im
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
-| `GET /position-traders` | Proven position traders: records, what they hold now and since when, the forward record |
+| `GET /position-traders` | Tracked traders (proven and riding winners): records, holdings, what they are adding, the forward record |
 | `GET /study` | Convergences by the engine's reading when they formed, and how they went |
 | `GET /posts` | Desk posts (draft, published, failed, rejected) |
 | `POST /posts/daily?publish=false` | Write today's post now |

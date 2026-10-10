@@ -42,9 +42,19 @@ async def _loop(agent: Agent) -> None:
             await _maybe_daily_brief(agent)
             await _maybe_desk_posts(agent)
             await _maybe_pulse(agent)
+            if agent.positions.enabled and agent.positions.discover_due():
+                asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
+
+
+async def _discover(agent: Agent) -> None:
+    try:
+        await agent.positions.discover()
+    except Exception:  # noqa: BLE001 - tried again the next day
+        log.exception("trader discovery failed")
+        agent.positions.discovering = False
 
 
 async def _maybe_daily_brief(agent: Agent) -> None:
