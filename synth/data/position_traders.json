@@ -1,111 +1,31 @@
 {
  "as_of": "2026-10-10",
- "rule": "S3: 5+ positions held 3+ days, those at least half the size traded, profitable with profit factor 1.5+ (docs/studies/S3-position-traders.md)",
+ "version": 2,
+ "rule": {
+  "proven": "5+ positions held 3+ days (open ones count at their unrealised PnL), those at least half the size traded, in profit with a profit factor of 1.5+ (study S3, owner's amendment)",
+  "riding": "open positions with at least $250K unrealised profit, one of them at least 20% up on its value, in profit all-time, not a market maker"
+ },
  "traders": [
   {
-   "address": "0x2d99fe0f36c1aebd28a1a2c0e82e8ca13c2ea351",
-   "swing_positions": 13,
-   "swing_pnl": 4781947,
-   "profit_factor": 40.06,
-   "win_rate": 0.923,
-   "median_hold_days": 15.1,
-   "median_size": 2215892,
-   "long_share": 0.91,
-   "best": {
-    "coin": "BTC",
-    "side": "long",
-    "pnl": 1653216,
-    "opened": "2026-02-09",
-    "closed": "2026-05-06"
-   },
-   "open_since": {
-    "HYPE:long": 1791476747.165
-   }
-  },
-  {
-   "address": "0xfb941d2344b72ea9101400392b818173772d0ddf",
-   "swing_positions": 16,
-   "swing_pnl": 3451490,
-   "profit_factor": 27.17,
-   "win_rate": 0.875,
-   "median_hold_days": 15.0,
-   "median_size": 1242900,
-   "long_share": 0.96,
-   "best": {
-    "coin": "ETH",
-    "side": "long",
-    "pnl": 1116245,
-    "opened": "2026-09-16",
-    "closed": "2026-10-04"
-   },
-   "open_since": {}
-  },
-  {
-   "address": "0xfb8c34145bdea190693325d0ab01e81120909b3f",
-   "swing_positions": 25,
-   "swing_pnl": 2657627,
-   "profit_factor": 5.26,
-   "win_rate": 0.68,
-   "median_hold_days": 12.4,
-   "median_size": 80650,
-   "long_share": 0.15,
-   "best": {
-    "coin": "BTC",
-    "side": "short",
-    "pnl": 1421462,
-    "opened": "2025-10-23",
-    "closed": "2025-11-21"
-   },
-   "open_since": {
-    "XMR:short": null
-   }
-  },
-  {
-   "address": "0x0748e296e5a350ec36c8487a1cea406e1b57d4b2",
-   "swing_positions": 15,
-   "swing_pnl": 2353792,
-   "profit_factor": 6.98,
-   "win_rate": 0.667,
-   "median_hold_days": 13.7,
-   "median_size": 861919,
-   "long_share": 0.93,
-   "best": {
-    "coin": "ZEC",
-    "side": "long",
-    "pnl": 1264504,
-    "opened": "2026-07-03",
-    "closed": "2026-09-29"
-   },
-   "open_since": {
-    "AAVE:long": null,
-    "XLM:short": null,
-    "JUP:long": null,
-    "INJ:short": null,
-    "AERO:long": 1791065484.018,
-    "XRP:short": 1790562868.213,
-    "SUI:short": null,
-    "ADA:short": null,
-    "UNI:long": 1791065530.054,
-    "MON:short": 1789979918.169,
-    "ZRO:long": null
-   }
-  },
-  {
    "address": "0x5f94a51948d2376ad34a6fadfa2544e651b74b96",
-   "swing_positions": 28,
-   "swing_pnl": 2035583,
-   "profit_factor": 2.25,
-   "win_rate": 0.536,
-   "median_hold_days": 50.5,
-   "median_size": 578788,
-   "long_share": 0.27,
+   "tier": "proven",
+   "swing_positions": 42,
+   "realized_swing_pnl": 2035583,
+   "open_swing_pnl": 4782176,
+   "swing_pnl": 6817759,
+   "profit_factor": 4.4,
+   "win_rate": 0.619,
+   "median_hold_days": 59.0,
+   "median_size": 656239,
+   "long_share": 0.39,
    "best": {
-    "coin": "TRUMP",
-    "side": "short",
-    "pnl": 1215311,
-    "opened": "2025-10-27",
-    "closed": "2026-08-22"
+    "coin": "LIT",
+    "side": "long",
+    "pnl": 1539711,
+    "opened": "2026-06-08",
+    "closed": null
    },
+   "alltime_pnl": 15095140.946339,
    "open_since": {
     "TRUMP:short": 1787398754.584,
     "WLFI:short": 1771445661.685,
@@ -126,13 +46,95 @@
    }
   },
   {
+   "address": "0x2d99fe0f36c1aebd28a1a2c0e82e8ca13c2ea351",
+   "tier": "proven",
+   "swing_positions": 13,
+   "realized_swing_pnl": 4781947,
+   "open_swing_pnl": 0,
+   "swing_pnl": 4781947,
+   "profit_factor": 40.06,
+   "win_rate": 0.923,
+   "median_hold_days": 15.1,
+   "median_size": 2215892,
+   "long_share": 0.91,
+   "best": {
+    "coin": "BTC",
+    "side": "long",
+    "pnl": 1653216,
+    "opened": "2026-02-09",
+    "closed": "2026-05-06"
+   },
+   "alltime_pnl": 9035633.234197,
+   "open_since": {
+    "HYPE:long": 1791476747.165
+   }
+  },
+  {
+   "address": "0x4cae5bed586f6e73ae54ebd40a4ac4ed2c477c34",
+   "tier": "proven",
+   "swing_positions": 24,
+   "realized_swing_pnl": -53464,
+   "open_swing_pnl": 4490626,
+   "swing_pnl": 4437162,
+   "profit_factor": 29.16,
+   "win_rate": 0.5,
+   "median_hold_days": 8.3,
+   "median_size": 229806,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 1939355,
+    "opened": "2026-08-17",
+    "closed": null
+   },
+   "alltime_pnl": 4413608.897949,
+   "open_since": {
+    "SYRUP:long": 1787563679.585,
+    "GRASS:long": 1791187688.36,
+    "LIT:long": 1785650857.597,
+    "ENA:long": 1787797250.184,
+    "HYPE:long": 1784263448.297,
+    "NEAR:long": 1786973571.631,
+    "XPL:long": 1790219021.661,
+    "ZEC:long": 1786374167.649,
+    "PUMP:long": 1785508819.291,
+    "TAO:long": 1788167187.449
+   }
+  },
+  {
+   "address": "0xfb941d2344b72ea9101400392b818173772d0ddf",
+   "tier": "proven",
+   "swing_positions": 16,
+   "realized_swing_pnl": 3451490,
+   "open_swing_pnl": 0,
+   "swing_pnl": 3451490,
+   "profit_factor": 27.17,
+   "win_rate": 0.875,
+   "median_hold_days": 15.0,
+   "median_size": 1242900,
+   "long_share": 0.96,
+   "best": {
+    "coin": "ETH",
+    "side": "long",
+    "pnl": 1116245,
+    "opened": "2026-09-16",
+    "closed": "2026-10-04"
+   },
+   "alltime_pnl": 12473536.946501,
+   "open_since": {}
+  },
+  {
    "address": "0xe2823659be02e0f48a4660e4da008b5e1abfdf29",
-   "swing_positions": 10,
-   "swing_pnl": 1456134,
-   "profit_factor": 72.62,
-   "win_rate": 0.9,
-   "median_hold_days": 51.8,
-   "median_size": 549800,
+   "tier": "proven",
+   "swing_positions": 20,
+   "realized_swing_pnl": 1456134,
+   "open_swing_pnl": 1431302,
+   "swing_pnl": 2887436,
+   "profit_factor": 143.03,
+   "win_rate": 0.95,
+   "median_hold_days": 107.5,
+   "median_size": 270370,
    "long_share": 0.99,
    "best": {
     "coin": "ETH",
@@ -141,6 +143,7 @@
     "opened": "2025-10-10",
     "closed": "2026-08-21"
    },
+   "alltime_pnl": 5722458.329539,
    "open_since": {
     "ETH:long": 1791375313.373,
     "AAVE:long": 1760133944.506,
@@ -155,14 +158,157 @@
    }
   },
   {
+   "address": "0xfb8c34145bdea190693325d0ab01e81120909b3f",
+   "tier": "proven",
+   "swing_positions": 25,
+   "realized_swing_pnl": 2657627,
+   "open_swing_pnl": 0,
+   "swing_pnl": 2657627,
+   "profit_factor": 5.26,
+   "win_rate": 0.68,
+   "median_hold_days": 12.4,
+   "median_size": 80650,
+   "long_share": 0.15,
+   "best": {
+    "coin": "BTC",
+    "side": "short",
+    "pnl": 1421462,
+    "opened": "2025-10-23",
+    "closed": "2025-11-21"
+   },
+   "alltime_pnl": 8603980.871763,
+   "open_since": {
+    "XMR:short": null
+   }
+  },
+  {
+   "address": "0x0748e296e5a350ec36c8487a1cea406e1b57d4b2",
+   "tier": "proven",
+   "swing_positions": 19,
+   "realized_swing_pnl": 2353792,
+   "open_swing_pnl": -30319,
+   "swing_pnl": 2323473,
+   "profit_factor": 5.93,
+   "win_rate": 0.684,
+   "median_hold_days": 13.2,
+   "median_size": 764975,
+   "long_share": 0.9,
+   "best": {
+    "coin": "ZEC",
+    "side": "long",
+    "pnl": 1264504,
+    "opened": "2026-07-03",
+    "closed": "2026-09-29"
+   },
+   "alltime_pnl": 12753286.534395,
+   "open_since": {
+    "AAVE:long": null,
+    "XLM:short": null,
+    "JUP:long": null,
+    "INJ:short": null,
+    "AERO:long": 1791065484.018,
+    "XRP:short": 1790562868.213,
+    "SUI:short": null,
+    "ADA:short": null,
+    "UNI:long": 1791065530.054,
+    "MON:short": 1789979918.169,
+    "ZRO:long": null
+   }
+  },
+  {
+   "address": "0xcf67e4da9e9cd38c0afd26338d0fbddb3036eb24",
+   "tier": "proven",
+   "swing_positions": 17,
+   "realized_swing_pnl": -160480,
+   "open_swing_pnl": 2038612,
+   "swing_pnl": 1878132,
+   "profit_factor": 10.15,
+   "win_rate": 0.412,
+   "median_hold_days": 13.8,
+   "median_size": 167824,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 1153547,
+    "opened": "2026-08-21",
+    "closed": null
+   },
+   "alltime_pnl": 2552702.563397,
+   "open_since": {
+    "ZEC:long": 1787311002.586,
+    "NEAR:long": 1787336478.994,
+    "HYPE:long": 1787154710.201,
+    "AZTEC:long": 1788460360.928,
+    "PUMP:long": 1789585461.03
+   }
+  },
+  {
+   "address": "0xbe10fd36393c8b677281d0bc2cf1bb8c98ad4b34",
+   "tier": "proven",
+   "swing_positions": 43,
+   "realized_swing_pnl": 1853232,
+   "open_swing_pnl": -129106,
+   "swing_pnl": 1724126,
+   "profit_factor": 2.58,
+   "win_rate": 0.512,
+   "median_hold_days": 8.0,
+   "median_size": 212164,
+   "long_share": 0.76,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 891908,
+    "opened": "2026-08-21",
+    "closed": "2026-09-20"
+   },
+   "alltime_pnl": 2575848.4758679997,
+   "open_since": {
+    "ETH:long": 1788299226.748,
+    "TAO:long": 1790770675.523
+   }
+  },
+  {
+   "address": "0x880ac484a1743862989a441d6d867238c7aa311c",
+   "tier": "proven",
+   "swing_positions": 10,
+   "realized_swing_pnl": 40791,
+   "open_swing_pnl": 1673926,
+   "swing_pnl": 1714717,
+   "profit_factor": 277.54,
+   "win_rate": 0.6,
+   "median_hold_days": 11.5,
+   "median_size": 4101,
+   "long_share": 0.0,
+   "best": {
+    "coin": "ZEC",
+    "side": "short",
+    "pnl": 1428432,
+    "opened": "2026-09-07",
+    "closed": null
+   },
+   "alltime_pnl": 120864388.427665,
+   "open_since": {
+    "FARTCOIN:short": null,
+    "XMR:short": 1788209146.028,
+    "ZEC:short": 1788754521.396,
+    "BTC:short": 1789782211.175,
+    "PUMP:short": 1790692236.38,
+    "MON:short": 1790950389.613
+   }
+  },
+  {
    "address": "0xb69eec8fea0081343c3b09e652ba1fa7dcf7033a",
-   "swing_positions": 30,
-   "swing_pnl": 1304713,
-   "profit_factor": 6.07,
-   "win_rate": 0.7,
-   "median_hold_days": 8.3,
-   "median_size": 520496,
-   "long_share": 0.4,
+   "tier": "proven",
+   "swing_positions": 33,
+   "realized_swing_pnl": 1304713,
+   "open_swing_pnl": 214539,
+   "swing_pnl": 1519252,
+   "profit_factor": 5.68,
+   "win_rate": 0.697,
+   "median_hold_days": 8.7,
+   "median_size": 548347,
+   "long_share": 0.53,
    "best": {
     "coin": "BTC",
     "side": "short",
@@ -170,6 +316,7 @@
     "opened": "2026-05-27",
     "closed": "2026-06-04"
    },
+   "alltime_pnl": 2725827.936552,
    "open_since": {
     "BTC:long": 1788614646.742,
     "BNB:long": 1791047146.658,
@@ -178,13 +325,16 @@
   },
   {
    "address": "0xa99c9e5484e5b26635c07876d0859a1819ff40d5",
-   "swing_positions": 20,
-   "swing_pnl": 1104527,
-   "profit_factor": 2.76,
-   "win_rate": 0.7,
-   "median_hold_days": 16.3,
-   "median_size": 813554,
-   "long_share": 0.66,
+   "tier": "proven",
+   "swing_positions": 21,
+   "realized_swing_pnl": 1104527,
+   "open_swing_pnl": 83118,
+   "swing_pnl": 1187645,
+   "profit_factor": 2.89,
+   "win_rate": 0.714,
+   "median_hold_days": 12.9,
+   "median_size": 820855,
+   "long_share": 0.59,
    "best": {
     "coin": "HYPE",
     "side": "long",
@@ -192,14 +342,43 @@
     "opened": "2026-08-18",
     "closed": "2026-09-21"
    },
+   "alltime_pnl": 1671840.310128,
    "open_since": {
     "BTC:short": 1790771686.097,
     "HYPE:long": 1791557992.06
    }
   },
   {
+   "address": "0x19f5c3bc2e0978d9a1da389d7d4cfe33cd770fe9",
+   "tier": "proven",
+   "swing_positions": 10,
+   "realized_swing_pnl": 747355,
+   "open_swing_pnl": 309739,
+   "swing_pnl": 1057094,
+   "profit_factor": 1882.36,
+   "win_rate": 0.9,
+   "median_hold_days": 14.7,
+   "median_size": 45843,
+   "long_share": 1.0,
+   "best": {
+    "coin": "PUMP",
+    "side": "long",
+    "pnl": 508226,
+    "opened": "2026-05-27",
+    "closed": "2026-09-05"
+   },
+   "alltime_pnl": 1132649.911985,
+   "open_since": {
+    "PUMP:long": 1790015679.301,
+    "REZ:long": 1791491645.616
+   }
+  },
+  {
    "address": "0x1d74a7760df9d563d0b6610b1705266c4e2fdb26",
+   "tier": "proven",
    "swing_positions": 13,
+   "realized_swing_pnl": 1052462,
+   "open_swing_pnl": 0,
    "swing_pnl": 1052462,
    "profit_factor": 8.18,
    "win_rate": 0.923,
@@ -213,19 +392,23 @@
     "opened": "2025-11-23",
     "closed": "2026-01-31"
    },
+   "alltime_pnl": 1311572.658808,
    "open_since": {
     "ZEC:short": 1791515245.829
    }
   },
   {
    "address": "0x5740affc8faf8913f9f2d5fbb9bdc6e8119ea9da",
-   "swing_positions": 23,
-   "swing_pnl": 901414,
-   "profit_factor": 3.42,
-   "win_rate": 0.696,
-   "median_hold_days": 8.5,
-   "median_size": 80718,
-   "long_share": 0.79,
+   "tier": "proven",
+   "swing_positions": 31,
+   "realized_swing_pnl": 901414,
+   "open_swing_pnl": 136748,
+   "swing_pnl": 1038162,
+   "profit_factor": 3.13,
+   "win_rate": 0.677,
+   "median_hold_days": 9.7,
+   "median_size": 91590,
+   "long_share": 0.84,
    "best": {
     "coin": "AAVE",
     "side": "long",
@@ -233,6 +416,7 @@
     "opened": "2026-06-03",
     "closed": "2026-09-29"
    },
+   "alltime_pnl": 3433847.010592,
    "open_since": {
     "AR:long": 1787558993.135,
     "TIA:long": 1788977641.018,
@@ -249,12 +433,15 @@
   },
   {
    "address": "0xc69ae428f6049e78d445f053d2c1df879c59b34c",
-   "swing_positions": 40,
-   "swing_pnl": 892370,
-   "profit_factor": 6.0,
+   "tier": "proven",
+   "swing_positions": 56,
+   "realized_swing_pnl": 892370,
+   "open_swing_pnl": 111499,
+   "swing_pnl": 1003869,
+   "profit_factor": 4.09,
    "win_rate": 0.625,
-   "median_hold_days": 12.6,
-   "median_size": 232790,
+   "median_hold_days": 14.1,
+   "median_size": 204180,
    "long_share": 1.0,
    "best": {
     "coin": "HYPE",
@@ -263,6 +450,7 @@
     "opened": "2026-07-16",
     "closed": "2026-09-20"
    },
+   "alltime_pnl": 5364049.878655,
    "open_since": {
     "HYPE:long": 1791340385.808,
     "PURR:long": 1789558960.351,
@@ -284,8 +472,35 @@
    }
   },
   {
+   "address": "0x4fe53e953f1ff4454d144cb6f4fee3f2ca9363fe",
+   "tier": "proven",
+   "swing_positions": 5,
+   "realized_swing_pnl": 419342,
+   "open_swing_pnl": 539654,
+   "swing_pnl": 958996,
+   "profit_factor": 9.34,
+   "win_rate": 0.8,
+   "median_hold_days": 22.8,
+   "median_size": 973416,
+   "long_share": 1.0,
+   "best": {
+    "coin": "HYPE",
+    "side": "long",
+    "pnl": 539654,
+    "opened": "2026-06-23",
+    "closed": null
+   },
+   "alltime_pnl": 8085366.509568,
+   "open_since": {
+    "HYPE:long": 1782215810.623
+   }
+  },
+  {
    "address": "0x9458f423df6569f053358ee9906613cd69c1ec04",
+   "tier": "proven",
    "swing_positions": 7,
+   "realized_swing_pnl": 833562,
+   "open_swing_pnl": 0,
    "swing_pnl": 833562,
    "profit_factor": 3.04,
    "win_rate": 0.857,
@@ -299,16 +514,92 @@
     "opened": "2025-10-04",
     "closed": "2025-10-11"
    },
+   "alltime_pnl": 11083643.253367,
    "open_since": {}
   },
   {
+   "address": "0x220d15526ee708ffc199fe0265ddb07f0d5c40aa",
+   "tier": "proven",
+   "swing_positions": 12,
+   "realized_swing_pnl": 127362,
+   "open_swing_pnl": 596240,
+   "swing_pnl": 723602,
+   "profit_factor": 15.59,
+   "win_rate": 0.75,
+   "median_hold_days": 24.9,
+   "median_size": 81850,
+   "long_share": 1.0,
+   "best": {
+    "coin": "PUMP",
+    "side": "long",
+    "pnl": 473751,
+    "opened": "2026-07-23",
+    "closed": null
+   },
+   "alltime_pnl": 746875.655,
+   "open_since": {
+    "PUMP:long": 1784815098.231,
+    "ZEC:long": 1788734411.146,
+    "MET:long": 1789146706.673
+   }
+  },
+  {
+   "address": "0xde5a8068836a16f92813104d7faf602bb0cbdf62",
+   "tier": "proven",
+   "swing_positions": 46,
+   "realized_swing_pnl": 17452,
+   "open_swing_pnl": 663414,
+   "swing_pnl": 680866,
+   "profit_factor": 4.69,
+   "win_rate": 0.522,
+   "median_hold_days": 21.3,
+   "median_size": 84592,
+   "long_share": 0.84,
+   "best": {
+    "coin": "SOL",
+    "side": "long",
+    "pnl": 138943,
+    "opened": "2026-06-20",
+    "closed": null
+   },
+   "alltime_pnl": 1361013.895466,
+   "open_since": {
+    "SOL:long": 1781965139.705,
+    "XRP:long": 1781994807.26,
+    "TAO:long": 1788718221.12,
+    "XLM:long": 1781966894.981,
+    "CRV:long": 1784632309.923,
+    "HYPE:long": 1781151703.459,
+    "BCH:long": 1788646877.207,
+    "XMR:long": 1787514171.346,
+    "NEAR:long": 1789607995.806,
+    "ZEC:long": 1787260494.427,
+    "VVV:long": 1781967153.676,
+    "ENA:long": 1787162784.724,
+    "AERO:long": 1787341865.296,
+    "PUMP:long": 1787361657.939,
+    "MORPHO:long": 1787368311.759,
+    "ARB:long": 1789526341.954,
+    "PURR:long": 1788700902.419,
+    "DOGE:long": 1789991799.295,
+    "LINK:long": 1789996404.715,
+    "JUP:long": 1790298072.499,
+    "kPEPE:long": 1790300853.831,
+    "GRAM:long": 1790378073.947,
+    "JTO:long": 1790390225.454
+   }
+  },
+  {
    "address": "0x183d0567c33e7591c22540e45d2f74730b42a0ca",
-   "swing_positions": 27,
-   "swing_pnl": 733477,
-   "profit_factor": 5.97,
-   "win_rate": 0.704,
-   "median_hold_days": 6.9,
-   "median_size": 197041,
+   "tier": "proven",
+   "swing_positions": 30,
+   "realized_swing_pnl": 733477,
+   "open_swing_pnl": -80413,
+   "swing_pnl": 653064,
+   "profit_factor": 3.86,
+   "win_rate": 0.633,
+   "median_hold_days": 6.5,
+   "median_size": 199416,
    "long_share": 0.99,
    "best": {
     "coin": "HYPE",
@@ -317,6 +608,7 @@
     "opened": "2025-10-14",
     "closed": "2025-10-27"
    },
+   "alltime_pnl": 9864840.62394,
    "open_since": {
     "HYPE:long": 1791338476.003,
     "WLD:long": null,
@@ -326,34 +618,16 @@
    }
   },
   {
-   "address": "0x2a30ef9200130b338c66d2d18cf0f8a244bd3e9c",
-   "swing_positions": 9,
-   "swing_pnl": 592816,
-   "profit_factor": 9.73,
-   "win_rate": 0.778,
-   "median_hold_days": 5.2,
-   "median_size": 284568,
-   "long_share": 0.51,
-   "best": {
-    "coin": "ZEC",
-    "side": "long",
-    "pnl": 424880,
-    "opened": "2026-08-25",
-    "closed": "2026-09-28"
-   },
-   "open_since": {
-    "HYPE:long": 1791190850.546,
-    "ZEC:long": 1791473982.707
-   }
-  },
-  {
    "address": "0x8463d6ffcbfb56bf20ab2e1111f9a0e8359533f2",
-   "swing_positions": 37,
-   "swing_pnl": 590413,
-   "profit_factor": 1.86,
-   "win_rate": 0.568,
-   "median_hold_days": 7.0,
-   "median_size": 228255,
+   "tier": "proven",
+   "swing_positions": 40,
+   "realized_swing_pnl": 590413,
+   "open_swing_pnl": -14395,
+   "swing_pnl": 576018,
+   "profit_factor": 1.8,
+   "win_rate": 0.55,
+   "median_hold_days": 7.8,
+   "median_size": 227252,
    "long_share": 0.59,
    "best": {
     "coin": "HYPE",
@@ -362,6 +636,7 @@
     "opened": "2026-04-20",
     "closed": "2026-05-21"
    },
+   "alltime_pnl": 6352020.591623001,
    "open_since": {
     "XPL:long": 1788159875.607,
     "ZRO:short": 1791067883.947,
@@ -370,13 +645,68 @@
    }
   },
   {
+   "address": "0x2a30ef9200130b338c66d2d18cf0f8a244bd3e9c",
+   "tier": "proven",
+   "swing_positions": 10,
+   "realized_swing_pnl": 592816,
+   "open_swing_pnl": -19887,
+   "swing_pnl": 572929,
+   "profit_factor": 7.52,
+   "win_rate": 0.7,
+   "median_hold_days": 5.2,
+   "median_size": 262684,
+   "long_share": 0.52,
+   "best": {
+    "coin": "ZEC",
+    "side": "long",
+    "pnl": 424880,
+    "opened": "2026-08-25",
+    "closed": "2026-09-28"
+   },
+   "alltime_pnl": 557994.032101,
+   "open_since": {
+    "HYPE:long": 1791190850.546,
+    "ZEC:long": 1791473982.707
+   }
+  },
+  {
+   "address": "0x1c814c8068ddd68bcc79bd9d28a1698ba099072d",
+   "tier": "proven",
+   "swing_positions": 74,
+   "realized_swing_pnl": 450127,
+   "open_swing_pnl": 118980,
+   "swing_pnl": 569107,
+   "profit_factor": 5.66,
+   "win_rate": 0.703,
+   "median_hold_days": 18.0,
+   "median_size": 15539,
+   "long_share": 1.0,
+   "best": {
+    "coin": "JUP",
+    "side": "long",
+    "pnl": 139288,
+    "opened": "2026-08-14",
+    "closed": "2026-10-08"
+   },
+   "alltime_pnl": 638186.643256,
+   "open_since": {
+    "ONDO:long": 1786109497.132,
+    "ETH:long": 1791338402.063,
+    "ETHFI:long": 1787228156.72,
+    "PENDLE:long": 1785750650.654
+   }
+  },
+  {
    "address": "0xb72062989aa928567d3d304f3846dec8118ed207",
-   "swing_positions": 6,
-   "swing_pnl": 533105,
-   "profit_factor": null,
-   "win_rate": 1.0,
-   "median_hold_days": 47.2,
-   "median_size": 192930,
+   "tier": "proven",
+   "swing_positions": 7,
+   "realized_swing_pnl": 533105,
+   "open_swing_pnl": -207,
+   "swing_pnl": 532898,
+   "profit_factor": 2575.39,
+   "win_rate": 0.857,
+   "median_hold_days": 35.6,
+   "median_size": 143040,
    "long_share": 0.0,
    "best": {
     "coin": "SOL",
@@ -385,13 +715,42 @@
     "opened": "2025-10-23",
     "closed": "2025-12-22"
    },
+   "alltime_pnl": 70201.648635,
    "open_since": {
     "HYPE:short": 1789398341.383
    }
   },
   {
+   "address": "0x077a25d1f579574fe168bbaa924e40c9bfa57ccc",
+   "tier": "proven",
+   "swing_positions": 9,
+   "realized_swing_pnl": 396785,
+   "open_swing_pnl": 124565,
+   "swing_pnl": 521350,
+   "profit_factor": 3.63,
+   "win_rate": 0.667,
+   "median_hold_days": 92.5,
+   "median_size": 326669,
+   "long_share": 0.31,
+   "best": {
+    "coin": "ETH",
+    "side": "short",
+    "pnl": 332887,
+    "opened": "2025-10-12",
+    "closed": "2026-02-25"
+   },
+   "alltime_pnl": 463171.29082,
+   "open_since": {
+    "ETH:long": 1780782352.816,
+    "LIT:short": 1783645167.644
+   }
+  },
+  {
    "address": "0x1858987516bef70d9c3d9208ff7bfc65f00320b4",
+   "tier": "proven",
    "swing_positions": 7,
+   "realized_swing_pnl": 462768,
+   "open_swing_pnl": 0,
    "swing_pnl": 462768,
    "profit_factor": 3.66,
    "win_rate": 0.429,
@@ -405,17 +764,77 @@
     "opened": "2026-09-22",
     "closed": "2026-10-07"
    },
+   "alltime_pnl": 529891.345436,
    "open_since": {}
   },
   {
+   "address": "0x178f639a89797fab52dd5cfcaddd383a563ffb78",
+   "tier": "proven",
+   "swing_positions": 5,
+   "realized_swing_pnl": -6237,
+   "open_swing_pnl": 429774,
+   "swing_pnl": 423537,
+   "profit_factor": 36.9,
+   "win_rate": 0.6,
+   "median_hold_days": 5.6,
+   "median_size": 23017,
+   "long_share": 1.0,
+   "best": {
+    "coin": "PUMP",
+    "side": "long",
+    "pnl": 434789,
+    "opened": "2026-02-13",
+    "closed": null
+   },
+   "alltime_pnl": 450584.018338,
+   "open_since": {
+    "PURR:long": 1783353134.511,
+    "PUMP:long": 1770945346.042
+   }
+  },
+  {
+   "address": "0x3a23b10845e911b6944d9dc2f1f480fca3af35d6",
+   "tier": "proven",
+   "swing_positions": 37,
+   "realized_swing_pnl": 402960,
+   "open_swing_pnl": -34219,
+   "swing_pnl": 368741,
+   "profit_factor": 1.64,
+   "win_rate": 0.676,
+   "median_hold_days": 11.6,
+   "median_size": 73384,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 396943,
+    "opened": "2026-09-04",
+    "closed": "2026-10-08"
+   },
+   "alltime_pnl": 847344.369578,
+   "open_since": {
+    "APE:long": 1775335361.42,
+    "ETH:long": 1790940589.986,
+    "WLD:long": 1787862969.578,
+    "TAO:long": 1770854841.222,
+    "ZEC:long": 1791424915.831,
+    "MON:long": 1791340076.548,
+    "LIT:long": 1790723965.488,
+    "CASHCAT:long": 1790635641.924
+   }
+  },
+  {
    "address": "0x71b117d68974aa4c5615669ae70e8e13ce7479c8",
-   "swing_positions": 7,
-   "swing_pnl": 431676,
-   "profit_factor": null,
-   "win_rate": 1.0,
-   "median_hold_days": 4.7,
-   "median_size": 263943,
-   "long_share": 0.41,
+   "tier": "proven",
+   "swing_positions": 8,
+   "realized_swing_pnl": 431676,
+   "open_swing_pnl": -74725,
+   "swing_pnl": 356951,
+   "profit_factor": 5.78,
+   "win_rate": 0.875,
+   "median_hold_days": 5.5,
+   "median_size": 296337,
+   "long_share": 0.53,
    "best": {
     "coin": "ZEC",
     "side": "short",
@@ -423,35 +842,55 @@
     "opened": "2026-09-09",
     "closed": "2026-09-14"
    },
+   "alltime_pnl": 1263613.697965,
    "open_since": {
     "XPL:long": 1790318238.457,
     "MON:long": 1791545584.592
    }
   },
   {
-   "address": "0x077a25d1f579574fe168bbaa924e40c9bfa57ccc",
-   "swing_positions": 7,
-   "swing_pnl": 396785,
-   "profit_factor": 3.0,
-   "win_rate": 0.571,
-   "median_hold_days": 61.0,
-   "median_size": 248129,
-   "long_share": 0.23,
+   "address": "0xce7fd816dce5db20c15b16e1fa6bd5603084c38d",
+   "tier": "proven",
+   "swing_positions": 22,
+   "realized_swing_pnl": -13240,
+   "open_swing_pnl": 365700,
+   "swing_pnl": 352460,
+   "profit_factor": 14.94,
+   "win_rate": 0.727,
+   "median_hold_days": 85.1,
+   "median_size": 64167,
+   "long_share": 1.0,
    "best": {
     "coin": "ETH",
-    "side": "short",
-    "pnl": 332887,
-    "opened": "2025-10-12",
-    "closed": "2026-02-25"
+    "side": "long",
+    "pnl": 59317,
+    "opened": "2026-07-14",
+    "closed": null
    },
+   "alltime_pnl": 321536.327028,
    "open_since": {
-    "ETH:long": 1780782352.816,
-    "LIT:short": 1783645167.644
+    "TAO:long": 1784006410.607,
+    "SUI:long": 1784006451.543,
+    "ETH:long": 1784006480.274,
+    "LINK:long": 1784006538.083,
+    "WLD:long": 1784006574.812,
+    "UNI:long": 1784006616.931,
+    "ASTER:long": 1784006666.341,
+    "ONDO:long": 1784006761.745,
+    "SKY:long": 1791473002.739,
+    "USUAL:long": 1784006965.007,
+    "SOL:long": 1784007012.041,
+    "AAVE:long": 1784020479.171,
+    "ADA:long": 1785172333.002,
+    "XRP:long": 1786557759.075
    }
   },
   {
    "address": "0x01b5dfdd91c2103bfb3c37cb64d32561895c47cc",
+   "tier": "proven",
    "swing_positions": 9,
+   "realized_swing_pnl": 339029,
+   "open_swing_pnl": 0,
    "swing_pnl": 339029,
    "profit_factor": 10.24,
    "win_rate": 0.778,
@@ -465,18 +904,154 @@
     "opened": "2026-02-07",
     "closed": "2026-05-29"
    },
+   "alltime_pnl": 343915.632908,
    "open_since": {
     "UMA:long": 1791577816.329
    }
   },
   {
+   "address": "0xdfaf7cd4ab0fc1d7f5ccf3216769f26bcd041a61",
+   "tier": "proven",
+   "swing_positions": 32,
+   "realized_swing_pnl": 169563,
+   "open_swing_pnl": 94646,
+   "swing_pnl": 264209,
+   "profit_factor": 2.45,
+   "win_rate": 0.562,
+   "median_hold_days": 14.9,
+   "median_size": 169080,
+   "long_share": 0.55,
+   "best": {
+    "coin": "HYPE",
+    "side": "long",
+    "pnl": 116046,
+    "opened": "2026-05-14",
+    "closed": "2026-06-02"
+   },
+   "alltime_pnl": 506117.232794,
+   "open_since": {
+    "ENA:long": 1787253160.844
+   }
+  },
+  {
+   "address": "0xbe1e9f1119e583c9547258eb7c7553219cf80875",
+   "tier": "proven",
+   "swing_positions": 10,
+   "realized_swing_pnl": 58194,
+   "open_swing_pnl": 200945,
+   "swing_pnl": 259139,
+   "profit_factor": 4.7,
+   "win_rate": 0.5,
+   "median_hold_days": 22.1,
+   "median_size": 103009,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 207503,
+    "opened": "2026-09-04",
+    "closed": null
+   },
+   "alltime_pnl": 290167.998429,
+   "open_since": {
+    "NEAR:long": 1788555479.02,
+    "ETH:long": 1788465986.58,
+    "PUMP:long": 1788834988.96,
+    "USELESS:long": 1791071154.205
+   }
+  },
+  {
+   "address": "0xfb47779fb0f59750fc714ba61a7859b059bbd3e6",
+   "tier": "proven",
+   "swing_positions": 13,
+   "realized_swing_pnl": -43365,
+   "open_swing_pnl": 294798,
+   "swing_pnl": 251433,
+   "profit_factor": 5.96,
+   "win_rate": 0.308,
+   "median_hold_days": 11.5,
+   "median_size": 26223,
+   "long_share": 1.0,
+   "best": {
+    "coin": "ENA",
+    "side": "long",
+    "pnl": 276611,
+    "opened": "2026-07-15",
+    "closed": null
+   },
+   "alltime_pnl": 288871.931213,
+   "open_since": {
+    "NEAR:long": 1790231035.267,
+    "ENA:long": 1784107844.356,
+    "STRK:long": 1791507282.036
+   }
+  },
+  {
+   "address": "0xf19b3c8b8004149cf21c8efe4433cd3b57752695",
+   "tier": "proven",
+   "swing_positions": 19,
+   "realized_swing_pnl": 96390,
+   "open_swing_pnl": 154031,
+   "swing_pnl": 250421,
+   "profit_factor": 5.61,
+   "win_rate": 0.526,
+   "median_hold_days": 10.1,
+   "median_size": 121070,
+   "long_share": 0.39,
+   "best": {
+    "coin": "BTC",
+    "side": "long",
+    "pnl": 130724,
+    "opened": "2026-08-17",
+    "closed": null
+   },
+   "alltime_pnl": 238757.55173,
+   "open_since": {
+    "BTC:long": 1786973324.472,
+    "HYPE:long": 1784411946.392,
+    "ETH:long": 1789487712.222,
+    "ZEC:long": 1791472293.575
+   }
+  },
+  {
+   "address": "0x8607a7d180de23645db594d90621d837749408d5",
+   "tier": "proven",
+   "swing_positions": 6,
+   "realized_swing_pnl": 89243,
+   "open_swing_pnl": 141228,
+   "swing_pnl": 230471,
+   "profit_factor": null,
+   "win_rate": 1.0,
+   "median_hold_days": 20.0,
+   "median_size": 150804,
+   "long_share": 0.36,
+   "best": {
+    "coin": "PONS",
+    "side": "short",
+    "pnl": 139718,
+    "opened": "2026-08-31",
+    "closed": null
+   },
+   "alltime_pnl": 31515686.023955997,
+   "open_since": {
+    "PURR:short": 1790278721.865,
+    "SOL:long": null,
+    "PONS:short": 1788150750.157,
+    "BTC:long": null,
+    "NEAR:short": null
+   }
+  },
+  {
    "address": "0x7a639f6dc5361a3e8c998c9d0aac55e33d34d2ff",
-   "swing_positions": 5,
-   "swing_pnl": 221730,
-   "profit_factor": 21.88,
-   "win_rate": 0.8,
-   "median_hold_days": 6.0,
-   "median_size": 95053,
+   "tier": "proven",
+   "swing_positions": 6,
+   "realized_swing_pnl": 221730,
+   "open_swing_pnl": -21101,
+   "swing_pnl": 200629,
+   "profit_factor": 7.32,
+   "win_rate": 0.667,
+   "median_hold_days": 6.7,
+   "median_size": 102071,
    "long_share": 1.0,
    "best": {
     "coin": "HYPE",
@@ -485,13 +1060,17 @@
     "opened": "2026-08-02",
     "closed": "2026-08-20"
    },
+   "alltime_pnl": 1081344.677781,
    "open_since": {
     "TAO:long": 1791009013.303
    }
   },
   {
    "address": "0x9538a7e2c495ccc288ef48b5df0d6cc6a45378cd",
+   "tier": "proven",
    "swing_positions": 10,
+   "realized_swing_pnl": 197061,
+   "open_swing_pnl": 0,
    "swing_pnl": 197061,
    "profit_factor": 9.4,
    "win_rate": 0.6,
@@ -505,11 +1084,15 @@
     "opened": "2026-05-21",
     "closed": "2026-06-03"
    },
+   "alltime_pnl": 312328.662659,
    "open_since": {}
   },
   {
    "address": "0x3b3d9656b93d21729e15e0bc3566dd4fd1e5b464",
+   "tier": "proven",
    "swing_positions": 9,
+   "realized_swing_pnl": 190154,
+   "open_swing_pnl": 0,
    "swing_pnl": 190154,
    "profit_factor": 129.06,
    "win_rate": 0.889,
@@ -523,34 +1106,71 @@
     "opened": "2025-10-29",
     "closed": "2026-08-21"
    },
+   "alltime_pnl": 508976.894175,
    "open_since": {
     "BTC:long": 1791487062.24,
     "ETH:long": 1791487015.79
    }
   },
   {
-   "address": "0xdfaf7cd4ab0fc1d7f5ccf3216769f26bcd041a61",
+   "address": "0xe98c1b647a1c9ea3ca029c3170d49b6854634245",
+   "tier": "proven",
    "swing_positions": 31,
-   "swing_pnl": 169563,
-   "profit_factor": 1.93,
-   "win_rate": 0.548,
-   "median_hold_days": 14.8,
-   "median_size": 159540,
-   "long_share": 0.54,
+   "realized_swing_pnl": 133297,
+   "open_swing_pnl": 44367,
+   "swing_pnl": 177664,
+   "profit_factor": 5.35,
+   "win_rate": 0.742,
+   "median_hold_days": 6.4,
+   "median_size": 100043,
+   "long_share": 1.0,
    "best": {
-    "coin": "HYPE",
+    "coin": "LINK",
     "side": "long",
-    "pnl": 116046,
-    "opened": "2026-05-14",
-    "closed": "2026-06-02"
+    "pnl": 41708,
+    "opened": "2026-09-17",
+    "closed": null
    },
+   "alltime_pnl": 241118.536088,
    "open_since": {
-    "ENA:long": 1787253160.844
+    "HYPE:long": 1790569707.207,
+    "ETH:long": 1789656259.166,
+    "LINK:long": 1789622163.998
+   }
+  },
+  {
+   "address": "0x07b52ebc029eddaf2b42a97cc7ef95467ed0d288",
+   "tier": "proven",
+   "swing_positions": 15,
+   "realized_swing_pnl": -7943,
+   "open_swing_pnl": 178736,
+   "swing_pnl": 170793,
+   "profit_factor": 3.27,
+   "win_rate": 0.4,
+   "median_hold_days": 16.9,
+   "median_size": 49957,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 103328,
+    "opened": "2026-09-10",
+    "closed": null
+   },
+   "alltime_pnl": 109191.545951,
+   "open_since": {
+    "HYPE:long": 1787784221.664,
+    "PUMP:long": 1790701358.095,
+    "ZEC:long": 1787783783.928,
+    "NEAR:long": 1789075191.552
    }
   },
   {
    "address": "0x28280399d9afd68a3555c65ca6a75a1bd55693a0",
+   "tier": "proven",
    "swing_positions": 10,
+   "realized_swing_pnl": 169237,
+   "open_swing_pnl": 0,
    "swing_pnl": 169237,
    "profit_factor": 2.31,
    "win_rate": 0.4,
@@ -564,6 +1184,7 @@
     "opened": "2026-07-08",
     "closed": "2026-09-28"
    },
+   "alltime_pnl": 689094.056916,
    "open_since": {
     "ETH:long": 1791474024.265,
     "TAO:long": 1791473885.468,
@@ -571,57 +1192,43 @@
    }
   },
   {
-   "address": "0x7f75db96ccc27922b50d6e102938814a67fa9edf",
-   "swing_positions": 9,
-   "swing_pnl": 152089,
-   "profit_factor": 3.67,
-   "win_rate": 0.667,
-   "median_hold_days": 13.2,
-   "median_size": 53881,
+   "address": "0x9b08acf15bbba7ca7a060bfaa133e0d17ea85771",
+   "tier": "proven",
+   "swing_positions": 29,
+   "realized_swing_pnl": 86608,
+   "open_swing_pnl": 63978,
+   "swing_pnl": 150586,
+   "profit_factor": 3.89,
+   "win_rate": 0.483,
+   "median_hold_days": 5.9,
+   "median_size": 42369,
    "long_share": 1.0,
    "best": {
-    "coin": "ZEC",
+    "coin": "NEAR",
     "side": "long",
-    "pnl": 78670,
-    "opened": "2026-08-02",
-    "closed": "2026-09-04"
+    "pnl": 55320,
+    "opened": "2026-09-04",
+    "closed": null
    },
+   "alltime_pnl": 55658.175532,
    "open_since": {
-    "ZEC:long": 1790644771.662,
-    "ENA:long": 1791507064.561,
-    "PUMP:long": 1790410616.519
-   }
-  },
-  {
-   "address": "0x220d15526ee708ffc199fe0265ddb07f0d5c40aa",
-   "swing_positions": 9,
-   "swing_pnl": 127362,
-   "profit_factor": 3.57,
-   "win_rate": 0.667,
-   "median_hold_days": 17.2,
-   "median_size": 74141,
-   "long_share": 1.0,
-   "best": {
-    "coin": "GRASS",
-    "side": "long",
-    "pnl": 67480,
-    "opened": "2026-04-24",
-    "closed": "2026-07-07"
-   },
-   "open_since": {
-    "PUMP:long": 1784815098.231,
-    "ZEC:long": 1788734411.146,
-    "MET:long": 1789146706.673
+    "NEAR:long": 1788540995.839,
+    "LIT:long": 1791624431.687,
+    "UNI:long": 1788361344.78,
+    "ENA:long": 1791538626.134
    }
   },
   {
    "address": "0xaab0e94325b4cc716886c9ff6694a76b379b6a2f",
-   "swing_positions": 35,
-   "swing_pnl": 120293,
-   "profit_factor": 4.46,
-   "win_rate": 0.657,
-   "median_hold_days": 9.1,
-   "median_size": 21174,
+   "tier": "proven",
+   "swing_positions": 37,
+   "realized_swing_pnl": 120293,
+   "open_swing_pnl": 16301,
+   "swing_pnl": 136594,
+   "profit_factor": 4.93,
+   "win_rate": 0.676,
+   "median_hold_days": 9.2,
+   "median_size": 21503,
    "long_share": 0.58,
    "best": {
     "coin": "BTC",
@@ -630,6 +1237,7 @@
     "opened": "2026-07-20",
     "closed": "2026-09-22"
    },
+   "alltime_pnl": 143695.876959,
    "open_since": {
     "HYPE:long": null,
     "BTC:long": 1791485014.51,
@@ -641,8 +1249,90 @@
    }
   },
   {
+   "address": "0x02ff33e10a6f6590ce9e1efb56fdfa0ba6b82929",
+   "tier": "proven",
+   "swing_positions": 10,
+   "realized_swing_pnl": 96822,
+   "open_swing_pnl": 27856,
+   "swing_pnl": 124678,
+   "profit_factor": 14.71,
+   "win_rate": 0.7,
+   "median_hold_days": 8.8,
+   "median_size": 44778,
+   "long_share": 0.96,
+   "best": {
+    "coin": "ZRO",
+    "side": "long",
+    "pnl": 85577,
+    "opened": "2026-09-10",
+    "closed": "2026-09-29"
+   },
+   "alltime_pnl": 125656.041317,
+   "open_since": {
+    "ZRO:long": 1790966648.91
+   }
+  },
+  {
+   "address": "0x4f76584d9b26886f7dad6240b463f4c23b948937",
+   "tier": "proven",
+   "swing_positions": 36,
+   "realized_swing_pnl": 109521,
+   "open_swing_pnl": 10268,
+   "swing_pnl": 119789,
+   "profit_factor": 7.09,
+   "win_rate": 0.889,
+   "median_hold_days": 11.6,
+   "median_size": 45747,
+   "long_share": 0.71,
+   "best": {
+    "coin": "HYPE",
+    "side": "long",
+    "pnl": 40587,
+    "opened": "2026-02-24",
+    "closed": "2026-06-06"
+   },
+   "alltime_pnl": 193493.545031,
+   "open_since": {
+    "HYPE:long": 1780774478.274,
+    "SOL:long": 1788275193.205,
+    "TAO:long": 1789509096.958,
+    "BTC:long": 1791481622.617,
+    "JUP:short": 1791223961.842
+   }
+  },
+  {
+   "address": "0x2e2050103f91cc190d52050157e6bb5a8500733f",
+   "tier": "proven",
+   "swing_positions": 12,
+   "realized_swing_pnl": 95507,
+   "open_swing_pnl": 23732,
+   "swing_pnl": 119239,
+   "profit_factor": 2.83,
+   "win_rate": 0.5,
+   "median_hold_days": 18.8,
+   "median_size": 142666,
+   "long_share": 0.24,
+   "best": {
+    "coin": "ETH",
+    "side": "short",
+    "pnl": 51848,
+    "opened": "2026-01-19",
+    "closed": "2026-02-02"
+   },
+   "alltime_pnl": 122990.804257,
+   "open_since": {
+    "ETH:long": 1789982159.11,
+    "HYPE:short": 1789982210.167,
+    "BNB:short": 1789982178.21,
+    "NEAR:short": 1790045955.441
+   }
+  },
+  {
    "address": "0x79bb345c6d9733bea9684ceaf3cf437759d41b1b",
+   "tier": "proven",
    "swing_positions": 14,
+   "realized_swing_pnl": 118701,
+   "open_swing_pnl": 0,
    "swing_pnl": 118701,
    "profit_factor": 10.03,
    "win_rate": 0.714,
@@ -656,41 +1346,102 @@
     "opened": "2026-09-16",
     "closed": "2026-09-23"
    },
+   "alltime_pnl": 117724.044487,
    "open_since": {}
   },
   {
-   "address": "0x4f76584d9b26886f7dad6240b463f4c23b948937",
-   "swing_positions": 32,
-   "swing_pnl": 109521,
-   "profit_factor": 6.8,
-   "win_rate": 0.906,
-   "median_hold_days": 10.9,
-   "median_size": 48593,
-   "long_share": 0.76,
+   "address": "0xf3fa31640208309b1b90c32b8248f67defcd33ad",
+   "tier": "proven",
+   "swing_positions": 24,
+   "realized_swing_pnl": 87125,
+   "open_swing_pnl": 21571,
+   "swing_pnl": 108696,
+   "profit_factor": 15.94,
+   "win_rate": 0.875,
+   "median_hold_days": 29.4,
+   "median_size": 39726,
+   "long_share": 0.92,
+   "best": {
+    "coin": "ENA",
+    "side": "long",
+    "pnl": 17842,
+    "opened": "2026-08-28",
+    "closed": "2026-09-27"
+   },
+   "alltime_pnl": 121103.524072,
+   "open_since": {
+    "SOL:long": 1778547601.683,
+    "PENDLE:long": 1791246362.121,
+    "AVAX:long": 1778488926.648,
+    "SKY:long": 1790554047.852
+   }
+  },
+  {
+   "address": "0x7f75db96ccc27922b50d6e102938814a67fa9edf",
+   "tier": "proven",
+   "swing_positions": 11,
+   "realized_swing_pnl": 152089,
+   "open_swing_pnl": -50050,
+   "swing_pnl": 102039,
+   "profit_factor": 1.64,
+   "win_rate": 0.636,
+   "median_hold_days": 13.2,
+   "median_size": 61188,
+   "long_share": 1.0,
+   "best": {
+    "coin": "ZEC",
+    "side": "long",
+    "pnl": 78670,
+    "opened": "2026-08-02",
+    "closed": "2026-09-04"
+   },
+   "alltime_pnl": 249639.309235,
+   "open_since": {
+    "ZEC:long": 1790644771.662,
+    "ENA:long": 1791507064.561,
+    "PUMP:long": 1790410616.519
+   }
+  },
+  {
+   "address": "0xf469697ae698e1459f02cdabc882c468fad5396d",
+   "tier": "proven",
+   "swing_positions": 28,
+   "realized_swing_pnl": 77746,
+   "open_swing_pnl": 24118,
+   "swing_pnl": 101864,
+   "profit_factor": 2.52,
+   "win_rate": 0.571,
+   "median_hold_days": 17.1,
+   "median_size": 21410,
+   "long_share": 0.98,
    "best": {
     "coin": "HYPE",
     "side": "long",
-    "pnl": 40587,
-    "opened": "2026-02-24",
-    "closed": "2026-06-06"
+    "pnl": 110953,
+    "opened": "2026-03-24",
+    "closed": "2026-06-04"
    },
+   "alltime_pnl": 121052.489166,
    "open_since": {
-    "HYPE:long": 1780774478.274,
-    "SOL:long": 1788275193.205,
-    "TAO:long": 1789509096.958,
-    "BTC:long": 1791481622.617,
-    "JUP:short": 1791223961.842
+    "ETHFI:long": 1784108211.841,
+    "NEAR:long": 1790889048.627,
+    "ENA:long": null,
+    "AERO:long": 1789812865.007,
+    "SYRUP:long": 1791338481.048
    }
   },
   {
    "address": "0xd314b9de2b81fae69fcab2842ad454079b340ef9",
-   "swing_positions": 54,
-   "swing_pnl": 101928,
-   "profit_factor": 3.75,
-   "win_rate": 0.759,
+   "tier": "proven",
+   "swing_positions": 57,
+   "realized_swing_pnl": 101928,
+   "open_swing_pnl": -218,
+   "swing_pnl": 101710,
+   "profit_factor": 3.73,
+   "win_rate": 0.737,
    "median_hold_days": 16.2,
-   "median_size": 15872,
-   "long_share": 0.66,
+   "median_size": 15746,
+   "long_share": 0.67,
    "best": {
     "coin": "ETH",
     "side": "long",
@@ -698,6 +1449,7 @@
     "opened": "2026-07-21",
     "closed": "2026-08-21"
    },
+   "alltime_pnl": 115391.734099,
    "open_since": {
     "BTC:long": 1791485769.499,
     "SOL:long": 1791485704.037,
@@ -715,28 +1467,35 @@
    }
   },
   {
-   "address": "0x02ff33e10a6f6590ce9e1efb56fdfa0ba6b82929",
-   "swing_positions": 9,
-   "swing_pnl": 96822,
-   "profit_factor": 11.64,
-   "win_rate": 0.667,
-   "median_hold_days": 9.9,
-   "median_size": 43766,
-   "long_share": 0.92,
+   "address": "0x9a65d923842d9474546a2e1482a45cd2dce12903",
+   "tier": "proven",
+   "swing_positions": 5,
+   "realized_swing_pnl": 92251,
+   "open_swing_pnl": 8199,
+   "swing_pnl": 100450,
+   "profit_factor": 10.54,
+   "win_rate": 0.6,
+   "median_hold_days": 19.1,
+   "median_size": 74320,
+   "long_share": 0.64,
    "best": {
-    "coin": "ZRO",
+    "coin": "ZEC",
     "side": "long",
-    "pnl": 85577,
-    "opened": "2026-09-10",
-    "closed": "2026-09-29"
+    "pnl": 84839,
+    "opened": "2026-07-02",
+    "closed": "2026-08-23"
    },
+   "alltime_pnl": 97635.047597,
    "open_since": {
-    "ZRO:long": 1790966648.91
+    "ZEC:short": 1790657316.517
    }
   },
   {
    "address": "0xea1541b67de0364de56820085b7a3cc78952a7ef",
+   "tier": "proven",
    "swing_positions": 42,
+   "realized_swing_pnl": 96734,
+   "open_swing_pnl": 0,
    "swing_pnl": 96734,
    "profit_factor": 2.37,
    "win_rate": 0.619,
@@ -750,170 +1509,24 @@
     "opened": "2026-08-22",
     "closed": "2026-09-13"
    },
+   "alltime_pnl": 416704.496174,
    "open_since": {
     "ZEC:long": 1791517552.799,
     "VVV:long": 1791516796.665
    }
   },
   {
-   "address": "0xf19b3c8b8004149cf21c8efe4433cd3b57752695",
-   "swing_positions": 16,
-   "swing_pnl": 96390,
-   "profit_factor": 2.78,
-   "win_rate": 0.438,
-   "median_hold_days": 7.9,
-   "median_size": 117144,
-   "long_share": 0.22,
-   "best": {
-    "coin": "BTC",
-    "side": "short",
-    "pnl": 110090,
-    "opened": "2025-11-20",
-    "closed": "2026-04-28"
-   },
-   "open_since": {
-    "BTC:long": 1786973324.472,
-    "HYPE:long": 1784411946.392,
-    "ETH:long": 1789487712.222,
-    "ZEC:long": 1791472293.575
-   }
-  },
-  {
-   "address": "0x2e2050103f91cc190d52050157e6bb5a8500733f",
-   "swing_positions": 8,
-   "swing_pnl": 95507,
-   "profit_factor": 2.98,
-   "win_rate": 0.5,
-   "median_hold_days": 15.1,
-   "median_size": 160235,
-   "long_share": 0.26,
-   "best": {
-    "coin": "ETH",
-    "side": "short",
-    "pnl": 51848,
-    "opened": "2026-01-19",
-    "closed": "2026-02-02"
-   },
-   "open_since": {
-    "ETH:long": 1789982159.11,
-    "HYPE:short": 1789982210.167,
-    "BNB:short": 1789982178.21,
-    "NEAR:short": 1790045955.441
-   }
-  },
-  {
-   "address": "0xd064904fd346096e968f596b6037dc3b246f3893",
-   "swing_positions": 8,
-   "swing_pnl": 92184,
-   "profit_factor": 8.07,
-   "win_rate": 0.75,
-   "median_hold_days": 7.3,
-   "median_size": 55593,
-   "long_share": 0.18,
-   "best": {
-    "coin": "XPL",
-    "side": "short",
-    "pnl": 34671,
-    "opened": "2026-09-21",
-    "closed": "2026-10-08"
-   },
-   "open_since": {}
-  },
-  {
-   "address": "0xf3fa31640208309b1b90c32b8248f67defcd33ad",
-   "swing_positions": 20,
-   "swing_pnl": 87125,
-   "profit_factor": 25.36,
-   "win_rate": 0.95,
-   "median_hold_days": 29.4,
-   "median_size": 37170,
-   "long_share": 0.9,
-   "best": {
-    "coin": "ENA",
-    "side": "long",
-    "pnl": 17842,
-    "opened": "2026-08-28",
-    "closed": "2026-09-27"
-   },
-   "open_since": {
-    "SOL:long": 1778547601.683,
-    "PENDLE:long": 1791246362.121,
-    "AVAX:long": 1778488926.648,
-    "SKY:long": 1790554047.852
-   }
-  },
-  {
-   "address": "0x9b08acf15bbba7ca7a060bfaa133e0d17ea85771",
-   "swing_positions": 27,
-   "swing_pnl": 86608,
-   "profit_factor": 2.66,
-   "win_rate": 0.444,
-   "median_hold_days": 5.5,
-   "median_size": 42369,
-   "long_share": 1.0,
-   "best": {
-    "coin": "VVV",
-    "side": "long",
-    "pnl": 30619,
-    "opened": "2026-04-09",
-    "closed": "2026-06-02"
-   },
-   "open_since": {
-    "NEAR:long": 1788540995.839,
-    "LIT:long": 1791624431.687,
-    "UNI:long": 1788361344.78,
-    "ENA:long": 1791538626.134
-   }
-  },
-  {
-   "address": "0x51a2814a7e6475a44487f48e4dd1825b17f6c343",
-   "swing_positions": 12,
-   "swing_pnl": 85692,
-   "profit_factor": 21.12,
-   "win_rate": 0.75,
-   "median_hold_days": 18.7,
-   "median_size": 29986,
-   "long_share": 0.98,
-   "best": {
-    "coin": "ENA",
-    "side": "long",
-    "pnl": 26807,
-    "opened": "2026-09-18",
-    "closed": "2026-10-07"
-   },
-   "open_since": {}
-  },
-  {
-   "address": "0x44559ff923abe1024e42b2706f361948ba20bd8e",
-   "swing_positions": 28,
-   "swing_pnl": 84577,
-   "profit_factor": 2.8,
-   "win_rate": 0.643,
-   "median_hold_days": 6.5,
-   "median_size": 33919,
-   "long_share": 0.76,
-   "best": {
-    "coin": "ZEC",
-    "side": "long",
-    "pnl": 28368,
-    "opened": "2026-05-13",
-    "closed": "2026-05-21"
-   },
-   "open_since": {
-    "PUMP:long": 1791483250.35,
-    "AERO:long": 1790615550.755,
-    "SYRUP:long": 1790631182.917
-   }
-  },
-  {
    "address": "0x8fc7c0442e582bca195978c5a4fdec2e7c5bb0f7",
-   "swing_positions": 47,
-   "swing_pnl": 84003,
-   "profit_factor": 1.52,
-   "win_rate": 0.766,
-   "median_hold_days": 6.5,
-   "median_size": 26659,
-   "long_share": 0.29,
+   "tier": "proven",
+   "swing_positions": 76,
+   "realized_swing_pnl": 84003,
+   "open_swing_pnl": 12274,
+   "swing_pnl": 96277,
+   "profit_factor": 1.54,
+   "win_rate": 0.697,
+   "median_hold_days": 10.5,
+   "median_size": 20898,
+   "long_share": 0.28,
    "best": {
     "coin": "ZEC",
     "side": "long",
@@ -921,6 +1534,7 @@
     "opened": "2026-09-14",
     "closed": "2026-09-26"
    },
+   "alltime_pnl": 781842.048733,
    "open_since": {
     "BTC:long": 1789351973.388,
     "ETH:short": 1791397632.004,
@@ -964,32 +1578,236 @@
    }
   },
   {
-   "address": "0xf469697ae698e1459f02cdabc882c468fad5396d",
-   "swing_positions": 24,
-   "swing_pnl": 77746,
-   "profit_factor": 2.17,
-   "win_rate": 0.542,
-   "median_hold_days": 17.1,
-   "median_size": 21044,
+   "address": "0x44559ff923abe1024e42b2706f361948ba20bd8e",
+   "tier": "proven",
+   "swing_positions": 30,
+   "realized_swing_pnl": 84577,
+   "open_swing_pnl": 10210,
+   "swing_pnl": 94787,
+   "profit_factor": 3.02,
+   "win_rate": 0.667,
+   "median_hold_days": 6.6,
+   "median_size": 33919,
+   "long_share": 0.77,
+   "best": {
+    "coin": "ZEC",
+    "side": "long",
+    "pnl": 28368,
+    "opened": "2026-05-13",
+    "closed": "2026-05-21"
+   },
+   "alltime_pnl": 246903.287657,
+   "open_since": {
+    "PUMP:long": 1791483250.35,
+    "AERO:long": 1790615550.755,
+    "SYRUP:long": 1790631182.917
+   }
+  },
+  {
+   "address": "0xd064904fd346096e968f596b6037dc3b246f3893",
+   "tier": "proven",
+   "swing_positions": 8,
+   "realized_swing_pnl": 92184,
+   "open_swing_pnl": 0,
+   "swing_pnl": 92184,
+   "profit_factor": 8.07,
+   "win_rate": 0.75,
+   "median_hold_days": 7.3,
+   "median_size": 55593,
+   "long_share": 0.18,
+   "best": {
+    "coin": "XPL",
+    "side": "short",
+    "pnl": 34671,
+    "opened": "2026-09-21",
+    "closed": "2026-10-08"
+   },
+   "alltime_pnl": 446038.370993,
+   "open_since": {}
+  },
+  {
+   "address": "0x87ce992229957c316c47dfbd39f89402e15ee0b2",
+   "tier": "proven",
+   "swing_positions": 7,
+   "realized_swing_pnl": -16894,
+   "open_swing_pnl": 108557,
+   "swing_pnl": 91663,
+   "profit_factor": 6.0,
+   "win_rate": 0.714,
+   "median_hold_days": 50.4,
+   "median_size": 36452,
+   "long_share": 1.0,
+   "best": {
+    "coin": "AAVE",
+    "side": "long",
+    "pnl": 63963,
+    "opened": "2026-05-30",
+    "closed": null
+   },
+   "alltime_pnl": 155157.76762,
+   "open_since": {
+    "BTC:long": 1788490494.537,
+    "AAVE:long": 1780111311.007,
+    "ETHFI:long": 1780111270.603,
+    "ENA:long": 1787282439.438
+   }
+  },
+  {
+   "address": "0x1bcfdca8f869359b4851169f685d791f8a4200cc",
+   "tier": "proven",
+   "swing_positions": 18,
+   "realized_swing_pnl": 49861,
+   "open_swing_pnl": 36231,
+   "swing_pnl": 86092,
+   "profit_factor": 7.74,
+   "win_rate": 0.722,
+   "median_hold_days": 6.9,
+   "median_size": 49961,
+   "long_share": 1.0,
+   "best": {
+    "coin": "SUI",
+    "side": "long",
+    "pnl": 19121,
+    "opened": "2026-09-16",
+    "closed": null
+   },
+   "alltime_pnl": 158901.185739,
+   "open_since": {
+    "BTC:long": 1789591370.2,
+    "HYPE:long": 1791472490.365,
+    "SUI:long": 1789583730.355,
+    "NEAR:long": 1790972307.233,
+    "LIT:long": 1790080646.456,
+    "XPL:long": 1791194672.438
+   }
+  },
+  {
+   "address": "0x51a2814a7e6475a44487f48e4dd1825b17f6c343",
+   "tier": "proven",
+   "swing_positions": 12,
+   "realized_swing_pnl": 85692,
+   "open_swing_pnl": 0,
+   "swing_pnl": 85692,
+   "profit_factor": 21.12,
+   "win_rate": 0.75,
+   "median_hold_days": 18.7,
+   "median_size": 29986,
    "long_share": 0.98,
    "best": {
-    "coin": "HYPE",
+    "coin": "ENA",
     "side": "long",
-    "pnl": 110953,
-    "opened": "2026-03-24",
-    "closed": "2026-06-04"
+    "pnl": 26807,
+    "opened": "2026-09-18",
+    "closed": "2026-10-07"
    },
+   "alltime_pnl": 394931.524323,
+   "open_since": {}
+  },
+  {
+   "address": "0x84618aabf7c7f16d67ebfe558781588313b2e504",
+   "tier": "proven",
+   "swing_positions": 8,
+   "realized_swing_pnl": 29768,
+   "open_swing_pnl": 55451,
+   "swing_pnl": 85219,
+   "profit_factor": 208.73,
+   "win_rate": 0.75,
+   "median_hold_days": 28.9,
+   "median_size": 49898,
+   "long_share": 1.0,
+   "best": {
+    "coin": "SUI",
+    "side": "long",
+    "pnl": 38270,
+    "opened": "2026-08-21",
+    "closed": null
+   },
+   "alltime_pnl": 92765.508798,
    "open_since": {
-    "ETHFI:long": 1784108211.841,
-    "NEAR:long": 1790889048.627,
-    "ENA:long": null,
-    "AERO:long": 1789812865.007,
-    "SYRUP:long": 1791338481.048
+    "SUI:long": 1787287587.868,
+    "DOT:long": 1787291560.512,
+    "XPL:long": 1787925542.598,
+    "FARTCOIN:long": 1791473914.07,
+    "LINK:long": 1789483371.65,
+    "DYDX:long": 1791474005.414,
+    "DOGE:long": 1791476001.351
+   }
+  },
+  {
+   "address": "0xa19ed0ae46e89461e56063f1ed268a0dc225745f",
+   "tier": "proven",
+   "swing_positions": 5,
+   "realized_swing_pnl": 66141,
+   "open_swing_pnl": 8867,
+   "swing_pnl": 75008,
+   "profit_factor": null,
+   "win_rate": 1.0,
+   "median_hold_days": 37.3,
+   "median_size": 132216,
+   "long_share": 1.0,
+   "best": {
+    "coin": "BTC",
+    "side": "long",
+    "pnl": 33456,
+    "opened": "2026-07-27",
+    "closed": "2026-09-02"
+   },
+   "alltime_pnl": 254728.517964,
+   "open_since": {
+    "SOL:long": 1788417357.901,
+    "BTC:long": 1788417337.883
+   }
+  },
+  {
+   "address": "0x20ffccec72e6eb47a49f1c8133a991e34005b8d2",
+   "tier": "proven",
+   "swing_positions": 76,
+   "realized_swing_pnl": 10390,
+   "open_swing_pnl": 64438,
+   "swing_pnl": 74828,
+   "profit_factor": 2.81,
+   "win_rate": 0.513,
+   "median_hold_days": 20.3,
+   "median_size": 10429,
+   "long_share": 0.97,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 14392,
+    "opened": "2026-09-05",
+    "closed": null
+   },
+   "alltime_pnl": 64092.464956,
+   "open_since": {
+    "BTC:long": 1787210320.622,
+    "AVAX:long": 1787293916.549,
+    "AAVE:long": 1787381509.027,
+    "ALGO:long": 1789885984.136,
+    "SKY:long": 1790449162.314,
+    "ADA:long": 1790058573.713,
+    "SUI:long": 1789886112.763,
+    "PYTH:long": 1787467130.988,
+    "STX:long": 1787467204.779,
+    "HBAR:long": 1789974686.904,
+    "NEAR:long": 1788622419.252,
+    "JUP:long": 1788766274.031,
+    "TIA:long": 1789886182.736,
+    "WLD:long": 1790058708.506,
+    "AERO:long": 1788849108.835,
+    "FIL:long": 1788849203.77,
+    "APT:long": 1789800527.067,
+    "FET:long": 1791530333.625,
+    "ONDO:long": 1789886045.154,
+    "RENDER:long": 1790172670.76,
+    "CC:long": 1790490759.853
    }
   },
   {
    "address": "0x3915ccce7aa84d3cac9d57b672b9479c38a7058f",
+   "tier": "proven",
    "swing_positions": 5,
+   "realized_swing_pnl": 73725,
+   "open_swing_pnl": 0,
    "swing_pnl": 73725,
    "profit_factor": null,
    "win_rate": 1.0,
@@ -1003,17 +1821,48 @@
     "opened": "2026-09-08",
     "closed": "2026-09-18"
    },
+   "alltime_pnl": 922754.127055,
    "open_since": {
     "HYPE:long": 1791563948.03
    }
   },
   {
+   "address": "0x89b552ca032601dc60c0c2e67278b6f4bf18d069",
+   "tier": "proven",
+   "swing_positions": 7,
+   "realized_swing_pnl": -9079,
+   "open_swing_pnl": 81738,
+   "swing_pnl": 72659,
+   "profit_factor": 6.94,
+   "win_rate": 0.571,
+   "median_hold_days": 31.6,
+   "median_size": 18820,
+   "long_share": 0.76,
+   "best": {
+    "coin": "AERO",
+    "side": "long",
+    "pnl": 79211,
+    "opened": "2025-12-01",
+    "closed": null
+   },
+   "alltime_pnl": 166644.471174,
+   "open_since": {
+    "AERO:long": 1764615863.395,
+    "PUMP:long": 1786661870.562,
+    "MOVE:long": 1788905823.187,
+    "PONS:long": 1791366885.91
+   }
+  },
+  {
    "address": "0x62886e2dfda481c83a0f75300fbe62747f65ddbc",
-   "swing_positions": 480,
-   "swing_pnl": 72266,
-   "profit_factor": 2.76,
-   "win_rate": 0.642,
-   "median_hold_days": 9.5,
+   "tier": "proven",
+   "swing_positions": 483,
+   "realized_swing_pnl": 72266,
+   "open_swing_pnl": -386,
+   "swing_pnl": 71880,
+   "profit_factor": 2.73,
+   "win_rate": 0.638,
+   "median_hold_days": 9.3,
    "median_size": 2000,
    "long_share": 1.0,
    "best": {
@@ -1023,6 +1872,7 @@
     "opened": "2026-08-25",
     "closed": "2026-09-09"
    },
+   "alltime_pnl": 105606.54746,
    "open_since": {
     "ASTER:long": 1791316675.34,
     "UNI:long": 1791609426.118,
@@ -1033,8 +1883,111 @@
    }
   },
   {
+   "address": "0xf786bab21134ecf9723ff782fb10c19c4e50af5c",
+   "tier": "proven",
+   "swing_positions": 30,
+   "realized_swing_pnl": 3440,
+   "open_swing_pnl": 68398,
+   "swing_pnl": 71838,
+   "profit_factor": 27.28,
+   "win_rate": 0.7,
+   "median_hold_days": 46.6,
+   "median_size": 10828,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 14677,
+    "opened": "2026-08-24",
+    "closed": null
+   },
+   "alltime_pnl": 60702.883359,
+   "open_since": {
+    "HYPE:long": 1787603881.888,
+    "TAO:long": 1787603906.882,
+    "XRP:long": 1787603927.841,
+    "DOGE:long": 1787603955.81,
+    "NEAR:long": 1787606420.539,
+    "LINK:long": 1787608415.023,
+    "PENDLE:long": 1787608434.706,
+    "UNI:long": 1787608454.386,
+    "AAVE:long": 1787608478.07,
+    "BNB:long": 1787608508.039,
+    "RENDER:long": 1787608531.68,
+    "JUP:long": 1787608590.375,
+    "SKY:long": 1787608610.474,
+    "GRAM:long": 1787608637.07,
+    "kPEPE:long": 1787608734.795,
+    "WIF:long": 1787608766.729,
+    "LDO:long": 1787608867.405,
+    "ARB:long": 1787608923.461,
+    "FARTCOIN:long": 1787609095.203,
+    "kFLOKI:long": 1787609111.796,
+    "PUMP:long": 1787861628.567,
+    "PYTH:long": 1788520062.172,
+    "SYRUP:long": 1788522604.111,
+    "ZRO:long": 1791197767.42,
+    "IO:long": 1791197797.573,
+    "INJ:long": 1791197856.685,
+    "GMX:long": 1791198724.304
+   }
+  },
+  {
+   "address": "0xdd73867db0b7cf9e5b075a6f98bd260e2389a538",
+   "tier": "proven",
+   "swing_positions": 17,
+   "realized_swing_pnl": 62987,
+   "open_swing_pnl": 7508,
+   "swing_pnl": 70495,
+   "profit_factor": 8.63,
+   "win_rate": 0.647,
+   "median_hold_days": 15.5,
+   "median_size": 16453,
+   "long_share": 1.0,
+   "best": {
+    "coin": "LIT",
+    "side": "long",
+    "pnl": 30649,
+    "opened": "2026-05-31",
+    "closed": "2026-07-13"
+   },
+   "alltime_pnl": 112622.091576,
+   "open_since": {
+    "MET:long": 1789857764.613,
+    "ONDO:long": 1790296512.367
+   }
+  },
+  {
+   "address": "0x99061fcf42973f3ae2ad03891968c7bbe644b003",
+   "tier": "proven",
+   "swing_positions": 5,
+   "realized_swing_pnl": 6482,
+   "open_swing_pnl": 63976,
+   "swing_pnl": 70458,
+   "profit_factor": 10.8,
+   "win_rate": 0.6,
+   "median_hold_days": 35.9,
+   "median_size": 23620,
+   "long_share": 1.0,
+   "best": {
+    "coin": "ENA",
+    "side": "long",
+    "pnl": 42527,
+    "opened": "2026-06-06",
+    "closed": null
+   },
+   "alltime_pnl": 84563.191276,
+   "open_since": {
+    "ENA:long": 1780780542.266,
+    "GRASS:long": 1789685279.742
+   }
+  },
+  {
    "address": "0x06f8f43668de2b1b37b6d081d8937a2160434bb4",
+   "tier": "proven",
    "swing_positions": 9,
+   "realized_swing_pnl": 69793,
+   "open_swing_pnl": 0,
    "swing_pnl": 69793,
    "profit_factor": 6.13,
    "win_rate": 0.444,
@@ -1048,79 +2001,139 @@
     "opened": "2026-07-20",
     "closed": "2026-09-23"
    },
+   "alltime_pnl": 167307.991314,
    "open_since": {
     "GRASS:long": 1791537268.157
    }
   },
   {
-   "address": "0xdd73867db0b7cf9e5b075a6f98bd260e2389a538",
-   "swing_positions": 15,
-   "swing_pnl": 62987,
-   "profit_factor": 7.81,
-   "win_rate": 0.6,
-   "median_hold_days": 13.9,
-   "median_size": 14221,
+   "address": "0xda51d0880a744f5a804340b9a45c360a1bf1d3e2",
+   "tier": "proven",
+   "swing_positions": 16,
+   "realized_swing_pnl": 65014,
+   "open_swing_pnl": -1830,
+   "swing_pnl": 63184,
+   "profit_factor": 6.7,
+   "win_rate": 0.75,
+   "median_hold_days": 10.9,
+   "median_size": 39039,
+   "long_share": 0.96,
+   "best": {
+    "coin": "KAS",
+    "side": "long",
+    "pnl": 17284,
+    "opened": "2026-09-23",
+    "closed": "2026-09-27"
+   },
+   "alltime_pnl": 137701.383641,
+   "open_since": {
+    "KAS:long": 1790744835.418
+   }
+  },
+  {
+   "address": "0x614eaa07ec9d95a891c9449530f66b178e6fbab9",
+   "tier": "proven",
+   "swing_positions": 6,
+   "realized_swing_pnl": 5562,
+   "open_swing_pnl": 56677,
+   "swing_pnl": 62239,
+   "profit_factor": 2.49,
+   "win_rate": 0.667,
+   "median_hold_days": 25.7,
+   "median_size": 67615,
    "long_share": 1.0,
    "best": {
-    "coin": "LIT",
+    "coin": "AERO",
     "side": "long",
-    "pnl": 30649,
-    "opened": "2026-05-31",
-    "closed": "2026-07-13"
+    "pnl": 82240,
+    "opened": "2026-07-07",
+    "closed": null
    },
+   "alltime_pnl": 84965.168548,
    "open_since": {
-    "MET:long": 1789857764.613,
-    "ONDO:long": 1790296512.367
+    "AERO:long": 1783430224.746,
+    "BTC:long": 1787177099.475,
+    "XRP:long": 1788274837.005
    }
   },
   {
-   "address": "0x10e8fc9defd566d53918a8df2736ff632c663482",
-   "swing_positions": 14,
-   "swing_pnl": 61254,
-   "profit_factor": 111.38,
-   "win_rate": 0.929,
-   "median_hold_days": 8.8,
-   "median_size": 13722,
-   "long_share": 0.74,
-   "best": {
-    "coin": "ETH",
-    "side": "long",
-    "pnl": 35455,
-    "opened": "2026-01-21",
-    "closed": "2026-09-21"
-   },
-   "open_since": {
-    "ETH:long": 1791400812.267,
-    "LTC:long": 1762535346.038,
-    "TRUMP:long": null,
-    "GRAM:long": 1790528216.811
-   }
-  },
-  {
-   "address": "0x9e0653ff7b7f600dcf2cdcdbad15863fc5c7693b",
-   "swing_positions": 13,
-   "swing_pnl": 56903,
-   "profit_factor": 8.92,
-   "win_rate": 0.462,
-   "median_hold_days": 5.2,
-   "median_size": 3998,
-   "long_share": 0.06,
+   "address": "0x5e3b1ec048e728750f5d02478b159fc507055fc2",
+   "tier": "proven",
+   "swing_positions": 5,
+   "realized_swing_pnl": 70284,
+   "open_swing_pnl": -8550,
+   "swing_pnl": 61734,
+   "profit_factor": 2.93,
+   "win_rate": 0.6,
+   "median_hold_days": 26.0,
+   "median_size": 76755,
+   "long_share": 0.69,
    "best": {
     "coin": "ETH",
     "side": "short",
-    "pnl": 52174,
-    "opened": "2026-01-29",
-    "closed": "2026-02-02"
+    "pnl": 71118,
+    "opened": "2026-05-21",
+    "closed": "2026-06-17"
    },
+   "alltime_pnl": 599398.346248,
    "open_since": {
-    "SOL:short": 1789916033.4,
-    "PURR:short": 1790305106.282,
-    "AERO:short": 1790968463.25
+    "SOL:short": 1787743465.064
+   }
+  },
+  {
+   "address": "0x52f2540578e878e39b37f1915056bc13ecb7923f",
+   "tier": "proven",
+   "swing_positions": 9,
+   "realized_swing_pnl": 8147,
+   "open_swing_pnl": 50181,
+   "swing_pnl": 58328,
+   "profit_factor": 2.27,
+   "win_rate": 0.667,
+   "median_hold_days": 6.5,
+   "median_size": 81922,
+   "long_share": 1.0,
+   "best": {
+    "coin": "NEAR",
+    "side": "long",
+    "pnl": 50181,
+    "opened": "2026-09-21",
+    "closed": null
+   },
+   "alltime_pnl": 149830.466325,
+   "open_since": {
+    "NEAR:long": 1790011243.204
+   }
+  },
+  {
+   "address": "0xd9cb768e4e4d57d502556fe24fc1151f8637a6b5",
+   "tier": "proven",
+   "swing_positions": 9,
+   "realized_swing_pnl": 34332,
+   "open_swing_pnl": 23986,
+   "swing_pnl": 58318,
+   "profit_factor": 30.14,
+   "win_rate": 0.778,
+   "median_hold_days": 5.4,
+   "median_size": 50297,
+   "long_share": 0.8,
+   "best": {
+    "coin": "ZEC",
+    "side": "short",
+    "pnl": 23986,
+    "opened": "2026-09-24",
+    "closed": null
+   },
+   "alltime_pnl": 226862.360034,
+   "open_since": {
+    "ZEC:short": 1790272565.218
    }
   },
   {
    "address": "0xf0fd741e0959bbf7440a20cfafef29626c480bc9",
+   "tier": "proven",
    "swing_positions": 13,
+   "realized_swing_pnl": 55647,
+   "open_swing_pnl": 0,
    "swing_pnl": 55647,
    "profit_factor": 6.16,
    "win_rate": 0.846,
@@ -1134,14 +2147,45 @@
     "opened": "2026-08-01",
     "closed": "2026-08-25"
    },
+   "alltime_pnl": 63032.477706,
    "open_since": {
     "HYPE:long": 1791528394.014,
     "SOL:long": 1791528517.539
    }
   },
   {
+   "address": "0x10e8fc9defd566d53918a8df2736ff632c663482",
+   "tier": "proven",
+   "swing_positions": 16,
+   "realized_swing_pnl": 61254,
+   "open_swing_pnl": -6844,
+   "swing_pnl": 54410,
+   "profit_factor": 8.35,
+   "win_rate": 0.812,
+   "median_hold_days": 11.5,
+   "median_size": 13722,
+   "long_share": 0.77,
+   "best": {
+    "coin": "ETH",
+    "side": "long",
+    "pnl": 35455,
+    "opened": "2026-01-21",
+    "closed": "2026-09-21"
+   },
+   "alltime_pnl": 94284.878506,
+   "open_since": {
+    "ETH:long": 1791400812.267,
+    "LTC:long": 1762535346.038,
+    "TRUMP:long": null,
+    "GRAM:long": 1790528216.811
+   }
+  },
+  {
    "address": "0xdbcd068b3715eec0652be403ad070236c8f65005",
+   "tier": "proven",
    "swing_positions": 7,
+   "realized_swing_pnl": 53892,
+   "open_swing_pnl": 0,
    "swing_pnl": 53892,
    "profit_factor": 2.31,
    "win_rate": 0.571,
@@ -1155,6 +2199,7 @@
     "opened": "2026-09-13",
     "closed": "2026-10-09"
    },
+   "alltime_pnl": 41329.39,
    "open_since": {
     "PUMP:long": 1791615937.049,
     "ONDO:long": 1791616295.546,
@@ -1165,33 +2210,83 @@
    }
   },
   {
-   "address": "0x1bcfdca8f869359b4851169f685d791f8a4200cc",
-   "swing_positions": 13,
-   "swing_pnl": 49861,
-   "profit_factor": 14.49,
-   "win_rate": 0.769,
-   "median_hold_days": 5.7,
-   "median_size": 49055,
-   "long_share": 1.0,
+   "address": "0x9e0653ff7b7f600dcf2cdcdbad15863fc5c7693b",
+   "tier": "proven",
+   "swing_positions": 16,
+   "realized_swing_pnl": 56903,
+   "open_swing_pnl": -7134,
+   "swing_pnl": 49769,
+   "profit_factor": 3.74,
+   "win_rate": 0.438,
+   "median_hold_days": 5.4,
+   "median_size": 4100,
+   "long_share": 0.04,
    "best": {
-    "coin": "BTC",
-    "side": "long",
-    "pnl": 16079,
-    "opened": "2026-06-30",
-    "closed": "2026-07-06"
+    "coin": "ETH",
+    "side": "short",
+    "pnl": 52174,
+    "opened": "2026-01-29",
+    "closed": "2026-02-02"
    },
+   "alltime_pnl": 58625.865925,
    "open_since": {
-    "BTC:long": 1789591370.2,
-    "HYPE:long": 1791472490.365,
-    "SUI:long": 1789583730.355,
-    "NEAR:long": 1790972307.233,
-    "LIT:long": 1790080646.456,
-    "XPL:long": 1791194672.438
+    "SOL:short": 1789916033.4,
+    "PURR:short": 1790305106.282,
+    "AERO:short": 1790968463.25
+   }
+  },
+  {
+   "address": "0x5bc43f38c2ddcd85857f218674cd384f172c3b0c",
+   "tier": "proven",
+   "swing_positions": 13,
+   "realized_swing_pnl": 0,
+   "open_swing_pnl": 49605,
+   "swing_pnl": 49605,
+   "profit_factor": 2.74,
+   "win_rate": 0.692,
+   "median_hold_days": 14.0,
+   "median_size": 44641,
+   "long_share": 0.0,
+   "best": {
+    "coin": "XPL",
+    "side": "short",
+    "pnl": 28599,
+    "opened": "2026-09-25",
+    "closed": null
+   },
+   "alltime_pnl": 7528720.264669,
+   "open_since": {
+    "NEAR:short": null,
+    "ZEC:short": null,
+    "PUMP:short": null,
+    "VVV:short": null,
+    "ZRO:short": 1790344722.123,
+    "USELESS:short": null,
+    "TAO:short": 1790087378.604,
+    "BTC:short": null,
+    "RENDER:short": 1790100967.043,
+    "NIL:short": 1790100967.737,
+    "LDO:short": null,
+    "GRASS:short": null,
+    "BOME:short": 1790173322.778,
+    "KAITO:short": null,
+    "XPL:short": 1790349030.142,
+    "GRAM:short": 1790430299.844,
+    "SKY:short": 1790431105.088,
+    "SOL:short": null,
+    "AERO:short": 1790610400.987,
+    "CFX:short": 1790621727.269,
+    "ENA:short": 1790864975.035,
+    "W:short": 1790880714.538,
+    "FARTCOIN:short": 1790880717.702
    }
   },
   {
    "address": "0x62b17600b862158a21de5bf540b6c072739d81ff",
+   "tier": "proven",
    "swing_positions": 5,
+   "realized_swing_pnl": 49386,
+   "open_swing_pnl": 0,
    "swing_pnl": 49386,
    "profit_factor": null,
    "win_rate": 1.0,
@@ -1205,13 +2300,17 @@
     "opened": "2026-07-20",
     "closed": "2026-09-29"
    },
+   "alltime_pnl": 59087.399731,
    "open_since": {
     "HBAR:long": 1791484600.282
    }
   },
   {
    "address": "0x0676bf17526d8443af5854a294e78a3c8629a3ab",
+   "tier": "proven",
    "swing_positions": 8,
+   "realized_swing_pnl": 47910,
+   "open_swing_pnl": 0,
    "swing_pnl": 47910,
    "profit_factor": 67.9,
    "win_rate": 0.875,
@@ -1225,11 +2324,15 @@
     "opened": "2026-09-22",
     "closed": "2026-10-08"
    },
+   "alltime_pnl": 50454.989379,
    "open_since": {}
   },
   {
    "address": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+   "tier": "proven",
    "swing_positions": 5,
+   "realized_swing_pnl": 46648,
+   "open_swing_pnl": 0,
    "swing_pnl": 46648,
    "profit_factor": 8365940.57,
    "win_rate": 0.8,
@@ -1243,6 +2346,7 @@
     "opened": "2026-08-11",
     "closed": "2026-08-16"
    },
+   "alltime_pnl": 60339430.26359,
    "open_since": {
     "NEAR:long": null,
     "AVAX:short": null
@@ -1250,7 +2354,10 @@
   },
   {
    "address": "0x9cbf099ff424979439dfba03f00b5961784c06ce",
+   "tier": "proven",
    "swing_positions": 6,
+   "realized_swing_pnl": 45150,
+   "open_swing_pnl": 0,
    "swing_pnl": 45150,
    "profit_factor": 2.76,
    "win_rate": 0.5,
@@ -1264,61 +2371,109 @@
     "opened": "2026-06-06",
     "closed": "2026-06-10"
    },
+   "alltime_pnl": 9706510.324805,
    "open_since": {}
   },
   {
-   "address": "0x880ac484a1743862989a441d6d867238c7aa311c",
-   "swing_positions": 5,
-   "swing_pnl": 40791,
-   "profit_factor": 14.3,
-   "win_rate": 0.6,
-   "median_hold_days": 5.9,
-   "median_size": 2560,
-   "long_share": 0.0,
+   "address": "0x16224283be3f7c0245d9d259ea82ead7fcb8343d",
+   "tier": "proven",
+   "swing_positions": 41,
+   "realized_swing_pnl": 20324,
+   "open_swing_pnl": 22752,
+   "swing_pnl": 43076,
+   "profit_factor": 2.81,
+   "win_rate": 0.683,
+   "median_hold_days": 20.6,
+   "median_size": 10930,
+   "long_share": 0.98,
    "best": {
-    "coin": "HYPE",
-    "side": "short",
-    "pnl": 42748,
-    "opened": "2026-09-18",
-    "closed": "2026-09-30"
+    "coin": "AAVE",
+    "side": "long",
+    "pnl": 30842,
+    "opened": "2026-05-15",
+    "closed": null
    },
+   "alltime_pnl": 76527.132991,
    "open_since": {
-    "FARTCOIN:short": null,
-    "XMR:short": 1788209146.028,
-    "ZEC:short": 1788754521.396,
-    "BTC:short": 1789782211.175,
-    "PUMP:short": 1790692236.38,
-    "MON:short": 1790950389.613
+    "DYM:long": 1764593810.236,
+    "FARTCOIN:long": 1778852286.022,
+    "TRUMP:long": 1788878715.287,
+    "AAVE:long": 1778852639.133,
+    "kPEPE:long": 1789843785.993,
+    "CAKE:long": 1788451216.054
    }
   },
   {
-   "address": "0xd9cb768e4e4d57d502556fe24fc1151f8637a6b5",
-   "swing_positions": 8,
-   "swing_pnl": 34332,
-   "profit_factor": 18.16,
-   "win_rate": 0.75,
-   "median_hold_days": 5.4,
-   "median_size": 50149,
+   "address": "0x7bbcf86f6c6201bd55235a33841b91c8910bcaf5",
+   "tier": "proven",
+   "swing_positions": 10,
+   "realized_swing_pnl": 0,
+   "open_swing_pnl": 42403,
+   "swing_pnl": 42403,
+   "profit_factor": 2.87,
+   "win_rate": 0.7,
+   "median_hold_days": 21.5,
+   "median_size": 22525,
+   "long_share": 0.0,
+   "best": {
+    "coin": "PONS",
+    "side": "short",
+    "pnl": 32400,
+    "opened": "2026-09-19",
+    "closed": null
+   },
+   "alltime_pnl": 58913.075862,
+   "open_since": {
+    "PONS:short": 1789783477.57,
+    "MNT:short": 1789782965.798,
+    "CASHCAT:short": 1789783043.776,
+    "VVV:short": 1789784581.784,
+    "BOME:short": 1789784604.744,
+    "GRASS:short": 1789784751.353,
+    "CHIP:short": 1789785054.975,
+    "SPX:short": 1789786864.206,
+    "FARTCOIN:short": 1789794356.488,
+    "ZEC:short": 1789807040.042
+   }
+  },
+  {
+   "address": "0x2322f8e13d25e1c997b060bc5cebc9634f8a895a",
+   "tier": "proven",
+   "swing_positions": 12,
+   "realized_swing_pnl": -3224,
+   "open_swing_pnl": 43988,
+   "swing_pnl": 40764,
+   "profit_factor": 3.86,
+   "win_rate": 0.667,
+   "median_hold_days": 21.2,
+   "median_size": 12637,
    "long_share": 0.94,
    "best": {
-    "coin": "SUI",
+    "coin": "BTC",
     "side": "long",
-    "pnl": 14603,
-    "opened": "2026-09-21",
-    "closed": "2026-09-26"
+    "pnl": 49437,
+    "opened": "2026-02-20",
+    "closed": null
    },
+   "alltime_pnl": 883073.74219,
    "open_since": {
-    "ZEC:short": 1790272565.218
+    "BTC:long": 1771601040.392,
+    "HYPE:long": 1779227748.055,
+    "ZEC:long": 1789669491.875,
+    "SOL:short": 1789938954.426
    }
   },
   {
    "address": "0x5a19bfe9c095c3bd188eca00a690b95200797aba",
-   "swing_positions": 8,
-   "swing_pnl": 34119,
-   "profit_factor": 12.72,
-   "win_rate": 0.75,
-   "median_hold_days": 8.1,
-   "median_size": 16911,
+   "tier": "proven",
+   "swing_positions": 11,
+   "realized_swing_pnl": 34119,
+   "open_swing_pnl": 5822,
+   "swing_pnl": 39941,
+   "profit_factor": 11.07,
+   "win_rate": 0.636,
+   "median_hold_days": 9.7,
+   "median_size": 20815,
    "long_share": 0.0,
    "best": {
     "coin": "PONS",
@@ -1327,6 +2482,7 @@
     "opened": "2026-09-24",
     "closed": "2026-10-09"
    },
+   "alltime_pnl": 312908.154159,
    "open_since": {
     "PURR:short": 1791565873.827,
     "PUMP:short": 1790598353.767,
@@ -1336,8 +2492,65 @@
    }
   },
   {
+   "address": "0x5556c58704513f0cf7e896f7d3c2f83458bed51b",
+   "tier": "proven",
+   "swing_positions": 23,
+   "realized_swing_pnl": 43376,
+   "open_swing_pnl": -10707,
+   "swing_pnl": 32669,
+   "profit_factor": 2.65,
+   "win_rate": 0.565,
+   "median_hold_days": 5.8,
+   "median_size": 18808,
+   "long_share": 0.94,
+   "best": {
+    "coin": "ZRO",
+    "side": "long",
+    "pnl": 10043,
+    "opened": "2026-09-27",
+    "closed": "2026-10-03"
+   },
+   "alltime_pnl": 88160.11422,
+   "open_since": {
+    "LIT:long": 1791245863.071,
+    "ZRO:long": 1791068424.905,
+    "ENA:long": 1790547070.003,
+    "PUMP:long": 1791047197.048,
+    "WLD:long": 1790966123.589
+   }
+  },
+  {
+   "address": "0x2ba90dba46da390ca15d2ac24078d3a81bc85399",
+   "tier": "proven",
+   "swing_positions": 9,
+   "realized_swing_pnl": 5110,
+   "open_swing_pnl": 26861,
+   "swing_pnl": 31971,
+   "profit_factor": 3.29,
+   "win_rate": 0.778,
+   "median_hold_days": 8.1,
+   "median_size": 20001,
+   "long_share": 0.0,
+   "best": {
+    "coin": "ZEC",
+    "side": "short",
+    "pnl": 14137,
+    "opened": "2026-09-09",
+    "closed": null
+   },
+   "alltime_pnl": 132860.110512,
+   "open_since": {
+    "ZEC:short": 1788926729.422,
+    "PURR:short": 1791565874.295,
+    "USELESS:short": 1790026592.377
+   }
+  },
+  {
    "address": "0x1af86eec2d46160b784ab7f4ff9c62ec7294d762",
+   "tier": "proven",
    "swing_positions": 27,
+   "realized_swing_pnl": 28079,
+   "open_swing_pnl": 0,
    "swing_pnl": 28079,
    "profit_factor": 6.0,
    "win_rate": 0.963,
@@ -1351,6 +2564,7 @@
     "opened": "2026-07-26",
     "closed": "2026-08-19"
    },
+   "alltime_pnl": 44580.165594,
    "open_since": {
     "HYPE:long": 1791604487.988,
     "BTC:long": 1791604443.062
@@ -1358,7 +2572,10 @@
   },
   {
    "address": "0x4136625b9842f6a4dbfa96390a2812f419a384a3",
+   "tier": "proven",
    "swing_positions": 10,
+   "realized_swing_pnl": 26842,
+   "open_swing_pnl": 0,
    "swing_pnl": 26842,
    "profit_factor": 1.52,
    "win_rate": 0.4,
@@ -1372,6 +2589,7 @@
     "opened": "2026-09-23",
     "closed": "2026-10-01"
    },
+   "alltime_pnl": 22083.630584,
    "open_since": {
     "PUMP:long": 1791477303.784,
     "LINK:long": 1791477372.172,
@@ -1382,7 +2600,10 @@
   },
   {
    "address": "0xde51d5df898ac419aed4ca7449d189d53395f44c",
+   "tier": "proven",
    "swing_positions": 18,
+   "realized_swing_pnl": 21482,
+   "open_swing_pnl": 0,
    "swing_pnl": 21482,
    "profit_factor": 4.71,
    "win_rate": 0.389,
@@ -1396,6 +2617,7 @@
     "opened": "2026-05-17",
     "closed": "2026-07-18"
    },
+   "alltime_pnl": 53298.017296,
    "open_since": {
     "BTC:long": 1791483638.512,
     "ONDO:long": 1791512112.145,
@@ -1404,33 +2626,50 @@
    }
   },
   {
-   "address": "0x16224283be3f7c0245d9d259ea82ead7fcb8343d",
-   "swing_positions": 35,
-   "swing_pnl": 20324,
-   "profit_factor": 2.32,
-   "win_rate": 0.743,
-   "median_hold_days": 18.8,
-   "median_size": 9654,
-   "long_share": 0.97,
+   "address": "0xfb8edfa14316a8a1ef7d340314ae069735e66ff9",
+   "tier": "proven",
+   "swing_positions": 8,
+   "realized_swing_pnl": 0,
+   "open_swing_pnl": 19262,
+   "swing_pnl": 19262,
+   "profit_factor": 3.44,
+   "win_rate": 0.875,
+   "median_hold_days": 15.9,
+   "median_size": 23213,
+   "long_share": 0.0,
    "best": {
-    "coin": "NEAR",
-    "side": "long",
-    "pnl": 10695,
-    "opened": "2026-05-12",
-    "closed": "2026-06-02"
+    "coin": "TAO",
+    "side": "short",
+    "pnl": 8423,
+    "opened": "2026-09-22",
+    "closed": null
    },
+   "alltime_pnl": 83050.935444,
    "open_since": {
-    "DYM:long": 1764593810.236,
-    "FARTCOIN:long": 1778852286.022,
-    "TRUMP:long": 1788878715.287,
-    "AAVE:long": 1778852639.133,
-    "kPEPE:long": 1789843785.993,
-    "CAKE:long": 1788451216.054
+    "XMR:short": 1790076476.512,
+    "PONS:short": 1790084252.885,
+    "FET:short": 1791223238.255,
+    "TAO:short": 1790100301.056,
+    "NEAR:short": 1790244019.296,
+    "ONDO:short": 1790281220.648,
+    "GRASS:short": 1790769265.486,
+    "GRAM:short": 1790769420.869,
+    "FARTCOIN:short": 1791560421.027,
+    "STRK:short": 1791536061.949,
+    "AERO:short": 1791536091.003,
+    "VVV:short": 1791536167.518,
+    "ETHFI:short": 1791536943.856,
+    "NIL:short": 1791542649.605,
+    "PUMP:short": 1791542755.376,
+    "FIL:short": 1791557099.949
    }
   },
   {
    "address": "0xf961e5e6c5276164adb2865b7e80cf82dc04e920",
+   "tier": "proven",
    "swing_positions": 19,
+   "realized_swing_pnl": 18821,
+   "open_swing_pnl": 0,
    "swing_pnl": 18821,
    "profit_factor": 2.76,
    "win_rate": 0.737,
@@ -1444,11 +2683,15 @@
     "opened": "2025-11-11",
     "closed": "2025-12-03"
    },
+   "alltime_pnl": 15725384.157135999,
    "open_since": {}
   },
   {
    "address": "0x13d032655aca891fad353e19424d2a087eccfa8a",
+   "tier": "proven",
    "swing_positions": 17,
+   "realized_swing_pnl": 16664,
+   "open_swing_pnl": 0,
    "swing_pnl": 16664,
    "profit_factor": 3.42,
    "win_rate": 0.588,
@@ -1462,40 +2705,22 @@
     "opened": "2026-01-06",
     "closed": "2026-02-12"
    },
+   "alltime_pnl": 16058241.845023,
    "open_since": {
     "BTC:short": 1791429102.683
    }
   },
   {
-   "address": "0x490c7ed1b96059df56296f44dcd24124e9353227",
-   "swing_positions": 6,
-   "swing_pnl": 8858,
-   "profit_factor": 2.36,
-   "win_rate": 0.667,
-   "median_hold_days": 5.1,
-   "median_size": 32319,
-   "long_share": 0.0,
-   "best": {
-    "coin": "PONS",
-    "side": "short",
-    "pnl": 8891,
-    "opened": "2026-09-03",
-    "closed": "2026-09-08"
-   },
-   "open_since": {
-    "ZEC:short": null,
-    "BTC:short": 1790920165.049,
-    "SUI:short": 1790417997.565
-   }
-  },
-  {
    "address": "0x01d4b01032d930bbd0e71efd64c4bb5ce9064ce9",
-   "swing_positions": 6,
-   "swing_pnl": 5257,
-   "profit_factor": 3.83,
-   "win_rate": 0.833,
-   "median_hold_days": 6.8,
-   "median_size": 21784,
+   "tier": "proven",
+   "swing_positions": 13,
+   "realized_swing_pnl": 5257,
+   "open_swing_pnl": 8181,
+   "swing_pnl": 13438,
+   "profit_factor": 7.73,
+   "win_rate": 0.846,
+   "median_hold_days": 8.3,
+   "median_size": 26404,
    "long_share": 0.02,
    "best": {
     "coin": "SOL",
@@ -1504,6 +2729,7 @@
     "opened": "2026-09-25",
     "closed": "2026-10-08"
    },
+   "alltime_pnl": 33859.470584,
    "open_since": {
     "SOL:short": 1791491679.994,
     "TRX:short": 1791398214.157,
@@ -1517,6 +2743,56 @@
     "BTC:short": 1790920107.949,
     "ZRO:short": 1791056738.558,
     "ADA:short": 1791395990.725
+   }
+  },
+  {
+   "address": "0x490c7ed1b96059df56296f44dcd24124e9353227",
+   "tier": "proven",
+   "swing_positions": 8,
+   "realized_swing_pnl": 8858,
+   "open_swing_pnl": 1506,
+   "swing_pnl": 10364,
+   "profit_factor": 2.59,
+   "win_rate": 0.75,
+   "median_hold_days": 6.8,
+   "median_size": 30264,
+   "long_share": 0.0,
+   "best": {
+    "coin": "PONS",
+    "side": "short",
+    "pnl": 8891,
+    "opened": "2026-09-03",
+    "closed": "2026-09-08"
+   },
+   "alltime_pnl": 344156.537256,
+   "open_since": {
+    "ZEC:short": null,
+    "BTC:short": 1790920165.049,
+    "SUI:short": 1790417997.565
+   }
+  },
+  {
+   "address": "0x140caea5d1b3aa6ca87139fa85d201729cc3fe92",
+   "tier": "proven",
+   "swing_positions": 6,
+   "realized_swing_pnl": -5663,
+   "open_swing_pnl": 15466,
+   "swing_pnl": 9803,
+   "profit_factor": 1.65,
+   "win_rate": 0.667,
+   "median_hold_days": 17.2,
+   "median_size": 16135,
+   "long_share": 1.0,
+   "best": {
+    "coin": "HYPE",
+    "side": "long",
+    "pnl": 15466,
+    "opened": "2026-09-12",
+    "closed": null
+   },
+   "alltime_pnl": 98258.424041,
+   "open_since": {
+    "HYPE:long": 1789199977.053
    }
   }
  ]

@@ -106,7 +106,23 @@ CREATE TABLE IF NOT EXISTS pt_positions (
     closed_ts REAL,
     baseline INTEGER NOT NULL DEFAULT 0,
     conviction INTEGER NOT NULL DEFAULT 0,
-    pick_id INTEGER
+    pick_id INTEGER,
+    size REAL
+);
+CREATE TABLE IF NOT EXISTS pt_flow (
+    ts REAL NOT NULL,
+    address TEXT NOT NULL,
+    coin TEXT NOT NULL,
+    side TEXT NOT NULL,
+    usd REAL NOT NULL,
+    px REAL
+);
+CREATE INDEX IF NOT EXISTS pt_flow_ts ON pt_flow(ts);
+CREATE TABLE IF NOT EXISTS pt_list (
+    address TEXT PRIMARY KEY,
+    info TEXT NOT NULL,
+    added_ts REAL NOT NULL,
+    qualified_ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pt_positions_open ON pt_positions(address, status);
 CREATE TABLE IF NOT EXISTS pt_traders (
@@ -142,6 +158,8 @@ class Store:
             for col in ("ret_14d", "ret_30d"):   # added with the position traders' 14/30-day scoring
                 if col not in cols:
                     self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} REAL")
+            if "size" not in {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}:
+                self._db.execute("ALTER TABLE pt_positions ADD COLUMN size REAL")
             self._db.commit()
 
     # snapshots ----------------------------------------------------------
@@ -273,20 +291,51 @@ class Store:
         return [dict(r) for r in rows]
 
     def pt_open_position(self, address: str, coin: str, side: str, opened_ts: float, known_open: int, now: float,
-                         value: float, entry_px: float, upnl: float, baseline: int, pick_id: int | None) -> int:
+                         value: float, entry_px: float, upnl: float, baseline: int, pick_id: int | None,
+                         size: float | None = None) -> int:
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO pt_positions(address, coin, side, opened_ts, known_open, first_seen, last_seen, value, "
-                "max_value, entry_px, upnl, baseline, pick_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (address, coin, side, opened_ts, known_open, now, now, value, value, entry_px, upnl, baseline, pick_id))
+                "max_value, entry_px, upnl, baseline, pick_id, size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (address, coin, side, opened_ts, known_open, now, now, value, value, entry_px, upnl, baseline, pick_id,
+                 size))
             self._db.commit()
             return cur.lastrowid
 
-    def pt_touch(self, row_id: int, value: float, entry_px: float, upnl: float, now: float) -> None:
+    def pt_touch(self, row_id: int, value: float, entry_px: float, upnl: float, now: float,
+                 size: float | None = None) -> None:
         with self._lock:
             self._db.execute("UPDATE pt_positions SET value=?, max_value=MAX(COALESCE(max_value, 0), ?), entry_px=?, "
-                             "upnl=?, last_seen=? WHERE id=?", (value, value, entry_px, upnl, now, row_id))
+                             "upnl=?, last_seen=?, size=COALESCE(?, size) WHERE id=?",
+                             (value, value, entry_px, upnl, now, size, row_id))
             self._db.commit()
+
+    def pt_add_flow(self, ts: float, address: str, coin: str, side: str, usd: float, px: float | None) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO pt_flow(ts, address, coin, side, usd, px) VALUES(?,?,?,?,?,?)",
+                             (ts, address, coin, side, usd, px))
+            self._db.execute("DELETE FROM pt_flow WHERE ts<?", (ts - 35 * 86400,))
+            self._db.commit()
+
+    def pt_flow_since(self, since: float) -> list[dict]:
+        rows = self._db.execute("SELECT * FROM pt_flow WHERE ts>=? ORDER BY ts", (since,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def pt_list(self) -> dict[str, dict]:
+        return {r["address"]: json.loads(r["info"]) for r in self._db.execute("SELECT * FROM pt_list").fetchall()}
+
+    def pt_list_upsert(self, address: str, info: dict, now: float) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO pt_list(address, info, added_ts, qualified_ts) VALUES(?,?,?,?) "
+                             "ON CONFLICT(address) DO UPDATE SET info=excluded.info, qualified_ts=excluded.qualified_ts",
+                             (address, json.dumps(info), now, now))
+            self._db.commit()
+
+    def pt_list_prune(self, before: float) -> int:
+        with self._lock:
+            cur = self._db.execute("DELETE FROM pt_list WHERE qualified_ts<?", (before,))
+            self._db.commit()
+            return cur.rowcount
 
     def pt_close(self, row_id: int, now: float) -> None:
         with self._lock:
@@ -419,6 +468,10 @@ class Store:
 
     def count_briefs(self, kind: str, since: float) -> int:
         return self._db.execute("SELECT COUNT(*) FROM briefs WHERE kind=? AND ts>=?", (kind, since)).fetchone()[0]
+
+    def briefs_since(self, kind: str, since: float) -> list[dict]:
+        rows = self._db.execute("SELECT ts, body FROM briefs WHERE kind=? AND ts>=? ORDER BY ts", (kind, since)).fetchall()
+        return [{"ts": r["ts"], "body": json.loads(r["body"])} for r in rows]
 
     def latest_brief(self, kind: str) -> dict | None:
         row = self._db.execute(

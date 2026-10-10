@@ -113,3 +113,16 @@ short), HYPE (14 long). Three of the 66 hold FET long, one since 7 September.
   them at 14 and 30 days (the forward record that can confirm part 3).
 - A live board of what the proven position traders hold, with since-when, record and leverage.
 - E1 (entities) folds wallets of one trader together before the records are counted.
+
+## The live list (owner, 10 October 2026; changes the agent's list, not the verdict above)
+
+Closed positions are not the only record. The owner: "closed positions are not the holy grail"; traders who open near
+the bottom and hold for a month, sitting on large unrealised profits, are the ones to know. The NEAR trader
+(0x4cae...7c34: +$4.4M, almost all unrealised) was not on the list: on closed positions alone his record was -$53K.
+So the agent's list is now:
+- **Proven:** this study's rule with open positions held 3+ days counted at their unrealised PnL. 100 traders
+  (the 66 above all stay; 34 join, both NEAR whales among them).
+- **Riding winners:** $250K+ unrealised profit with one position up 20%+ on its value, in profit all-time, not a market
+  maker, found daily from Hyperliquid's leaderboard (accounts of $500K+). No history needed.
+Leverage is shown, never used to leave anyone out. Unrealised profit can vanish, so the board says "on paper" and the
+forward record (picks at 14 and 30 days) keeps scoring what they open next.

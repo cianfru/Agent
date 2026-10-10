@@ -138,11 +138,17 @@
 
   <section id="traders">
     <div class="panel" style="margin-bottom:16px">
-      <h2>Proven position traders</h2>
+      <h2>Tracked traders</h2>
       <div class="muted" id="ptrule" style="font-size:12px; margin-bottom:10px"></div>
       <div class="kv" id="ptfwd"></div>
-      <div class="seg" id="ptlev"><button data-lev="0" class="on">All</button><button data-lev="1">Leverage 5x or less</button></div>
+      <div class="seg" id="ptlev"><button data-f="all" class="on">All</button><button data-f="proven">Proven</button><button data-f="riding">Riding winners</button><button data-f="lev">Leverage 5x or less</button></div>
       <div class="scroll"><table id="ptcoins"><thead><tr><th>Coin</th><th>Long</th><th>Short</th><th></th><th>Held</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <h2>What they are adding</h2>
+      <div class="seg" id="ptaddwin"><button data-w="24h" class="on">24h</button><button data-w="7d">7d</button></div>
+      <div class="cards" id="ptadd"></div>
+      <div class="muted" style="margin-top:8px; font-size:12px">Net dollars added per trader (a close counts as a cut). Green: building longs; red: building shorts. A build-up alert fires when 3+ traders add $25K+ each, $250K+ in all, within 72 hours while the price moved under 15%. Context, not a signal.</div>
     </div>
     <div id="ptlist"></div>
   </section>
@@ -355,20 +361,29 @@ $("#mkscore").onclick = async () => { try { await api("/posts/scorecard", { meth
 const short = (a) => a && a.length > 12 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
 const held = (a, b) => { const h = Math.max(0, ((b || Date.now() / 1000) - a) / 3600);
   return h < 1 ? Math.round(h * 60) + "m" : h < 48 ? Math.round(h) + "h" : Math.round(h / 24) + "d"; };
-let ptData = null, ptModerate = false;
+let ptData = null, ptFilter = "all", ptWin = "24h";
 document.querySelectorAll("#ptlev button").forEach((b) => b.onclick = () => {
   document.querySelectorAll("#ptlev button").forEach((x) => x.classList.toggle("on", x === b));
-  ptModerate = b.dataset.lev === "1"; renderTraders();
+  ptFilter = b.dataset.f; renderTraders();
+});
+document.querySelectorAll("#ptaddwin button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#ptaddwin button").forEach((x) => x.classList.toggle("on", x === b));
+  ptWin = b.dataset.w; renderTraders();
 });
 async function loadTraders() { ptData = await api("/position-traders"); renderTraders(); }
 function renderTraders() {
   const d = ptData; if (!d) return;
-  $("#ptrule").textContent = `Picked by study S3 on ${d.as_of}: 5+ positions held 3+ days, profitable, profit factor 1.5+. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal, until the forward record confirms it.`;
+  const disc = d.discover ? ` Riders last scanned ${ago(d.discover.ts)} ago: ${d.discover.riding} of ${d.discover.candidates} big accounts.` : " Riders: first scan pending.";
+  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3, ${d.as_of}). Riding winners: $250K+ open profit with a real winner, in profit all-time, found daily.${disc} Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
   const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
   const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
   $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>
     <span><b>All, 14d / 30d</b>${fm(fa, "14d")} / ${fm(fa, "30d")}</span><span><b>Conviction, 14d / 30d</b>${fm(fc, "14d")} / ${fm(fc, "30d")}</span>`;
-  const traders = d.traders.filter((t) => !ptModerate || t.moderate);
+  const traders = d.traders.filter((t) => ptFilter === "all" || (ptFilter === "lev" ? t.moderate : t.tier === ptFilter));
+  const adds = (ptWin === "24h" ? d.adding_24h : d.adding_7d).filter((r) => r.adders > 0 && r.net_usd > 0).slice(0, 12);
+  $("#ptadd").innerHTML = adds.length ? adds.map((r) => `<div class="card ${r.side === "long" ? "up" : "down"}">
+    <div class="c">${esc(r.coin)}<span>${r.side}</span></div><div class="m">${r.adders} adding${r.cutters ? ` · ${r.cutters} cutting` : ""}</div>
+    <div class="u">${usdSigned(r.net_usd)} net</div></div>`).join("") : '<div class="empty">Nothing added yet in this window.</div>';
   const coins = {};
   traders.forEach((t) => t.positions.forEach((p) => {
     const c = coins[p.coin] = coins[p.coin] || { coin: p.coin, long_n: 0, short_n: 0, long_usd: 0, short_usd: 0, held: [] };
@@ -393,7 +408,7 @@ function renderTraders() {
       <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; margin-bottom:6px">
         <h2 style="margin:0"><a href="https://hypurrscan.io/address/${esc(t.address)}" target="_blank" rel="noopener" style="color:inherit">${esc(short(t.address))}</a></h2>
         <span class="muted">${esc(t.record_text)}</span>
-        <span class="muted" style="margin-left:auto">${t.equity ? usd(t.equity) + " account" : ""}${t.leverage != null ? " · " + t.leverage.toFixed(1) + "x leverage" : ""}</span>
+        <span class="muted" style="margin-left:auto">${t.equity ? usd(t.equity) + " account" : ""}${t.leverage != null ? ` · ${t.leverage.toFixed(1)}x leverage (${t.leverage_band})` : ""}${t.open_pnl_now ? ` · ${usdSigned(t.open_pnl_now)} open` : ""}</span>
       </div>${pos}</div>`;
   }).join("") || '<div class="panel empty">No trader matches.</div>';
 }
