@@ -110,3 +110,20 @@ trades (19 a day, about $20,000 each, 93% selling, 1% reversals), a trader build
 bots made 200-400 trades a day of a few hundred dollars, or reversed nearly half their trades.
 
 Results are reported with these exclusions (headline) and with none (as declared originally), side by side.
+
+## R0 results (10 October 2026; descriptive, no verdict)
+
+Only 72 of the 300 roster wallets traded on Hyperliquid perps since 26 September; amendment 2 marks 12 of
+them bot-like (the 20,000-fill wallet stays: a trader). Returns are in the trade's direction, from hourly
+closes, median and share positive.
+
+| | Bots excluded (headline) | All 72 (as declared) |
+|---|---|---|
+| Convergences | 10 on 7 coins (5 long, 5 short), all of 2 wallets | 21 on 13 coins (16 long, 5 short) |
+| Convergence 1d / 3d / 7d | +0.16% 50% / +0.71% 56% (n 9) / -0.16% 50% (n 8) | -1.12% 38% / -1.34% 38% (n 16) / -1.70% 46% (n 13) |
+| Fast (6h or less) 1d / 3d | n 3: +0.47% / -5.30% | n 8: -1.24% / -3.92% |
+| Single opens 1d / 3d / 7d | +0.16% 54% / -0.52% 46% / -0.80% 45% | 0.00% 50% / +0.19% 52% / +0.64% 53% |
+
+Context, not a signal: n is far below Part L's minimums, the window is two weeks of one market, and every
+convergence is two wallets. With bots included, convergences look like Reflex's history (3d -0.82%, 42%
+positive); without them they are flat, and no better than single opens.
