@@ -97,7 +97,9 @@ What the agent does with them:
 - **Build-up alert** (Telegram, at most 3 a day, one per coin and side per 72 hours): 3+ tracked traders each add $25K+,
   $250K+ in all, within 72 hours, while the price moved under 15%. The shape NEAR had before its move. It also says what
   tracked traders hold on the other side and whether big money agrees. Context, not a signal (study S4: long build-ups
-  beat the market by 4 points over 30 days, but big runs were no more common than for any coin).
+  beat the market by 4 points over 30 days, but big runs were no more common than for any coin). BTC and ETH are left
+  out (owner, 10 October 2026): they read as direction and sentiment, shown on the desk; the alert looks for coins that
+  can run.
 - **Conviction alert** (at most 5 a day): a new position at least 2x the trader's usual size within 4 hours of opening.
 - **Forward record:** every new position of $10K+ is a pick at Hyperliquid's mid, scored at 14 and 30 days.
 
@@ -147,10 +149,14 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 - **Desk** (home, `GET /desk`):
   - a one-line read of the market;
   - six tiles (crowd long, big money long, tracked long, uptrend share and run age, BTC, alerts in 24 hours);
+  - **direction of BTC and ETH**: each lens's share long by money as a gauge around 50%, whether they agree, the
+    crowd's share over 7 days against price, and what tracked traders added in 24 hours (the majors as one directional
+    reading, like Cowboy's wallets layer);
   - the crowd against price (BTC above, share of profitable traders long below, 24h / 3d / 7d, hover);
   - the latest alerts (build-ups with whether big money agrees, conviction bets, convergences);
-  - where the money is moving (tracked traders' net adds per coin, 24h or 7d, or the crowd's opens and closes);
-  - **three lenses on every coin**: the crowd (Reflex's profitable traders), tracked traders and big money, each as
+  - where the money is moving (tracked traders' net adds per coin, 24h or 7d, or the crowd's opens and closes; the
+    other coins);
+  - **three lenses on the other coins**: the crowd (Reflex's profitable traders), tracked traders and big money, each as
     long against short money, with whether they agree;
   - the market read (the text sent to Telegram).
 - **Traders:** tracked traders (proven and riding winners), by coin and one by one, what they are adding.
@@ -176,7 +182,7 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
-| `GET /desk` | The desk's home: readings, crowd against price, money moving, three lenses, alerts |
+| `GET /desk` | The desk's home: readings, BTC and ETH direction, crowd against price, money moving, three lenses, alerts |
 | `GET /research` | Studies as charts, the forward record, Reflex's market cycle |
 | `GET /position-traders` | Tracked traders (proven and riding winners): records, holdings, what they are adding, the forward record |
 | `GET /study` | Convergences by the engine's reading when they formed, and how they went |

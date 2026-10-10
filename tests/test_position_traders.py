@@ -101,6 +101,20 @@ def test_build_up_alert_when_three_traders_add_to_one_coin_and_price_is_flat(tmp
     assert len([m for m in sent if m.startswith("Building")]) == 1    # cooldown
 
 
+def test_no_build_up_alert_on_btc_or_eth(tmp_path, monkeypatch):
+    B, C = "0x" + "b" * 40, "0x" + "c" * 40
+    pt, store, hl, sent = setup(tmp_path, monkeypatch, books={A: {}, B: {}, C: {}})
+    pt.seed_traders.update({B: {**PROVEN, "address": B}, C: {**PROVEN, "address": C}})
+    now = 1_790_000_000.0
+    store.add_series("reflex", {"w": 600, "stale": False, "c": {"BTC": [0, 0, 0, 0, 120_000.0]}}, ts=now - 72 * 3600 + 600)
+    asyncio.run(pt.step(now=now, mids={"BTC": 121_000.0}))
+    for i, a in enumerate((A, B, C)):
+        hl.books[a]["BTC"] = pos("long", 2_000_000, 16.5, entry=121_000.0)
+        asyncio.run(pt.step(now=now + 600 * (i + 1), mids={"BTC": 121_000.0}))
+    assert not [m for m in sent if m.startswith("Building")]
+    assert pt.coins_text().splitlines()[0] == "Direction: BTC 100% long"
+
+
 def test_riders_found_daily_and_the_rule():
     st = {"equity": 2_000_000, "positions": {"NEAR": pos("long", 3_800_000, upnl=1_970_000),
                                              "XPL": pos("long", 620_000, upnl=-98_000)}}

@@ -89,6 +89,17 @@
   .lens .bar i { display: block; height: 100%; } .lens .bar .l { background: var(--up); } .lens .bar .s { background: var(--down); }
   .lens .lbl { font: 11px var(--mono); color: var(--t2); display: flex; justify-content: space-between; gap: 6px; }
   .agree { font: 600 12px var(--mono); white-space: nowrap; }
+  .dir { border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 10px; min-width: 0; }
+  .dir .dh { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .dir .dh b { font-size: 18px; } .dir .dh .p { font: 600 15px var(--mono); } .dir .dh .agree { margin-left: auto; font-size: 13px; }
+  .gauge { display: grid; grid-template-columns: 84px minmax(0, 1fr) 132px; align-items: center; gap: 10px; margin: 6px 0; }
+  .gauge .gl { font-size: 12.5px; font-weight: 600; }
+  .gauge .gb { position: relative; height: 10px; border-radius: 5px; background: var(--s3); }
+  .gauge .gb i { position: absolute; top: 0; bottom: 0; border-radius: 5px; } .gauge .gb i.l { background: var(--up); } .gauge .gb i.s { background: var(--down); }
+  .gauge .gb::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--t3); }
+  .gauge .gv { font: 600 12.5px var(--mono); white-space: nowrap; } .gauge .gv small { font-weight: 400; color: var(--t3); }
+  .dir .foot { font: 12px var(--mono); color: var(--t2); margin-top: 2px; }
+  @media (max-width: 700px) { .gauge { grid-template-columns: 70px minmax(0, 1fr) 76px; gap: 8px; } .gauge .gv small { display: none; } }
   .agree.al { color: var(--up); } .agree.as { color: var(--down); } .agree.dis { color: var(--accent); } .agree.mx { color: var(--t3); }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--t2); margin-bottom: 8px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
@@ -142,6 +153,11 @@
   <section id="desk" class="on">
     <div class="hero"><h1 id="headline">Reading the market…</h1><p id="subline"></p></div>
     <div class="kpis" id="kpis"></div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Direction: BTC and ETH</h2>
+      <p class="hint">Where each group's money points on the two majors, 50% marked in the middle. A read of sentiment; build-up alerts and the tables below are about the other coins.</p>
+      <div class="grid g2e" id="direction" style="margin:0"></div>
+    </div>
     <div class="grid g2">
       <div class="card">
         <h2>The crowd against price</h2>
@@ -162,7 +178,7 @@
       <div class="chart" id="moving"></div>
     </div>
     <div class="card" style="margin-bottom:16px">
-      <h2>Three lenses on every coin</h2>
+      <h2>Three lenses on the other coins</h2>
       <div class="legend"><span><i style="background:var(--crowd)"></i>Crowd: Reflex's profitable traders (30%+ monthly return)</span><span><i style="background:var(--tracked)"></i>Tracked: proven and riding winners</span><span><i style="background:var(--big)"></i>Big money: $500K+ accounts in profit all-time (daily)</span></div>
       <p class="hint">Each bar is that group's money, long (green) against short (red). When the three agree the picture is clean; when they disagree, the small fast winners and the big steady money are on opposite sides.</p>
       <div class="scroll"><table id="lenses"><thead><tr><th>Coin</th><th>Price</th><th style="color:var(--crowd)">Crowd</th><th style="color:var(--tracked)">Tracked</th><th style="color:var(--big)">Big money</th><th>Read</th></tr></thead><tbody></tbody></table></div>
@@ -430,7 +446,7 @@ async function loadDesk() {
     tile("Uptrend share", cy && cy.uptrend != null ? cy.uptrend.toFixed(0) + "%" : "-", cy && cy.type ? `risk-${cy.type} · day ${cy.age_days}` : "Reflex history pending", cy && cy.type === "on" ? "up" : cy && cy.type === "off" ? "down" : "") +
     tile("BTC", k.btc && k.btc.price ? px(k.btc.price) : "-", k.btc && k.btc.change_24h != null ? pct(k.btc.change_24h) + " 24h" : "", k.btc && k.btc.change_24h > 0 ? "up" : k.btc && k.btc.change_24h < 0 ? "down" : "") +
     tile("Alerts, 24h", k.alerts_24h, "build-ups, conviction, groups", k.alerts_24h ? "acc" : "");
-  renderCrowd(); renderMoving();
+  renderDirection(); renderCrowd(); renderMoving();
   $("#alerts").innerHTML = d.alerts.length ? d.alerts.slice(0, 20).map(alertCard).join("") : '<div class="empty">No alerts in the last 3 days.</div>';
   $("#lenses tbody").innerHTML = d.lenses.length ? d.lenses.map((r) => { const a = AGREE[r.agree] || ["mx", r.agree];
     return `<tr><td><b>${esc(r.coin)}</b></td><td class="n">${px(r.price)}</td><td>${lensCell(r.crowd)}</td><td>${lensCell(r.tracked)}</td><td>${lensCell(r.big_money)}</td>
@@ -451,6 +467,29 @@ function alertCard(a) {
   }
   const first = a.text.split("\n")[0], rest = a.text.split("\n").slice(1).filter((l) => !/^Context|^Logged/.test(l)).join(" · ");
   return `<div class="alert ${kc}"><span class="h"><span class="k">${esc(a.kind)}</span>${esc(first)}</span><span class="w">${ago(a.ts)}</span>${rest ? `<span class="t">${esc(rest)}</span>` : ""}</div>`;
+}
+function renderDirection() {
+  const d = deskData; if (!d || !d.direction) return;
+  const LENS = [["crowd", "Crowd", "--crowd"], ["tracked", "Tracked", "--tracked"], ["big_money", "Big money", "--big"]];
+  $("#direction").innerHTML = d.direction.map((m, k) => {
+    const a = AGREE[m.agree] || ["mx", m.agree];
+    const gauges = LENS.map(([key, label, color]) => {
+      const x = m.lenses[key];
+      if (!x || x.share_long == null) return `<div class="gauge"><span class="gl" style="color:var(${color})">${label}</span><div class="gb"></div><span class="gv muted">no positions</span></div>`;
+      const v = x.share_long, fill = v >= 50 ? `<i class="l" style="left:50%;width:${v - 50}%"></i>` : `<i class="s" style="left:${v}%;width:${50 - v}%"></i>`;
+      const cls = x.lean === "long" ? "long" : x.lean === "short" ? "short" : "none";
+      const chg = key === "crowd" && m.crowd_change_24h != null ? ` <small>${m.crowd_change_24h >= 0 ? "+" : ""}${m.crowd_change_24h.toFixed(0)} pts 24h</small>` : "";
+      const n = x.long_n != null ? `${x.long_n} long, ${x.short_n} short; ` : "";
+      return `<div class="gauge" title="${esc(label)}: ${n}${usd(x.long_usd)} long, ${usd(x.short_usd)} short"><span class="gl" style="color:var(${color})">${label}</span><div class="gb">${fill}</div><span class="gv ${cls}">${v.toFixed(0)}% long${chg}</span></div>`;
+    }).join("");
+    const t = m.tracked_added_24h || {}, moved = [t.long > 0 ? `+${usd(t.long)} long` : "", t.short > 0 ? `+${usd(t.short)} short` : ""].filter(Boolean).join(" · ");
+    return `<div class="dir"><div class="dh"><b>${esc(m.coin)}</b><span class="p">${px(m.price)}</span>${m.change_24h != null ? `<span class="${m.change_24h >= 0 ? "up-t" : "down-t"}">${pct(m.change_24h)}</span>` : ""}<span class="agree ${a[0]}">${a[1]}</span></div>
+      ${gauges}<div class="chart" id="dirchart${k}"></div><div class="foot">Tracked traders, 24h: ${moved || "nothing added"}</div></div>`;
+  }).join("");
+  d.direction.forEach((m, k) => stackChart($("#dirchart" + k), m.series.map((p) => p[0]), [
+    { label: m.coin, vals: m.series.map((p) => p[2]), color: cssv("--t1"), h: 64, fmt: (v) => px(v) },
+    { label: "Crowd, % long by money", vals: m.series.map((p) => p[1]), color: cssv("--crowd"), h: 58, fmt: (v) => v.toFixed(0) + "%", ref: 50, area: true },
+  ], { aria: `${m.coin} and the share of the crowd's money long, 7 days`, empty: "The line fills as the agent polls." }));
 }
 function renderCrowd() {
   const d = deskData; if (!d) return;
@@ -530,7 +569,7 @@ function renderResearch() {
     <span><b>All, 30d</b>${fm(fa, "30d")}</span><span><b>Conviction, 30d</b>${fm(fc, "30d")}</span>`;
 }
 window.addEventListener("resize", () => { const t = document.querySelector("#tabs .on").dataset.tab;
-  if (t === "desk") { renderCrowd(); renderMoving(); } if (t === "research") renderResearch(); });
+  if (t === "desk") { renderDirection(); renderCrowd(); renderMoving(); } if (t === "research") renderResearch(); });
 
 // ------------------------------------------------------------------ journal tabs
 document.querySelectorAll("#jtabs button").forEach((b) => b.onclick = () => {

@@ -37,6 +37,12 @@ def test_home_and_research_on_a_fresh_store(tmp_path):
     assert h["kpi"]["crowd"]["share_long"] == round(100 * 6 / 8, 2)
     assert h["kpi"]["big_money"]["share_long"] == round(100 * 7.4 / 25.8, 1)
     assert h["kpi"]["cycle"]["type"] == "on" and h["kpi"]["cycle"]["uptrend"] == 81.0
+    assert [r["coin"] for r in h["lenses"]] == ["XPL"]                       # BTC and ETH read as direction
+    btc, eth = h["direction"]
+    assert btc["coin"] == "BTC" and btc["price"] == 81000.0 and btc["change_24h"] == 1.25
+    assert btc["lenses"]["crowd"]["share_long"] == 80.0 and btc["lenses"]["crowd"]["lean"] == "long"
+    assert btc["crowd_change_24h"] == 5.0 and btc["agree"] == "one lens" and len(btc["series"]) == 2
+    assert eth["price"] is None and eth["lenses"] == {} and eth["agree"] == "one lens"
     xpl = next(r for r in h["lenses"] if r["coin"] == "XPL")
     assert xpl["leans"] == {"crowd": "short", "big_money": "short"} and xpl["agree"] == "all short"
     assert len(h["crowd_series"]) == 2 and h["crowd_series"][-1][2] == 81000.0

@@ -1,8 +1,10 @@
 """The desk's two views, assembled from what the agent already stores (no new reads of anyone's API).
 
 - `home(agent)`: what is happening now: headline readings with their short history, the crowd against price,
-  where money is moving, the three lenses per coin (Reflex's profitable traders, tracked traders, big money) and
-  the latest alerts.
+  the direction of BTC and ETH (the three lenses as one reading each, like Cowboy's wallets layer), where money is
+  moving and the three lenses per coin for the other coins (Reflex's profitable traders, tracked traders, big
+  money), and the latest alerts. BTC and ETH read as direction; the other coins are where the money can run, so they
+  come first everywhere else (owner, 10 October 2026).
 - `research(agent)`: the studies as charts (`synth/data/research.json`) and the market cycle from Reflex's
   market history (fetched once a day, `compact_history`).
 Context, not signals: every finding carries its verdict.
@@ -18,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import flow
+from .position_traders import MAJORS
 
 RESEARCH = Path(__file__).parent / "data" / "research.json"
 DAY_S = 86400
@@ -87,6 +90,35 @@ def _crowd_points(rows: list[tuple[float, dict]], every: int = 1) -> list[list]:
     return out
 
 
+def _share(long_usd: float, short_usd: float) -> float | None:
+    return round(100 * long_usd / (long_usd + short_usd), 1) if long_usd + short_usd else None
+
+
+def direction(coin: str, rows: list[tuple[float, dict]], lenses: dict, adding_24h: list[dict], now: float,
+              points: int = 120) -> dict:
+    """BTC or ETH as one directional reading: each lens's share long by money and its lean, whether they agree,
+    the crowd's share over the last 7 days against price, and what tracked traders added in 24 hours."""
+    series = []
+    for ts, r in rows:
+        v = (r.get("c") or {}).get(coin)
+        if v and v[1] + v[3]:
+            series.append([round(ts), _share(v[1], v[3]), v[4] if len(v) > 4 else None])
+    if len(series) > points:
+        step = len(series) / points
+        series = [series[int(i * step)] for i in range(points)] + [series[-1]]
+    day_ago = next((p for p in series if p[0] >= now - DAY_S), None)
+    last = series[-1] if series else None
+    ls = {k: {**x, "share_long": _share(x["long_usd"], x["short_usd"]), "lean": lean(x["long_usd"], x["short_usd"])}
+          for k, x in lenses.items()}
+    added = {r["side"]: r["net_usd"] for r in adding_24h if r["coin"] == coin}
+    return {"coin": coin, "price": last[2] if last else None,
+            "change_24h": round(100 * (last[2] / day_ago[2] - 1), 2) if last and day_ago and day_ago[2] and last[2]
+            else None,
+            "lenses": ls, "agree": agreement([x["lean"] for x in ls.values()]),
+            "crowd_change_24h": round(last[1] - day_ago[1], 1) if last and day_ago else None,
+            "series": series, "tracked_added_24h": {"long": added.get("long", 0), "short": added.get("short", 0)}}
+
+
 def home(agent, now: float | None = None) -> dict:
     now = now or time.time()
     store, pt = agent.store, agent.positions
@@ -113,8 +145,12 @@ def home(agent, now: float | None = None) -> dict:
         coins.setdefault(c["coin"], {})["tracked"] = {k: c[k] for k in ("long_n", "short_n", "long_usd", "short_usd")}
     for coin, v in bm.items():
         coins.setdefault(coin, {})["big_money"] = v
+    adding_24h = pt.adding(24, now)
+    directions = [direction(m, rows, coins.get(m, {}), adding_24h, now) for m in MAJORS]
     lens_rows = []
     for coin, ls in coins.items():
+        if coin in MAJORS:
+            continue
         size = sum((x["long_usd"] + x["short_usd"]) for x in ls.values())
         leans = {k: lean(x["long_usd"], x["short_usd"]) for k, x in ls.items()}
         lens_rows.append({"coin": coin, **ls, "leans": leans, "agree": agreement(list(leans.values())),
@@ -160,8 +196,11 @@ def home(agent, now: float | None = None) -> dict:
                     if crowd_now and day_ago and day_ago[2] and crowd_now[2] else None},
         },
         "crowd_series": pts,
-        "moving": {"tracked_24h": board["adding_24h"], "tracked_7d": board["adding_7d"],
-                   "crowd_24h": win24["coins"][:20], "crowd_totals_24h": win24.get("totals")},
+        "direction": directions,
+        "moving": {"tracked_24h": [r for r in adding_24h if r["coin"] not in MAJORS][:15],
+                   "tracked_7d": [r for r in pt.adding(168, now) if r["coin"] not in MAJORS][:15],
+                   "crowd_24h": [c for c in win24["coins"] if c["coin"] not in MAJORS][:20],
+                   "crowd_totals_24h": win24.get("totals")},
         "lenses": lens_rows[:24],
         "alerts": alerts[:20],
     }
