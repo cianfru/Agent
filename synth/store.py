@@ -219,6 +219,12 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
+    def event(self, event_id: int | None) -> dict | None:
+        if event_id is None:
+            return None
+        row = self._db.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
+        return _event(row) if row else None
+
     def events(self, since: float = 0, coin: str | None = None, min_score: float = 0,
                limit: int = 100) -> list[dict]:
         q = "SELECT * FROM events WHERE ts>=? AND score>=?"

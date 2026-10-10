@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import board, bot, config, notify, study
+from . import board, bot, config, desk, notify, study
 from . import groups as G
 from .service import Agent, build_digest, coin_context, make_agent
 
@@ -42,11 +42,27 @@ async def _loop(agent: Agent) -> None:
             await _maybe_daily_brief(agent)
             await _maybe_desk_posts(agent)
             await _maybe_pulse(agent)
+            await _maybe_reflex_history(agent)
             if agent.positions.enabled and agent.positions.discover_due():
                 asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
+
+
+async def _maybe_reflex_history(agent: Agent) -> None:
+    """Reflex's market history (uptrend share by day, the current risk-on or risk-off run): once a day, kept small."""
+    if not agent.reflex:
+        return
+    snap = agent.store.get_snapshot("reflex_history")
+    if snap and time.time() - (snap.get("fetched") or 0) < 20 * 3600:
+        return
+    try:
+        body = await agent.reflex.get("/api/market-history")
+    except Exception as e:  # noqa: BLE001 - context only; tried again next poll
+        log.warning("reflex market history failed: %s", e)
+        return
+    agent.store.put_snapshot("reflex_history", {**desk.compact_history(body), "fetched": time.time()})
 
 
 async def _discover(agent: Agent) -> None:
@@ -284,6 +300,18 @@ def get_flow(hours: float = 1):
 def flow_png():
     """The pulse picture sent to Telegram."""
     return Response(agent.pulse()["png"], media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/desk", dependencies=[Depends(auth)])
+def desk_home():
+    """The desk's home: headline readings, the crowd against price, where money is moving, three lenses, alerts."""
+    return desk.home(agent)
+
+
+@app.get("/research", dependencies=[Depends(auth)])
+def desk_research():
+    """The studies as charts, the forward record and Reflex's market cycle."""
+    return desk.research(agent)
 
 
 @app.get("/position-traders", dependencies=[Depends(auth)])
