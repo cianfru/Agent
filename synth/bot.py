@@ -1,10 +1,11 @@
-"""Telegram bot input: Follow / Unfollow / Ignore buttons and two commands.
+"""Telegram bot input: Follow / Unfollow / Ignore buttons and commands.
 
 Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat is obeyed.
   /following  open groups you follow, trader by trader
   /groups     the latest groups and how they ended
   /now        the live pulse: what smart traders opened and closed in the last 1h, 6h and 24h
   /positions  what the proven position traders hold now, by coin
+  /help       what each alert means and the words in them
 """
 
 from __future__ import annotations
@@ -17,15 +18,31 @@ from . import notify
 
 log = logging.getLogger(__name__)
 
-HELP = ("Outrider tracks smart traders who converge on a coin. Tap Follow on a group to get a message "
-        "when each trader closes.\n/now  the live pulse (1h, 6h, 24h)\n/positions  what proven position traders "
-        "hold\n/following  groups you follow\n"
-        "/groups  latest groups")
+HELP = """Outrider watches profitable traders on Hyperliquid. Context, not signals.
+
+Alerts
+Conviction: a tracked trader opens a position at least 2x their usual size.
+Building: 3+ tracked traders add to one coin within 3 days while its price hardly moved.
+Group: several profitable traders open the same coin and side together. Tap Follow to hear as each one closes.
+
+Words
+Proven: 5+ trades held 3+ days, in profit, winning at least $1.5 for every $1 lost.
+Riding a winner: $250K+ profit in open trades now.
+Still open: profit not yet taken, in trades still running.
+Usual size: the size of a typical position of theirs.
+Big money: accounts of $500K+ in profit all-time, one vote per owner.
+Scored after 14 and 30 days: the move since the alert, kept as a record.
+
+/now  live pulse (1h, 6h, 24h)
+/positions  what tracked traders hold
+/following  groups you follow
+/groups  latest groups"""
 
 COMMANDS = [{"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
-            {"command": "groups", "description": "Latest groups"}]
+            {"command": "groups", "description": "Latest groups"},
+            {"command": "help", "description": "What the alerts and their words mean"}]
 
 
 def group_lines(store, g: dict) -> list[str]:

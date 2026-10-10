@@ -68,7 +68,7 @@ def test_first_look_is_the_starting_point_then_adds_new_positions_and_conviction
     hl.books[A]["ZEC"] = pos("short", 1_200_000, 4_000, entry=300.0)
     out = asyncio.run(pt.step(now=1_790_003_600.0, mids={"ZEC": 300.0, "LIT": 2.6}))
     assert out["pt_conviction"] == 1 and len(sent) == 1
-    assert sent[0].startswith("Conviction · ZEC short $1.2M (2.4x their usual)")
+    assert sent[0].startswith("Conviction · ZEC short $1.2M (2.4x their usual size)")
     assert store.picks(origin="position")[0]["conviction"] == 2
     asyncio.run(pt.step(now=1_790_007_200.0, mids={"ZEC": 300.0, "LIT": 2.6}))
     assert len(sent) == 1                                   # not twice
@@ -142,17 +142,21 @@ def test_discover_adds_riders_and_prunes(tmp_path, monkeypatch):
     assert not pt.discover_due(now=1_790_000_000.0 + 3600)
     asyncio.run(pt.step(now=1_790_000_100.0))
     t = next(x for x in pt.board()["traders"] if x["address"] == R)
-    assert t["tier"] == "riding" and t["record_text"] == "riding · +$2.0M open profit, all-time +$4.4M"
+    assert t["tier"] == "riding" and t["record_text"] == "riding a winner: +$2.0M profit in open trades, +$4.4M all-time"
     hl.books[R] = {}
     out = asyncio.run(pt.discover(now=1_790_000_000.0 + 15 * 86400, rows=rows, hl=hl))
     assert out["dropped"] == 1 and R not in pt.traders
 
 
 def test_texts_and_bot_command(tmp_path, monkeypatch):
-    assert record_line(PROVEN) == ("proven · 28 held 3d+, 54% won, +$2.0M ($536K on paper), PF 2.25, holds ~50d")
+    assert record_line(PROVEN) == ("proven: 28 trades held 3+ days, 15 won, +$2.0M ($536K of it still open), "
+                                   "wins $2.2 per $1 lost, usually holds ~50 days")
+    assert "hardly any losses" in record_line({**PROVEN, "profit_factor": 208.73})
+    assert "no losing trade" in record_line({**PROVEN, "profit_factor": None, "win_rate": 1})
     assert [leverage_band(x) for x in (None, 0.2, 3, 5, 7.5)] == [None, "low", "moderate", "moderate", "high"]
     text = conviction_text(PROVEN, {"coin": "LIT", "side": "long", "value": 2_642_000}, 6.4)
-    assert text.splitlines()[0] == "Conviction · LIT long $2.6M (5.3x their usual)"
+    assert text.splitlines()[:2] == ["Conviction · LIT long $2.6M (5.3x their usual size)", "0x5f94…4b96 · 6.4x leverage now"]
+    assert text.splitlines()[2].startswith("Proven: 28 trades") and text.endswith("scored after 14 and 30 days.")
     assert build_text({"coin": "ZRO", "side": "long", "traders": 4, "added_usd": 900_000, "move": None}).startswith(
         "Building · ZRO long: 4 tracked traders added $900K in 3 days · price n/a")
     xpl = build_text({"coin": "XPL", "side": "long", "traders": 3, "added_usd": 400_000, "move": -0.05,
