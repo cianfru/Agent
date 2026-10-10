@@ -103,6 +103,7 @@
 
   <section id="groups">
     <div class="kv" id="gscore"></div>
+    <div class="panel" id="gstudy" style="margin-bottom:14px"></div>
     <div id="glist"></div>
   </section>
 
@@ -247,7 +248,24 @@ $("#mkscore").onclick = async () => { try { await api("/posts/scorecard", { meth
 const short = (a) => a && a.length > 12 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
 const held = (a, b) => { const h = Math.max(0, ((b || Date.now() / 1000) - a) / 3600);
   return h < 1 ? Math.round(h * 60) + "m" : h < 48 ? Math.round(h) + "h" : Math.round(h / 24) + "d"; };
+const ENGINE = { with: "Engine agrees", against: "Engine against", none: "Engine no signal", unknown: "No engine reading" };
+async function loadStudy() {
+  const st = await api("/study");
+  const cell = (s) => s.n ? `<span class="${s.median_pct > 0 ? "long" : s.median_pct < 0 ? "short" : ""}">${pct(s.median_pct)}</span> <span class="muted">${s.positive_pct.toFixed(0)}% · ${s.n}</span>` : "-";
+  const rows = (t) => ["with", "against", "none", "unknown"].filter((a) => t[a].groups).map((a) => {
+    const r = t[a];
+    return `<tr><td>${ENGINE[a]}</td><td class="n">${r.groups}</td><td class="n">${cell(r["1d"])}</td><td class="n">${cell(r["3d"])}</td><td class="n">${cell(r["7d"])}</td><td class="n">${cell(r.traders_closed)}</td></tr>`;
+  }).join("");
+  const table = (title, t) => rows(t) ? `<h2>${title}</h2><div class="scroll"><table><thead><tr><th></th><th>Groups</th><th>1d</th><th>3d</th><th>7d</th><th>Traders' result</th></tr></thead><tbody>${rows(t)}</tbody></table></div>` : "";
+  const need = st.ready ? "" : ` · needs ${st.needs.with} more with the engine, ${st.needs.against_or_none} more without`;
+  $("#gstudy").innerHTML = st.logged
+    ? table("Convergences by engine (1D)", st.headline_1d) + table("Fast only", st.fast_1d) +
+      `<div class="muted">Move their way after the group formed: median, share positive, count. Traders' result once all closed${need}. Context, not a signal.</div>`
+    : '<div class="empty">Each new convergence is logged with the engine\'s reading; results show here.</div>';
+}
+
 async function loadGroups() {
+  loadStudy().catch(() => {});
   const { groups, scoreboard: sb } = await api("/groups");
   const avg = sb.avg_closed_pct == null ? "-" : pct(sb.avg_closed_pct * 100);
   $("#gscore").innerHTML = `<span><b>Groups</b>${sb.groups}</span><span><b>Open</b>${sb.open}</span>
@@ -268,7 +286,7 @@ async function loadGroups() {
     return `<div class="panel" style="margin-bottom:14px">
       <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap">
         <h2 style="margin:0">#${g.id} <span class="${g.side}">${esc(g.coin)} ${esc(g.side)}</span></h2>
-        <span class="muted">${esc(g.venue)} · ${ago(g.ts)} ago · ${still}/${g.members.length} still in · ${esc(g.status)}</span>
+        <span class="muted">${esc(g.venue)} · ${ago(g.ts)} ago · ${still}/${g.members.length} still in · ${esc(g.status)}${g.meta && g.meta.study && g.meta.study.logged ? " · " + ENGINE[g.meta.study.align_1d] : ""}</span>
         <span class="muted">${g.move_pct == null ? "" : "price " + pct(g.move_pct * 100) + " their way"}</span>
         <button class="btn ${g.followed ? "" : "primary"}" data-follow="${g.id}" data-on="${g.followed ? 0 : 1}" style="margin-left:auto">${g.followed ? "Unfollow" : "Follow"}</button>
       </div>

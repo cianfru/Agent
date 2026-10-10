@@ -127,3 +127,40 @@ closes, median and share positive.
 Context, not a signal: n is far below Part L's minimums, the window is two weeks of one market, and every
 convergence is two wallets. With bots included, convergences look like Reflex's history (3d -0.82%, 42%
 positive); without them they are flat, and no better than single opens.
+
+## Amendment 3 (10 October 2026, owner; replaces Part L's arms before any live result)
+
+The owner's reframe: an engine signal on its own is seen only by us, so it is not an arm to race against the
+traders. The question is the convergence: when several profitable traders take the same position, and the
+engine at that moment points the same way, how do those trades go, compared with convergences the engine
+does not back?
+
+**What is logged.** Every Hyperliquid convergence (Reflex's rule: 2+ profitable traders, same side, within
+24 hours) that the agent sees within 2 hours of its last open, with the engine's reading for that coin at that
+moment (Reflex's 1D and 4H signals, all coins). Convergences first seen later (after a restart) are kept as
+groups but not logged. Reflex picks the traders with its own market-maker filters; amendment 2 is not
+applied live.
+
+**Engine reading.** Long: STRONG_LONG, LIGHT_LONG, ACCUMULATE, REVIVAL_SEED, REVIVAL_SEED_CONFIRMED. Short
+(including "do not be long"): RISK_OFF, LIGHT_SHORT, TRIM, TRIM_HARD, NO_LONG. Anything else (WAIT) has no
+direction. A convergence is **with** the engine when the 1D reading points its way, **against** when it points
+the other way, **none** when it has no direction, **unknown** when Reflex has no reading (left out).
+
+**Arms.** With (1D agrees) against Without (against plus none); against is also shown on its own. The headline
+uses every logged convergence; fast ones (6 hours or less) and the 4H reading are reported alongside.
+
+**Outcomes.** The move in the group's direction from Hyperliquid's mid when the agent first saw it, at 1, 3
+and 7 days (3 days decides); and, described only, the traders' own result (median of their closed results)
+once all of them are out.
+
+**Minimum.** 30 convergences in With and 30 in Without, each from at least 10 distinct coins.
+
+**Verdicts (3-day move).**
+- **The engine adds to convergences** if With's median beats Without's by at least 1 point, With's median is
+  above zero and at least 55% of With is positive.
+- **No difference** if With's median does not beat Without's.
+- In between, keep collecting to 60 and 60, then the first rule decides with no middle ground.
+- Until then: context, not a signal.
+
+Part L's arms A to D and their verdicts are dropped; Part P is unchanged. Shown on the dashboard's Groups
+tab and at `GET /study`.

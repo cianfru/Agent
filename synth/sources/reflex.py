@@ -172,6 +172,10 @@ async def fetch(rc: ReflexClient) -> dict:
         key=lambda r: -(((r.get("long") or {}).get("n") or 0) + ((r.get("short") or {}).get("n") or 0)),
     )[:TOP_COINS]
     coins = {_coin(r["coin"]): _row(r) for r in rows}
+    # The engine's signals for every coin (not only the top ones), so any convergence can be read against it.
+    engine = {_coin(r["coin"]): {"1d": ((r.get("engine") or {}).get("1d") or {}).get("signal"),
+                                 "4h": ((r.get("engine") or {}).get("4h") or {}).get("signal")}
+              for r in pos.get("rows") or [] if r.get("coin") and r.get("engine")}
 
     pulse = got.get("pulse") or {}
     market = {k: pulse.get(k) for k in
@@ -205,6 +209,7 @@ async def fetch(rc: ReflexClient) -> dict:
         "totals": totals,
         "market": market,
         "coins": coins,
+        "engine": engine,
         "convergences": convergences,
         "anomalies": anomalies,
         "setups": setups,

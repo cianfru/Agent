@@ -315,7 +315,9 @@ class Agent:
         """Fill 1d/3d/7d returns for logged picks once each horizon has passed."""
         now, n = time.time(), 0
         for p in self.store.open_picks():
-            px = price_of(p["coin"], snaps)
+            hl_px = self.tracker.last_mids.get(p["coin"].upper())
+            # group picks were entered at Hyperliquid's mid, so they are scored on it too
+            px = (hl_px or price_of(p["coin"], snaps)) if p.get("origin") == "group" else (price_of(p["coin"], snaps) or hl_px)
             if not px or not p["entry_price"]:
                 continue
             for h, secs in HORIZONS.items():

@@ -56,6 +56,8 @@ Every convergence becomes a numbered group (`#7 STRK short`), and every trader i
 
 Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
 
+**Convergences and the engine (study S1).** Every convergence seen within 2 hours of forming is logged with the engine's 1D and 4H reading for that coin at that moment: with them, against them, or no signal (`synth/study.py`). The Groups tab and `GET /study` show how each kind went: the move their way at 1, 3 and 7 days, and the traders' own result once all are out. Rules and the bar for a verdict: `docs/studies/S1-engine-vs-traders.md` (amendment 3). Until 30 of each, from 10 coins each, it is context, not a signal.
+
 ## Daily brief (Telegram, after 08:00 UTC)
 
 The brief has three short sections and is under 15 lines:
@@ -125,6 +127,7 @@ Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell im
 | `GET /brief` / `POST /brief?push=true` | Latest daily brief / write one now |
 | `POST /ask` `{"question": "..."}` | Question answered from current data and the last 7 days of events |
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
+| `GET /study` | Convergences by the engine's reading when they formed, and how they went |
 | `GET /posts` | Desk posts (draft, published, failed, rejected) |
 | `POST /posts/daily?publish=false` | Write today's post now |
 | `POST /posts/scorecard?publish=false` | Build the weekly scorecard now |

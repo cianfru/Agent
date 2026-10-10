@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import board, bot, config, notify
+from . import board, bot, config, notify, study
 from . import groups as G
 from .service import Agent, build_digest, coin_context, make_agent
 
@@ -244,6 +244,20 @@ def list_groups(limit: int = 100):
         out.append({**g, "members": ms, "levels": G.levels(g, ms) if g["venue"] == "hyperliquid" else {},
                     "now_px": last, "move_pct": G.side_move(g, last)})
     return {"groups": out, "scoreboard": G.scoreboard(gs, members)}
+
+
+@app.get("/study", dependencies=[Depends(auth)])
+def study_report():
+    """S1 Part L: convergences by whether the engine agreed when they formed, and how they went."""
+    gs = agent.store.groups(limit=10_000)
+    members = {g["id"]: agent.store.members(g["id"]) for g in gs}
+    picks = {}
+    for p in agent.store.picks(limit=1_000_000, origin="group"):
+        try:
+            picks[int(p["thesis"].split("#")[1])] = p
+        except (IndexError, ValueError, AttributeError):
+            continue
+    return study.report(gs, members, picks, agent.s.fast_convergence_hours)
 
 
 @app.post("/groups/{gid}/follow", dependencies=[Depends(auth)])
