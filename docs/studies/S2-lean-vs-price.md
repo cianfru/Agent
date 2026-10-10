@@ -62,3 +62,29 @@ Everything below is fixed before any data is pulled. Unless a result clears its 
    3-day return minus the basket's. Same bars as test 2, with at least 30 episodes from at least 8 coins.
 
 Wallet concentration (largest wallet's share of positions in each episode set) is reported beside every result.
+
+## Amendment 1 (10 October 2026, during the fill pull, before any result was computed)
+
+Reflex's earlier studies, read after the declaration, cover nearby ground and set the method this study should
+follow:
+- `traders-vs-spikes-study.md`: profitable traders mostly open after a spike (1.39x their normal rate in the 72
+  hours before, about 4x during and after); historical convergences trailed single opens.
+- `traders-turn-at-tops-study.md`: they keep their longs when a coin is stretched and add into local tops;
+  turning at a top was too rare to test (3 events).
+- `position-size-at-tops-study.md`: no clear link between their size and greed, and size did not predict the next
+  7 to 14 days (rho about +0.04 to +0.10); BTC was dominated by one entity of three wallets trading together.
+None of them tested the market-wide share of longs against the next move, which is what S2 does.
+
+Those studies picked wallets the way Reflex's live roster does, by last month's return, and kept the month the
+wallets were picked on out of the headline. That is less biased for history than ranking by profit up to
+10 September, and it is the same population the agent's live pulse shows. So Part B changes:
+- **Roster (headline):** Reflex's roster version 2 rule on the 10 October leaderboard: market makers out (monthly
+  volume over 100 times account value); monthly ROI at least 30% from a month that did not start under $1,000;
+  monthly profit at least $10,000; all-time PnL at least this month's PnL; account value at least $5,000; the
+  best 600 by monthly ROI. 544 wallets qualify. Bot-like wallets are then removed by S1 amendment 2's rule, applied
+  to each wallet's fills from 26 September to 10 October.
+- **Headline period:** 4-hour bars up to the data end minus 30 days minus 7 days, so every outcome ends before
+  the month the wallets were picked on. Later bars are reported apart as biased.
+- **Bias rule unchanged:** the "in profit before this month" condition still favours wallets that did well, so
+  "traders right at extremes" stays a non-verdict in Part B.
+- **Secondary:** the S1 roster (the original declaration) is run the same way and reported beside it, no verdict.
