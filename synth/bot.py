@@ -3,6 +3,7 @@
 Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat is obeyed.
   /following  open groups you follow, trader by trader
   /groups     the latest groups and how they ended
+  /now        the live pulse: what smart traders opened and closed in the last 1h, 6h and 24h
 """
 
 from __future__ import annotations
@@ -16,7 +17,12 @@ from . import notify
 log = logging.getLogger(__name__)
 
 HELP = ("Outrider tracks smart traders who converge on a coin. Tap Follow on a group to get a message "
-        "when each trader closes.\n/following  groups you follow\n/groups  latest groups")
+        "when each trader closes.\n/now  the live pulse (1h, 6h, 24h)\n/following  groups you follow\n"
+        "/groups  latest groups")
+
+COMMANDS = [{"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
+            {"command": "following", "description": "Groups you follow"},
+            {"command": "groups", "description": "Latest groups"}]
 
 
 def group_lines(store, g: dict) -> list[str]:
@@ -66,7 +72,15 @@ async def handle(agent, update: dict) -> None:
     msg = update.get("message") or {}
     if str((msg.get("chat") or {}).get("id")) != chat:
         return
-    cmd = (msg.get("text") or "").strip().split()[0:1]
+    cmd = [c.split("@")[0] for c in (msg.get("text") or "").strip().split()[0:1]]
+    if cmd in (["/now"], ["/pulse"]):
+        try:
+            p = await asyncio.to_thread(agent.pulse)
+            await notify.telegram_photo(s.telegram_token, chat, p["png"], p["summary"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("/now failed: %s", e)
+            await notify.telegram(s.telegram_token, chat, "The pulse isn't available right now.")
+        return
     if cmd == ["/following"]:
         gs = [g for g in store.groups(limit=200) if g["followed"] and g["status"] == "open"]
         lines = [ln for g in gs for ln in group_lines(store, g)] or ["You're not following any open group."]
@@ -81,6 +95,7 @@ async def run(agent) -> None:
     """Long-poll Telegram for button taps and commands until cancelled."""
     if not (agent.s.telegram_token and agent.s.telegram_chat_id):
         return
+    await notify.tg(agent.s.telegram_token, "setMyCommands", commands=COMMANDS)  # the "/" menu in Telegram
     offset = None
     while True:
         try:

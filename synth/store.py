@@ -89,6 +89,12 @@ CREATE TABLE IF NOT EXISTS members (
     UNIQUE(group_id, address, instrument)
 );
 CREATE INDEX IF NOT EXISTS members_group ON members(group_id);
+CREATE TABLE IF NOT EXISTS series (
+    ts REAL NOT NULL,
+    source TEXT NOT NULL,
+    body TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS series_src_ts ON series(source, ts);
 CREATE TABLE IF NOT EXISTS briefs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -119,6 +125,23 @@ class Store:
                 "ON CONFLICT(source) DO UPDATE SET ts=excluded.ts, body=excluded.body",
                 (source, time.time(), json.dumps(body)),
             )
+            self._db.commit()
+
+    # series: one compact row per poll, for the live flow --------------------
+    def add_series(self, source: str, body: dict, ts: float | None = None) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO series(ts, source, body) VALUES(?,?,?)",
+                             (ts or time.time(), source, json.dumps(body, separators=(",", ":"))))
+            self._db.commit()
+
+    def series(self, source: str, since: float) -> list[tuple[float, dict]]:
+        rows = self._db.execute("SELECT ts, body FROM series WHERE source=? AND ts>=? ORDER BY ts",
+                                (source, since)).fetchall()
+        return [(r["ts"], json.loads(r["body"])) for r in rows]
+
+    def prune_series(self, before: float) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM series WHERE ts<?", (before,))
             self._db.commit()
 
     # events -------------------------------------------------------------

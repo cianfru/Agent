@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from . import brief as brief_mod
-from . import detectors, notify, orbio, post, stories
+from . import chart, detectors, flow, notify, orbio, post, stories
 from .config import Settings
 from .llm import Synthesizer
 from .sources import block0, cowboy, reflex
@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 COOLDOWN_S = 12 * 3600  # the same event key is not re-alerted within this window
 MAX_ALERTS_PER_CYCLE = 2  # bounds noise and model spend if a feed glitch fires everything at once
 HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
+SERIES_KEEP_S = 8 * 86400  # per-poll positioning rows for the live flow
 
 
 class Agent:
@@ -71,6 +72,10 @@ class Agent:
         seeding: set[str] = set()
         prevs = {name: self.store.get_snapshot(name) for name in snaps}
         self._record_sentiment(snaps.get("reflex"))
+        rec = flow.record(snaps.get("reflex"))
+        if rec:
+            self.store.add_series("reflex", rec, started)
+            self.store.prune_series(started - SERIES_KEEP_S)
         for name, cur in snaps.items():
             prev = prevs[name]
             if prev is None:
@@ -172,6 +177,26 @@ class Agent:
         hist = [h for h in hist if now - h["ts"] <= 48 * 3600]
         hist.append({"ts": now, "long_usd": sent["long_usd"], "short_usd": sent["short_usd"]})
         self.store.put_snapshot("sentiment_history", {"rows": hist})
+
+    # ---------------------------------------------------------- live pulse --
+    def flow_rows(self, hours: float, now: float | None = None) -> list[tuple[float, dict]]:
+        now = now or time.time()
+        return self.store.series("reflex", now - hours * 3600 - flow.MAX_GAP_S)
+
+    def flow(self, hours: float) -> dict:
+        """What profitable traders opened and closed over the last `hours` (synth/flow.py)."""
+        now = time.time()
+        rows = self.flow_rows(max(hours, 6), now)
+        return {"window": flow.window(rows, hours, now), "series": flow.series(rows, max(hours, 6), now)}
+
+    def pulse(self) -> dict:
+        """The pulse map (1h / 6h / 24h), the 24h lean line, a two-line summary and the picture."""
+        now = time.time()
+        rows = self.flow_rows(24, now)
+        g = flow.grid(rows, now)
+        points = flow.series(rows, 24, now)
+        return {"grid": g, "points": points, "summary": flow.summary(g["windows"]),
+                "png": chart.pulse_chart(points, g, now)}
 
     def market_read(self, since_ts: float | None = None) -> dict:
         """Overall lean, change since `since_ts`, Derive lean, and coins where smart money and data agree."""

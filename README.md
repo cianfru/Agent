@@ -52,11 +52,23 @@ Every convergence becomes a numbered group (`#7 STRK short`), and every trader i
   - The caption lists each wallet with size and entry, the entry range, the price now, and that line.
 - **Followed groups** message you when a trader cuts size by half or more or closes (exit, result, time held), and with a summary when all are out. Unfollowed groups are recorded only.
 - **On the dashboard:** the Groups tab shows every group trader by trader, with a Follow toggle and the scoreboard (closed in profit, average result).
-- **In Telegram:** `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
+- **In Telegram:** `/now` sends the live pulse; `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
 
 Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
 
 **Convergences and the engine (study S1).** Every convergence seen within 2 hours of forming is logged with the engine's 1D and 4H reading for that coin at that moment: with them, against them, or no signal (`synth/study.py`). The Groups tab and `GET /study` show how each kind went: the move their way at 1, 3 and 7 days, and the traders' own result once all are out. Rules and the bar for a verdict: `docs/studies/S1-engine-vs-traders.md` (amendment 3). Until 30 of each, from 10 coins each, it is context, not a signal.
+
+## The live pulse: who is opening and closing, 1h / 6h / 24h
+
+Reflex refreshes every tracked profitable wallet's positions every few minutes while the agent polls it. Each poll the agent stores one compact row per coin: long and short positions, their dollars and the price (`series` table, 8 days kept). Comparing consecutive rows gives the flow (`synth/flow.py`):
+- **L / S:** the change in how many traders hold a long or a short. A close shows as a minus, so `L−2 S+3` means two longs closed and three shorts opened (net).
+- **Net size:** dollars added long minus dollars added short, with the price move taken out, so a rally doesn't read as longs added.
+- **Left out:** intervals where Reflex's roster changed (its daily refresh adds and drops wallets), the agent was down for more than 30 minutes, or Reflex served stale data. The flow is only what traders did.
+
+Where it shows:
+- **Dashboard, Now tab:** the Pulse panel follows the 1h / 6h / 24h / 3d selector. Tiles show long and short positions now with their change; the share of positions that are long, as a line you can hover; and coins moving long (green) and moving short (red). Event cards are green or red by direction too.
+- **Telegram:** the market read (06, 10, 14, 18 UTC) now comes as a picture: the 24h line of the share long, and a map of the most active coins with their L / S change and net size in the last 1h, 6h and 24h, coloured by direction. Send `/now` at any time for the same picture with a two-line summary.
+- **API:** `GET /flow?hours=6` (JSON) and `GET /flow.png` (the picture).
 
 ## Daily brief (Telegram, after 08:00 UTC)
 
@@ -127,6 +139,8 @@ Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell im
 | `GET /brief` / `POST /brief?push=true` | Latest daily brief / write one now |
 | `POST /ask` `{"question": "..."}` | Question answered from current data and the last 7 days of events |
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
+| `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
+| `GET /flow.png` | The pulse picture (as sent to Telegram) |
 | `GET /study` | Convergences by the engine's reading when they formed, and how they went |
 | `GET /posts` | Desk posts (draft, published, failed, rejected) |
 | `POST /posts/daily?publish=false` | Write today's post now |
