@@ -83,14 +83,21 @@ Two groups, both read every poll from Hyperliquid's public API, one light reques
 
 Leverage is shown for every trader (low under 3x, moderate 3-5x, high over 5x), never used to leave anyone out.
 
+**Big money**, a third lens, by dollars: the daily scan reads every account of $500K+ in profit all-time anyway, so the
+agent keeps their long and short per coin. Reflex's profitable traders are picked by monthly return (30%+), which a
+$200M account cannot make, so the biggest and steadiest money never shows there. On XPL (10 October 2026) the two
+disagreed: Reflex's list 19 long ($2.9M) against 5 short ($0.7M); big profitable accounts $7.4M long against $18.4M
+short, the largest two shorts held by accounts with $145M and $108M all-time profit at 3-5x.
+
 What the agent does with them:
 - **Holdings:** coin, side, value, entry, held since (unknown for riders until the agent sees them open something),
   unrealised PnL, leverage now.
 - **Adding:** every add and cut is recorded; the dashboard shows, per coin and side, how many traders added and the net
   dollars over 24 hours and 7 days.
 - **Build-up alert** (Telegram, at most 3 a day, one per coin and side per 72 hours): 3+ tracked traders each add $25K+,
-  $250K+ in all, within 72 hours, while the price moved under 15%. The shape NEAR had before its move. Context, not a
-  signal.
+  $250K+ in all, within 72 hours, while the price moved under 15%. The shape NEAR had before its move. It also says what
+  tracked traders hold on the other side and whether big money agrees. Context, not a signal (study S4: long build-ups
+  beat the market by 4 points over 30 days, but big runs were no more common than for any coin).
 - **Conviction alert** (at most 5 a day): a new position at least 2x the trader's usual size within 4 hours of opening.
 - **Forward record:** every new position of $10K+ is a pick at Hyperliquid's mid, scored at 14 and 30 days.
 

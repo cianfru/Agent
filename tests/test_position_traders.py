@@ -96,7 +96,7 @@ def test_build_up_alert_when_three_traders_add_to_one_coin_and_price_is_flat(tmp
         asyncio.run(pt.step(now=now + 600 * (i + 1), mids={"GRASS": 0.62}))
     builds = [m for m in sent if m.startswith("Building")]
     assert builds == ["Building · GRASS long: 3 tracked traders added $360K in 3 days · price +3% · they hold "
-                      "$360K long\nContext, not a signal."]
+                      "$360K long\nAgainst: $0 short among tracked traders\nContext, not a signal."]
     asyncio.run(pt.step(now=now + 3600, mids={"GRASS": 0.62}))
     assert len([m for m in sent if m.startswith("Building")]) == 1    # cooldown
 
@@ -124,6 +124,7 @@ def test_discover_adds_riders_and_prunes(tmp_path, monkeypatch):
         ["month", {"pnl": "1800000", "vlm": "4700000"}], ["allTime", {"pnl": "4400000", "vlm": "1"}]]}]
     out = asyncio.run(pt.discover(now=1_790_000_000.0, rows=rows, hl=hl))
     assert out == {"candidates": 1, "riding": 1, "dropped": 0} and R in pt.traders and A in pt.traders
+    assert pt.big_money() == {"NEAR": {"long_n": 1, "short_n": 0, "long_usd": 3_800_000, "short_usd": 0}}
     assert not pt.discover_due(now=1_790_000_000.0 + 3600)
     asyncio.run(pt.step(now=1_790_000_100.0))
     t = next(x for x in pt.board()["traders"] if x["address"] == R)
@@ -140,6 +141,12 @@ def test_texts_and_bot_command(tmp_path, monkeypatch):
     assert text.splitlines()[0] == "Conviction · LIT long $2.6M (5.3x their usual)"
     assert build_text({"coin": "ZRO", "side": "long", "traders": 4, "added_usd": 900_000, "move": None}).startswith(
         "Building · ZRO long: 4 tracked traders added $900K in 3 days · price n/a")
+    xpl = build_text({"coin": "XPL", "side": "long", "traders": 3, "added_usd": 400_000, "move": -0.05,
+                      "held_usd": 3_810_000, "against_usd": 1_360_000,
+                      "big_money": {"long_n": 22, "short_n": 23, "long_usd": 7_390_000, "short_usd": 18_430_000}})
+    assert xpl.splitlines()[1:] == ["Against: $1.4M short among tracked traders",
+                                    "Big money (daily): $7.4M long / $18.4M short, leans the other way",
+                                    "Context, not a signal."]
     pt, store, hl, sent = setup(tmp_path, monkeypatch)
     asyncio.run(pt.step(now=1_790_000_000.0))
 
