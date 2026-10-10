@@ -184,7 +184,7 @@ def test_seeding_and_stale_groups_are_recorded_not_announced(tmp_path, monkeypat
 
 
 def test_v1_derive_groups_are_purged(tmp_path):
-    s = Settings(db_path=str(tmp_path / "t.db"))
+    s = Settings(db_path=str(tmp_path / "t.db"), derive_groups=True)
     store = Store(s.db_path)
     bad = store.add_group("derive", "BTC", "long", "old", 82000, {"span_h": 0})
     store.add_member(bad, {"address": "0xa", "side": "long", "instrument": "x", "opened_ts": 1})
@@ -203,7 +203,7 @@ def test_derive_group_from_two_publications(tmp_path, monkeypatch):
         sent.append(text)
 
     monkeypatch.setattr(notify, "telegram", fake_text)
-    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1")
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1", derive_groups=True)
     store = Store(s.db_path)
     tr = tracking.GroupTracker(s, store, None, FakeHL())
     base = {"BTC-20261030-85000-C": {"und": "BTC", "net": 250, "delta_usd": 7.7e6}}
@@ -231,3 +231,21 @@ def test_derive_group_from_two_publications(tmp_path, monkeypatch):
     out = asyncio.run(tr.step({"cowboy": {**cb, "revision": "r2"}}, {}, set(), now=1600.0))
     assert out["groups_created"] == 1 and out["groups_announced"] == 1
     assert sent[0].startswith("#1 BTC long · 2 smart option wallets")
+
+
+def test_derive_groups_off_by_default_purges_and_skips(tmp_path, monkeypatch):
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    assert s.derive_groups is False
+    store = Store(s.db_path)
+    gid = store.add_group("derive", "ZEC", "long", "z", 300, {"span_h": 0, "detector": tracking.DERIVE_DETECTOR})
+    hl = store.add_group("hyperliquid", "STRK", "short", "hl", 0.07, {})
+    tr = tracking.GroupTracker(s, store, None, FakeHL())
+    assert store.get_group(gid) is None and store.get_group(hl)
+
+    async def boom(addrs):
+        raise AssertionError("books must not be fetched while Derive groups are off")
+
+    monkeypatch.setattr(tr, "_books", boom)
+    cb = {"revision": "r9", "coins": {}, "wallets": {"BTC": [{"address": "0xa", "smart": True}]}}
+    out = asyncio.run(tr.step({"cowboy": cb}, {}, set(), now=1000.0))
+    assert out["groups_created"] == 0
