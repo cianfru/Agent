@@ -33,14 +33,33 @@
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } main { padding: 12px 12px 32px; } header, nav { padding-left: 12px; padding-right: 12px; } }
   .panel { background: var(--s1); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
   .panel h2 { font-size: 13px; color: var(--t2); font-weight: 600; margin: 0 0 10px; }
-  .ev { display: grid; grid-template-columns: 44px 52px 1fr 34px; gap: 8px; padding: 7px 0; border-top: 1px solid var(--border);
-    align-items: baseline; }
-  .ev:first-of-type { border-top: 0; }
+  .ev { display: grid; grid-template-columns: 44px 52px 1fr 34px; gap: 8px; padding: 8px 10px; margin-top: 6px;
+    align-items: baseline; border-radius: 6px; background: var(--s2); border: 1px solid var(--border); }
+  .ev:first-of-type { margin-top: 0; }
+  .ev.d-long, .tile.up, .card.up { background: color-mix(in srgb, var(--up) 16%, var(--s1)); border-color: color-mix(in srgb, var(--up) 40%, var(--border)); }
+  .ev.d-short, .tile.down, .card.down { background: color-mix(in srgb, var(--down) 16%, var(--s1)); border-color: color-mix(in srgb, var(--down) 40%, var(--border)); }
+  .ev.d-long .c, .ev.d-short .c { color: var(--t1); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .tile { background: var(--s2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .tile b { display: block; font-size: 12px; color: var(--t2); font-weight: 500; margin-bottom: 2px; }
+  .tile .v { font: 600 20px var(--mono); }
+  .tile .d { font: 12px var(--mono); color: var(--t2); margin-left: 6px; }
+  .pchart { position: relative; margin-bottom: 12px; }
+  .pchart svg { display: block; }
+  .pchart .tip { position: absolute; top: 0; pointer-events: none; background: var(--s2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font: 12px var(--mono); color: var(--t1); white-space: nowrap; display: none; }
+  .movers { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .movers { grid-template-columns: 1fr; } }
+  .movers h3 { font-size: 12px; color: var(--t2); font-weight: 600; margin: 0 0 8px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .card { border-radius: 8px; padding: 8px 10px; border: 1px solid var(--border); }
+  .card .c { font-weight: 700; } .card .c span { font: 12px var(--mono); color: var(--t2); font-weight: 400; margin-left: 4px; }
+  .card .m { font: 13px var(--mono); margin-top: 2px; } .card .u { font: 12px var(--mono); color: var(--t2); }
   .ev .t, .ev .s { font-family: var(--mono); color: var(--t3); font-size: 12px; }
   .ev .s { text-align: right; }
   .ev .c { font-weight: 600; }
   .long { color: var(--up); } .short { color: var(--down); } .none, .watch { color: var(--flat); }
-  .hot { box-shadow: inset 2px 0 0 var(--accent); padding-left: 8px; }
+  .hot { box-shadow: inset 3px 0 0 var(--accent); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th { text-align: left; color: var(--t3); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border);
     position: sticky; top: 0; background: var(--s1); }
@@ -88,6 +107,16 @@
       <button data-h="1" class="on">1h</button><button data-h="6">6h</button><button data-h="24">24h</button><button data-h="72">3d</button>
     </div>
     <div class="kv" id="market"></div>
+    <div class="panel" style="margin-bottom:16px">
+      <h2 id="ptitle">Pulse</h2>
+      <div class="tiles" id="ptiles"></div>
+      <div class="pchart" id="pchart"></div>
+      <div class="movers">
+        <div><h3>Moving long</h3><div class="cards" id="plong"></div></div>
+        <div><h3>Moving short</h3><div class="cards" id="pshort"></div></div>
+      </div>
+      <div class="muted" id="pnote" style="margin-top:10px; font-size:12px"></div>
+    </div>
     <div class="panel" style="margin-bottom:16px"><h2>Market read</h2><pre id="read"></pre></div>
     <div class="grid">
       <div class="panel"><h2 id="evtitle">Events</h2><div id="events"></div></div>
@@ -184,12 +213,73 @@ async function loadStatus() {
   } catch (e) { $("#status").textContent = String(e.message || e); }
 }
 
+const signed = (n) => n > 0 ? "+" + n : n < 0 ? "−" + -n : "0";
+const usdSigned = (x) => (x > 0 ? "+" : x < 0 ? "−" : "") + usd(Math.abs(x || 0));
+const winName = (h) => h === 1 ? "hour" : h === 72 ? "3 days" : h + "h";
+
+let lastPts = [];
+window.addEventListener("resize", () => { if (lastPts.length) lineChart($("#pchart"), lastPts); });
+function lineChart(el, pts) {
+  lastPts = pts;
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">The line fills as the agent polls (every few minutes).</div>'; return; }
+  const W = Math.max(280, el.clientWidth || 600), H = 150, L = 44, R = 8, T = 10, B = 20;
+  const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts, ys = pts.map((p) => p.long_share);
+  let lo = Math.min(...ys), hi = Math.max(...ys); const pad = Math.max(0.5, (hi - lo) * 0.2); lo -= pad; hi += pad;
+  const x = (t) => L + (W - L - R) * (t - t0) / Math.max(1, t1 - t0), y = (v) => T + (H - T - B) * (hi - v) / (hi - lo);
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.ts).toFixed(1)},${y(p.long_share).toFixed(1)}`).join("");
+  const yt = [lo + pad, (lo + hi) / 2, hi - pad].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border)" stroke-width="0.6"/>
+    <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10" fill="var(--t3)">${v.toFixed(1)}%</text>`).join("");
+  const tm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+  const xt = [t0, (t0 + t1) / 2, t1].map((t, i) => `<text x="${x(t)}" y="${H - 4}" font-size="10" fill="var(--t3)" text-anchor="${["start", "middle", "end"][i]}">${tm(t)}</text>`).join("");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Share of positions that are long over time">
+    ${yt}${xt}<path d="${path}" fill="none" stroke="var(--t1)" stroke-width="2" stroke-linejoin="round"/>
+    <line id="xh" y1="${T}" y2="${H - B}" stroke="var(--t3)" stroke-width="1" visibility="hidden"/>
+    <circle id="xd" r="4" fill="var(--t1)" stroke="var(--s1)" stroke-width="2" visibility="hidden"/>
+    <rect x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent" id="hit"/></svg><div class="tip" id="ptip"></div>`;
+  const svg = el.querySelector("svg"), tip = el.querySelector("#ptip"), xh = el.querySelector("#xh"), xd = el.querySelector("#xd");
+  const move = (ev) => {
+    const r = svg.getBoundingClientRect(), vx = (ev.clientX - r.left) * W / r.width;
+    const t = t0 + (vx - L) / (W - L - R) * (t1 - t0);
+    const p = pts.reduce((a, b) => Math.abs(b.ts - t) < Math.abs(a.ts - t) ? b : a);
+    xh.setAttribute("x1", x(p.ts)); xh.setAttribute("x2", x(p.ts)); xd.setAttribute("cx", x(p.ts)); xd.setAttribute("cy", y(p.long_share));
+    xh.setAttribute("visibility", "visible"); xd.setAttribute("visibility", "visible");
+    tip.style.display = "block"; tip.textContent = `${tm(p.ts)} UTC · ${p.long_share.toFixed(1)}% long · ${p.long_n}L ${p.short_n}S`;
+    const px_ = x(p.ts) * r.width / W; tip.style.left = Math.min(Math.max(0, px_ - tip.offsetWidth / 2), r.width - tip.offsetWidth) + "px";
+  };
+  const hit = el.querySelector("#hit");
+  hit.onmousemove = move; hit.ontouchmove = (e) => move(e.touches[0]);
+  hit.onmouseleave = () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); xd.setAttribute("visibility", "hidden"); };
+}
+
+async function loadPulse() {
+  const f = await api(`/flow?hours=${hours}`), w = f.window, t = w.totals, pts = f.series;
+  $("#ptitle").textContent = `Pulse: profitable Hyperliquid traders, last ${winName(hours)}`;
+  const shareD = pts.length > 1 ? pts[pts.length - 1].long_share - (pts.find((p) => p.ts >= Date.now() / 1000 - hours * 3600) || pts[0]).long_share : 0;
+  const net = (t.d_long_usd || 0) - (t.d_short_usd || 0);
+  const tile = (label, v, d, dir) => `<div class="tile ${dir > 0 ? "up" : dir < 0 ? "down" : ""}"><b>${label}</b><span class="v">${v}</span><span class="d">${d}</span></div>`;
+  $("#ptiles").innerHTML = t.long_share == null ? '<div class="empty">Waiting for the first polls.</div>' :
+    tile("Long positions", t.long_n, signed(t.d_long_n), Math.sign(t.d_long_n)) +
+    tile("Short positions", t.short_n, signed(t.d_short_n), -Math.sign(t.d_short_n)) +
+    tile("Share long", t.long_share + "%", (shareD >= 0 ? "+" : "−") + Math.abs(shareD).toFixed(1) + " pts", Math.sign(Math.round(shareD * 10))) +
+    tile("Net size (long − short)", usdSigned(net), "", Math.sign(Math.round(net / 1e4)));
+  lineChart($("#pchart"), pts.filter((p) => p.ts >= Date.now() / 1000 - Math.max(hours, 6) * 3600));
+  const dir = (c) => c.shift ? Math.sign(c.shift) : Math.sign(c.net_usd);
+  const card = (c) => `<div class="card ${dir(c) > 0 ? "up" : "down"}"><div class="c">${esc(c.coin)}<span>${c.long_n}L · ${c.short_n}S</span></div>
+    <div class="m">L${signed(c.d_long_n)}  S${signed(c.d_short_n)}</div><div class="u">${usdSigned(c.net_usd)} net</div></div>`;
+  const up = w.coins.filter((c) => dir(c) > 0).slice(0, 8), dn = w.coins.filter((c) => dir(c) < 0).slice(0, 8);
+  $("#plong").innerHTML = up.length ? up.map(card).join("") : '<div class="empty">None.</div>';
+  $("#pshort").innerHTML = dn.length ? dn.map(card).join("") : '<div class="empty">None.</div>';
+  const gap = w.covered_h < hours * 0.8 ? ` Data covers ${w.covered_h}h of this window so far.` : "";
+  $("#pnote").textContent = `L / S: change in traders holding a long / short (a close shows as a minus). Net size: dollars added long minus short, price move taken out.${gap}`;
+}
+
 async function loadNow() {
+  loadPulse().catch((e) => { $("#ptiles").innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
   const [p, b] = await Promise.all([api(`/pulse?hours=${hours}`), api(`/board?hours=${Math.max(hours, 24)}`)]);
   $("#read").textContent = p.text || "";
   $("#evtitle").textContent = `Events, last ${hours === 1 ? "hour" : hours + "h"} (${p.events.length})`;
   $("#events").innerHTML = p.events.length ? p.events.slice(0, 80).map((e) => `
-    <div class="ev ${e.score >= 70 ? "hot" : ""}">
+    <div class="ev ${e.direction === "long" ? "d-long" : e.direction === "short" ? "d-short" : ""} ${e.score >= 70 ? "hot" : ""}">
       <span class="t">${ago(e.ts)}</span><span class="c ${e.direction || "none"}">${esc(e.coin || "MKT")}</span>
       <span>${esc(e.title)}</span><span class="s">${Math.round(e.score)}</span>
     </div>`).join("") : `<div class="empty">Nothing detected in this window.</div>`;

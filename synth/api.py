@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from . import board, bot, config, notify, study
@@ -82,7 +82,25 @@ async def _maybe_pulse(agent: Agent) -> None:
     since = max(last["ts"] if last else 0, time.time() - 12 * 3600)
     read = agent.market_read(since)
     agent.store.add_brief("pulse", {"text": read["text"], "stories": len(read["stories"])})
-    await notify.telegram(agent.s.telegram_token, agent.s.telegram_chat_id, read["text"])
+    await send_pulse(agent, read["text"])
+
+
+async def send_pulse(agent: Agent, text: str | None = None) -> None:
+    """The pulse picture with the read as its caption (or the picture, then the read, if it is too long)."""
+    tok, chat = agent.s.telegram_token, agent.s.telegram_chat_id
+    try:
+        p = await asyncio.to_thread(agent.pulse)
+    except Exception as e:  # noqa: BLE001 - the text still goes out without the picture
+        log.warning("pulse picture failed: %s", e)
+        if text:
+            await notify.telegram(tok, chat, text)
+        return
+    if text and len(text) <= 1024:
+        await notify.telegram_photo(tok, chat, p["png"], text)
+        return
+    await notify.telegram_photo(tok, chat, p["png"], p["summary"])
+    if text:
+        await notify.telegram(tok, chat, text)
 
 
 def _snaps() -> dict:
@@ -244,6 +262,18 @@ def list_groups(limit: int = 100):
         out.append({**g, "members": ms, "levels": G.levels(g, ms) if g["venue"] == "hyperliquid" else {},
                     "now_px": last, "move_pct": G.side_move(g, last)})
     return {"groups": out, "scoreboard": G.scoreboard(gs, members)}
+
+
+@app.get("/flow", dependencies=[Depends(auth)])
+def get_flow(hours: float = 1):
+    """What profitable Hyperliquid traders opened and closed in the last `hours`, and the lean over time."""
+    return agent.flow(max(0.25, min(hours, 192)))
+
+
+@app.get("/flow.png", dependencies=[Depends(auth)])
+def flow_png():
+    """The pulse picture sent to Telegram."""
+    return Response(agent.pulse()["png"], media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/study", dependencies=[Depends(auth)])

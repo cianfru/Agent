@@ -53,6 +53,8 @@ def test_login_then_fetch_normalises_and_tolerates_partial_failure():
     assert "pulse" in snap["errors"] and snap["market"] == {}
     t = snap["totals"]
     assert (t["long_usd"], t["short_usd"], t["opens_long_24h"], t["day_ago_long_n"]) == (900_000, 0, 2, 1)
+    assert snap["positions"]["PUMP"] == [3, 900_000, 0, 0, 0.005]
+    assert snap["engine"]["PUMP"] == {"1d": "WAIT", "4h": "LIGHT_LONG"}
 
 
 @respx.mock

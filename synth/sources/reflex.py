@@ -172,6 +172,15 @@ async def fetch(rc: ReflexClient) -> dict:
         key=lambda r: -(((r.get("long") or {}).get("n") or 0) + ((r.get("short") or {}).get("n") or 0)),
     )[:TOP_COINS]
     coins = {_coin(r["coin"]): _row(r) for r in rows}
+    # Every coin's positioning, compact, for the live flow (synth/flow.py): [long n, long $, short n, short $, price]
+    positions = {}
+    for r in pos.get("rows") or []:
+        if not r.get("coin"):
+            continue
+        lo, sh, eng = r.get("long") or {}, r.get("short") or {}, r.get("engine") or {}
+        price = r.get("mark") or ((eng.get("1d") or {}).get("price")) or ((eng.get("4h") or {}).get("price"))
+        positions[_coin(r["coin"])] = [lo.get("n") or 0, round(lo.get("usd") or 0), sh.get("n") or 0,
+                                       round(sh.get("usd") or 0), price]
     # The engine's signals for every coin (not only the top ones), so any convergence can be read against it.
     engine = {_coin(r["coin"]): {"1d": ((r.get("engine") or {}).get("1d") or {}).get("signal"),
                                  "4h": ((r.get("engine") or {}).get("4h") or {}).get("signal")}
@@ -210,6 +219,7 @@ async def fetch(rc: ReflexClient) -> dict:
         "market": market,
         "coins": coins,
         "engine": engine,
+        "positions": positions,
         "convergences": convergences,
         "anomalies": anomalies,
         "setups": setups,
