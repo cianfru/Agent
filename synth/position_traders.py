@@ -1,8 +1,11 @@
 """Tracked traders: who holds size and wins, what they hold now, and what they are adding.
 
-Two groups (`synth/data/position_traders.json`, and riders found daily):
+Two groups, both kept current:
 - **Proven** (study S3, with the owner's amendment): 5+ positions held 3+ days, open ones counted at their unrealised
-  PnL, those positions at least half the size the trader trades, in profit with a profit factor of 1.5+.
+  PnL, those positions at least half the size the trader trades, in profit with a profit factor of 1.5+. The study's
+  list (`synth/data/position_traders.json`) was the start; `synth/proven.py` reruns the rule in the background on a
+  pool rebuilt daily (Reflex's roster rule, big accounts, the listed), so newcomers join and those who stop
+  qualifying drop after 30 days.
 - **Riding winners:** open positions with at least $250K unrealised profit, one of them at least 20% up on its value
   (and $50K+), in profit all-time, not a market maker. No history needed: the trader who opened NEAR at the bottom and
   never closed is in. Found once a day from Hyperliquid's leaderboard; a rider who stops qualifying for 14 days drops.
@@ -34,11 +37,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+import datetime as dt
+
 import httpx
 
 from . import notify
 from .config import Settings
 from .hyperliquid import HL
+from .proven import PROVEN_GRACE_S, Refresher, roster_candidates
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -71,13 +77,29 @@ BIG_MIN_VOTE_USD = 25_000          # an owner's net position in a coin counts as
 MAJORS = ("BTC", "ETH")            # direction, not build-ups: shown on their own, left out of the build-up alert
 
 
-def load_owners(path: Path = OWNERS) -> dict[str, str]:
-    """Wallet -> owner (the group's first wallet), for wallets known to share one owner."""
+def load_owners(path: Path = OWNERS, pairs: list[list[str]] | tuple = ()) -> dict[str, str]:
+    """Wallet -> owner, for wallets known to share one owner: study E1's groups (`path`) joined with `pairs` found
+    since (sub-accounts on record, wallets moving in the same minutes). The owner id is the group's lowest address."""
     try:
         groups = json.loads(path.read_text()).get("groups") or []
     except (OSError, ValueError):
-        return {}
-    return {w.lower(): g[0].lower() for g in groups for w in g}
+        groups = []
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for g in list(groups) + [list(p) for p in pairs]:
+        g = [w.lower() for w in g if w]
+        for w in g[1:]:
+            ra, rb = find(g[0]), find(w)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+    return {w: find(w) for w in parent}
 
 
 def owner_votes(states: dict[str, dict], owners: dict[str, str], min_usd: float = BIG_MIN_VOTE_USD) -> dict:
@@ -218,6 +240,11 @@ class PositionTraders:
         self.store = store
         self.seed = seed if seed is not None else load_seed()
         self.seed_traders = {t["address"].lower(): t for t in self.seed.get("traders", [])}
+        try:
+            seed_ts = dt.datetime.fromisoformat(self.seed.get("as_of") or "").replace(tzinfo=dt.timezone.utc).timestamp()
+        except ValueError:
+            seed_ts = time.time()
+        self.refresh = Refresher(store, self.seed_traders, seed_ts)
         self._hl = hl
         self._mids: dict[str, float] = {}
         self.discovering = False
@@ -225,9 +252,12 @@ class PositionTraders:
 
     @property
     def traders(self) -> dict[str, dict]:
-        """Seed traders plus riders found since (a seed trader keeps its seed record)."""
+        """The list as kept current (proven and riding), plus seed traders the refresh has not read yet."""
         out = {a: {**t, "address": a} for a, t in self.store.pt_list().items()}
-        out.update(self.seed_traders)
+        checked = self.store.pt_cand_checked()
+        for a, t in self.seed_traders.items():
+            if a not in out and a not in checked:
+                out[a] = t
         return out
 
     # ------------------------------------------------------------------ step --
@@ -404,7 +434,9 @@ class PositionTraders:
                     r = await http.get(LEADERBOARD_URL)
                     r.raise_for_status()
                     rows = r.json().get("leaderboardRows") or []
-            cands = {a: i for a, i in leaderboard_candidates(rows).items() if a not in self.seed_traders}
+            big = leaderboard_candidates(rows)
+            pool = self.refresh.update_pool(roster_candidates(rows), big, now)
+            cands = {a: i for a, i in big.items() if a not in self.seed_traders}
             del rows
             found = 0
             if hl is None:
@@ -412,8 +444,11 @@ class PositionTraders:
                     found = await self._scan(HL(http), cands, now)
             else:
                 found = await self._scan(hl, cands, now)
-            dropped = self.store.pt_list_prune(now - RIDE_GRACE_S)
-            out = {"candidates": len(cands), "riding": found, "dropped": dropped}
+            gone = self.store.pt_list_prune({"riding": now - RIDE_GRACE_S, "proven": now - PROVEN_GRACE_S})
+            if gone:
+                self.store.add_brief("pt_dropped", {"dropped": gone})
+            dropped = len(gone)
+            out = {"candidates": len(cands), "riding": found, "dropped": dropped, "pool": pool}
             self.store.add_brief("pt_discover", out)
             log.info("discover %s", out)
             return out
@@ -438,10 +473,11 @@ class PositionTraders:
                     held[a] = {"positions": st["positions"]}
                 q = ride_qualifies(st, cands[a])
                 if q:
-                    self.store.pt_list_upsert(a, q, now)
+                    if (self.store.pt_list().get(a) or {}).get("tier") != "proven":   # proven outranks riding
+                        self.store.pt_list_upsert(a, q, now)
                     found += 1
             await asyncio.sleep(1.0)   # about 4 reads a second: well inside the per-IP budget
-        owners = load_owners()
+        owners = load_owners(pairs=self.refresh.owner_pairs())
         agg = owner_votes(held, owners)
         self.store.add_brief("pt_bigmoney", {"coins": agg, "wallets": len(addrs), "counted": "owners",
                                              "owners": len({owners.get(a, a) for a in held})})
@@ -461,7 +497,8 @@ class PositionTraders:
                     "upnl": round(r["upnl"] or 0), "since": r["opened_ts"] if r["known_open"] else None,
                     "held_days": round((now - r["opened_ts"]) / 86400, 1) if r["known_open"] else None,
                     "held_note": None if r["known_open"] else (
-                        "before Oct 2025" if f"{r['coin']}:{r['side'].upper()}" in seed_keys else "unknown"),
+                        ("over a year" if t.get("checked") else "before Oct 2025")
+                        if f"{r['coin']}:{r['side'].upper()}" in seed_keys else "unknown"),
                     "conviction": bool(r["conviction"]), "new": not r["baseline"]} for r in rows]
             open_pnl = sum(p["upnl"] for p in pos)
             traders.append({"address": a, "tier": t.get("tier", "proven"), "record": {k: t.get(k) for k in (
@@ -489,6 +526,7 @@ class PositionTraders:
         return {"as_of": self.seed.get("as_of"), "rule": self.seed.get("rule"), "traders": traders,
                 "coins": coin_rows, "adding_24h": self.adding(24, now)[:15], "adding_7d": self.adding(168, now)[:15],
                 "forward": self.forward(), "discover": self.store.latest_brief("pt_discover"),
+                "refresh": self.refresh.stats(now),
                 "big_money_ts": (self.store.latest_brief("pt_bigmoney") or {}).get("ts")}
 
     def forward(self) -> dict:

@@ -125,6 +125,22 @@ CREATE TABLE IF NOT EXISTS pt_list (
     qualified_ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pt_positions_open ON pt_positions(address, status);
+CREATE TABLE IF NOT EXISTS pt_cand (
+    address TEXT PRIMARY KEY,
+    src TEXT,
+    info TEXT,
+    seen_ts REAL,
+    checked_ts REAL,
+    status TEXT,
+    fills_ms INTEGER,
+    state TEXT,
+    closed TEXT,
+    moves TEXT,
+    moves_last TEXT,
+    record TEXT,
+    subs TEXT,
+    subs_ts REAL
+);
 CREATE TABLE IF NOT EXISTS pt_traders (
     address TEXT PRIMARY KEY,
     equity REAL,
@@ -330,18 +346,80 @@ class Store:
     def pt_list(self) -> dict[str, dict]:
         return {r["address"]: json.loads(r["info"]) for r in self._db.execute("SELECT * FROM pt_list").fetchall()}
 
-    def pt_list_upsert(self, address: str, info: dict, now: float) -> None:
+    def pt_list_upsert(self, address: str, info: dict, now: float, added_ts: float | None = None,
+                       qualified_ts: float | None = None) -> None:
         with self._lock:
             self._db.execute("INSERT INTO pt_list(address, info, added_ts, qualified_ts) VALUES(?,?,?,?) "
                              "ON CONFLICT(address) DO UPDATE SET info=excluded.info, qualified_ts=excluded.qualified_ts",
-                             (address, json.dumps(info), now, now))
+                             (address, json.dumps(info), added_ts if added_ts is not None else now,
+                              qualified_ts if qualified_ts is not None else now))
             self._db.commit()
 
-    def pt_list_prune(self, before: float) -> int:
+    def pt_list_rows(self) -> list[dict]:
+        return [{"address": r["address"], "info": json.loads(r["info"]), "added_ts": r["added_ts"],
+                 "qualified_ts": r["qualified_ts"]} for r in self._db.execute("SELECT * FROM pt_list").fetchall()]
+
+    def pt_list_prune(self, before: dict[str, float]) -> list[str]:
+        """Drop listed traders whose last qualifying check is older than their tier's cut-off; returns who dropped."""
+        gone = [r["address"] for r in self.pt_list_rows()
+                if r["qualified_ts"] < before.get(r["info"].get("tier", "riding"), float("inf"))]
         with self._lock:
-            cur = self._db.execute("DELETE FROM pt_list WHERE qualified_ts<?", (before,))
+            self._db.executemany("DELETE FROM pt_list WHERE address=?", [(a,) for a in gone])
             self._db.commit()
-            return cur.rowcount
+        return gone
+
+    # proven-list candidates (synth/proven.py) ------------------------------------
+    _CAND_JSON = ("src", "info", "state", "closed", "moves", "moves_last", "record", "subs")
+
+    def pt_cand_pool(self, pool: dict[str, tuple[list[str], dict]], now: float) -> None:
+        """Add or refresh candidates: their sources and leaderboard info (kept when none is given)."""
+        with self._lock:
+            for a, (src, info) in pool.items():
+                self._db.execute(
+                    "INSERT INTO pt_cand(address, src, info, seen_ts) VALUES(?,?,?,?) ON CONFLICT(address) DO UPDATE "
+                    "SET src=excluded.src, seen_ts=excluded.seen_ts, "
+                    "info=CASE WHEN excluded.info='{}' THEN pt_cand.info ELSE excluded.info END",
+                    (a, json.dumps(src), json.dumps(info or {}), now))
+            self._db.commit()
+
+    def pt_cand_prune(self, before: float, keep: set[str]) -> int:
+        old = [r[0] for r in self._db.execute("SELECT address FROM pt_cand WHERE seen_ts<?", (before,)).fetchall()
+               if r[0] not in keep]
+        with self._lock:
+            self._db.executemany("DELETE FROM pt_cand WHERE address=?", [(a,) for a in old])
+            self._db.commit()
+        return len(old)
+
+    def pt_cand_rows(self) -> list[dict]:
+        rows = self._db.execute("SELECT address, src, info, seen_ts, checked_ts, status FROM pt_cand").fetchall()
+        return [{"address": r["address"], "src": json.loads(r["src"] or "[]"), "info": json.loads(r["info"] or "{}"),
+                 "seen_ts": r["seen_ts"], "checked_ts": r["checked_ts"], "status": r["status"]} for r in rows]
+
+    def pt_cand_get(self, address: str) -> dict | None:
+        r = self._db.execute("SELECT * FROM pt_cand WHERE address=?", (address,)).fetchone()
+        if not r:
+            return None
+        return {k: (json.loads(r[k]) if r[k] is not None else None) if k in self._CAND_JSON else r[k] for k in r.keys()}
+
+    def pt_cand_save(self, address: str, **fields: Any) -> None:
+        cols = [k for k in fields if k in self._CAND_JSON or k in ("checked_ts", "status", "fills_ms", "subs_ts",
+                                                                 "seen_ts")]
+        vals = [json.dumps(fields[k]) if k in self._CAND_JSON and fields[k] is not None else fields[k] for k in cols]
+        with self._lock:
+            self._db.execute("INSERT OR IGNORE INTO pt_cand(address) VALUES(?)", (address,))
+            self._db.execute(f"UPDATE pt_cand SET {', '.join(c + '=?' for c in cols)} WHERE address=?", (*vals, address))
+            self._db.commit()
+
+    def pt_cand_checked(self) -> set[str]:
+        return {r[0] for r in self._db.execute("SELECT address FROM pt_cand WHERE checked_ts IS NOT NULL").fetchall()}
+
+    def pt_cand_moves(self) -> dict[str, list]:
+        return {r[0]: json.loads(r[1]) for r in self._db.execute(
+            "SELECT address, moves FROM pt_cand WHERE moves IS NOT NULL AND moves != '[]'").fetchall()}
+
+    def pt_cand_subs(self) -> dict[str, list]:
+        return {r[0]: json.loads(r[1]) for r in self._db.execute(
+            "SELECT address, subs FROM pt_cand WHERE subs IS NOT NULL AND subs != '[]'").fetchall()}
 
     def pt_close(self, row_id: int, now: float) -> None:
         with self._lock:

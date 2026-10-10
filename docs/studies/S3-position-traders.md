@@ -126,3 +126,17 @@ So the agent's list is now:
   maker, found daily from Hyperliquid's leaderboard (accounts of $500K+). No history needed.
 Leverage is shown, never used to leave anyone out. Unrealised profit can vanish, so the board says "on paper" and the
 forward record (picks at 14 and 30 days) keeps scoring what they open next.
+
+## The list kept current (owner, 10 October 2026; changes the agent's list, not the verdict above)
+
+The rule is fixed; the list is not. `synth/proven.py` reruns the live-list rule above in the background on a pool
+rebuilt daily from Hyperliquid's leaderboard (Reflex's profitable-trader rule, accounts of $500K+ in profit all-time,
+the traders already listed). New names are read first, listed traders every 2 days (their records stay current), the
+rest every 7 days; a first read covers the last 365 days, later reads only the fills since. A proven trader who stops
+qualifying stays 30 days, then drops. Bot-like wallets (S1 amendment 2) stay out.
+
+Found while building it: Hyperliquid stamps the pieces of one big order with the same millisecond, and the study's
+downloads joined pages one millisecond after the last fill, so a page ending inside such an order lost its other
+pieces. On one heavy trader, 30 days lost 2.7% of the dollars traded and 11% of the rebuilt profit. The studies' data
+for the heaviest traders may be off by a few percent; the refresh reads fills merged per order and joins pages on
+the boundary millisecond, and recomputes every listed record that way.
