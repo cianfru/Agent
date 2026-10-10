@@ -89,3 +89,24 @@ excludes, as Reflex's live tracker does:
 - wallets that at any moment hold more than 25 coins at once (Reflex's "at most 25 positions").
 
 Results are reported with these exclusions (headline) and without them (as declared originally), side by side.
+
+## Amendment 2 (10 October 2026, replaces amendment 1's tests; before any outcome on the full roster)
+
+A partial smoke run on 18 wallets was seen (one convergence with every wallet, none after amendment 1), too
+few to inform anything. The owner pointed out that Hyperliquid splits one order into many fills (10-20 for
+about $10,000, hundreds for $1 million), so the fill count measures order size, not behaviour: a large trader
+scaling in several times a week reaches thousands of fills. What separates a bot from a trader is whether its
+fills come in one-direction bursts that stay put, or small trades that keep reversing.
+
+So fills are first grouped into **trades**: same wallet, same coin, same side, no gap over 2 minutes between
+fills. A wallet is **bot-like**, and excluded, if over the window it:
+- averages 40 or more trades a day; or
+- averages 10 or more trades a day and at least 25% of its trades reverse the previous trade on the same coin
+  within 15 minutes.
+
+The two amendment 1 tests (more than 2,000 fills; more than 25 coins at once) are dropped. Behaviour on the
+first 67 active wallets, before this rule was fixed and with no prices used: the 20,000-fill wallet made 270
+trades (19 a day, about $20,000 each, 93% selling, 1% reversals), a trader building a position; the clearest
+bots made 200-400 trades a day of a few hundred dollars, or reversed nearly half their trades.
+
+Results are reported with these exclusions (headline) and with none (as declared originally), side by side.
