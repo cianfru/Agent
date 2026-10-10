@@ -173,7 +173,7 @@ class Store:
 
     def open_picks(self) -> list[dict]:
         rows = self._db.execute(
-            "SELECT id, ts, coin, direction, entry_price, ret_1d, ret_3d, ret_7d FROM picks "
+            "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d FROM picks "
             "WHERE ret_7d IS NULL AND entry_price IS NOT NULL"
         ).fetchall()
         return [dict(r) for r in rows]

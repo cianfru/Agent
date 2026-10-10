@@ -14,6 +14,7 @@ import httpx
 
 from . import groups as G
 from . import notify
+from . import study
 from .chart import group_chart
 from .config import Settings
 from .hyperliquid import HL
@@ -42,6 +43,7 @@ class GroupTracker:
         self.reflex = reflex_client
         self._hl = hl  # injected in tests; otherwise a client per step (one event loop per step is safe)
         self.hl: HL | None = None
+        self.last_mids: dict[str, float] = {}  # Hyperliquid mids from the last step, to score picks on any coin
         self._purge_v1_derive_groups()
 
     def _purge_v1_derive_groups(self) -> None:
@@ -72,6 +74,8 @@ class GroupTracker:
         except Exception as e:  # noqa: BLE001
             log.warning("hyperliquid mids failed: %s", e)
             mids = {}
+        if mids:
+            self.last_mids = mids
         created: list[dict] = []
         if "reflex" in snaps and self.reflex:
             created += await self._hl_groups(snaps["reflex"], mids, now)
@@ -87,7 +91,7 @@ class GroupTracker:
             fresh = now - g["ts"] <= FRESH_S
             if fresh:
                 self.store.add_pick("group", g["coin"], g["side"], None, self._price(g, snaps, mids),
-                                    f"group #{g['id']}", {"group_id": g["id"]})
+                                    f"group #{g['id']}", {"group_id": g["id"], **(g["meta"].get("study") or {})})
             fast = g["venue"] == "derive" or (g["meta"].get("span_h") or 0) <= self.s.fast_convergence_hours
             source = "reflex" if g["venue"] == "hyperliquid" else "cowboy"
             held_back = burst and g["venue"] == "derive"
@@ -135,8 +139,11 @@ class GroupTracker:
                 continue
             new = g is None
             if new:
-                gid = self.store.add_group("hyperliquid", coin, side, key, mids.get(coin.upper()),
-                                           {"span_h": c.get("span_h"), "n": c.get("n")}, ts=c.get("ts") or now)
+                ts = c.get("ts") or now
+                meta = {"span_h": c.get("span_h"), "n": c.get("n")}
+                # S1 Part L: log the engine's reading when the group forms (only if seen within 2h of it).
+                meta["study"] = {"logged": now - ts <= FRESH_S, "seen_ts": now, **study.reading(rf, coin, side)}
+                gid = self.store.add_group("hyperliquid", coin, side, key, mids.get(coin.upper()), meta, ts=ts)
                 g = self.store.get_group(gid)
             for w in wallets:
                 entry = w.get("entry_px")
