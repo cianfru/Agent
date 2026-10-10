@@ -12,6 +12,9 @@ Each poll reads every tracked trader from Hyperliquid's public API (one light re
 - keeps what each holds, since when, value, entry, unrealised PnL, and the trader's leverage now;
 - records every add and cut (the "adding" view: which coins they are building, by how many traders);
 - logs every new position as a pick scored at 14 and 30 days (the forward record);
+- keeps, from the daily scan of big accounts in profit all-time ($500K+), their long and short per coin ("big money"):
+  Reflex's profitable traders are picked by monthly return, which a $200M account cannot make, so the biggest and
+  steadiest money is invisible there; the board and the build-up alert show both;
 - alerts on a **conviction** bet (a new position at least 2x the trader's usual size within 4 hours, S3's rule) and on a
   **build-up** (3+ tracked traders adding to one coin within 72 hours, $250K+ in all, while its price moved under 15%:
   the shape NEAR had before its move). Context, not a signal: neither is proven yet.
@@ -111,8 +114,16 @@ def conviction_text(t: dict, p: dict, lev: float | None) -> str:
 def build_text(b: dict) -> str:
     move = f"price {100 * b['move']:+.0f}%" if b.get("move") is not None else "price n/a"
     hold = f" · they hold {usd(b['held_usd'])} {b['side']}" if b.get("held_usd") else ""
-    return (f"Building · {b['coin']} {b['side']}: {b['traders']} tracked traders added {usd(b['added_usd'])} in 3 days · "
-            f"{move}{hold}\nContext, not a signal.")
+    other = "short" if b["side"] == "long" else "long"
+    lines = [f"Building · {b['coin']} {b['side']}: {b['traders']} tracked traders added {usd(b['added_usd'])} in 3 days · "
+             f"{move}{hold}"]
+    lines.append(f"Against: {usd(b.get('against_usd') or 0)} {other} among tracked traders")
+    bm = b.get("big_money")
+    if bm:
+        lean = "agrees" if (bm["long_usd"] > bm["short_usd"]) == (b["side"] == "long") else "leans the other way"
+        lines.append(f"Big money (daily): {usd(bm['long_usd'])} long / {usd(bm['short_usd'])} short, {lean}")
+    lines.append("Context, not a signal.")
+    return "\n".join(lines)
 
 
 def ride_qualifies(st: dict, info: dict) -> dict | None:
@@ -314,8 +325,10 @@ class PositionTraders:
                 continue
             if self.store.count_briefs("pt_build", now - 86400) >= MAX_BUILD_ALERTS_PER_DAY:
                 break
+            other = "short" if b["side"] == "long" else "long"
             text = build_text({"coin": b["coin"], "side": b["side"], "traders": b["strong_adders"],
-                               "added_usd": b["net_usd"], "move": move, "held_usd": held.get((b["coin"], b["side"]))})
+                               "added_usd": b["net_usd"], "move": move, "held_usd": held.get((b["coin"], b["side"])),
+                               "against_usd": held.get((b["coin"], other)), "big_money": self.big_money().get(b["coin"])})
             await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
             self.store.add_brief("pt_build", {"key": key, "text": text})
             sent += 1
@@ -352,19 +365,30 @@ class PositionTraders:
         finally:
             self.discovering = False
 
+    def big_money(self) -> dict[str, dict]:
+        """Per coin, from the last daily scan: big accounts in profit all-time, long and short (count and dollars)."""
+        b = self.store.latest_brief("pt_bigmoney")
+        return (b or {}).get("coins") or {}
+
     async def _scan(self, hl: HL, cands: dict[str, dict], now: float) -> int:
         found, addrs = 0, list(cands)
+        agg: dict[str, dict] = {}
         for i in range(0, len(addrs), 4):
             chunk = addrs[i:i + 4]
             states = await asyncio.gather(*(hl.account(a) for a in chunk), return_exceptions=True)
             for a, st in zip(chunk, states):
                 if isinstance(st, Exception) or not st:
                     continue
+                for coin, p in (st.get("positions") or {}).items():
+                    c = agg.setdefault(coin, {"long_n": 0, "short_n": 0, "long_usd": 0, "short_usd": 0})
+                    c[f"{p['side']}_n"] += 1
+                    c[f"{p['side']}_usd"] += round(p["notional"])
                 q = ride_qualifies(st, cands[a])
                 if q:
                     self.store.pt_list_upsert(a, q, now)
                     found += 1
             await asyncio.sleep(1.0)   # about 4 reads a second: well inside the per-IP budget
+        self.store.add_brief("pt_bigmoney", {"coins": agg, "wallets": len(addrs)})
         return found
 
     # ----------------------------------------------------------------- board --
@@ -398,16 +422,18 @@ class PositionTraders:
                 c[f"{p['side']}_usd"] += p["value"]
                 if p["held_days"] is not None:
                     c["held"].append(p["held_days"])
-        coin_rows = []
+        coin_rows, bm = [], self.big_money()
         for c in coins.values():
             held = c.pop("held")
             c["median_held_days"] = round(statistics.median(held), 1) if held else None
+            c["big_money"] = bm.get(c["coin"])
             coin_rows.append(c)
         coin_rows.sort(key=lambda c: -(c["long_usd"] + c["short_usd"]))
         traders.sort(key=lambda t: -((t["record"].get("swing_pnl") or 0) + (t["open_pnl_now"] if t["tier"] == "riding" else 0)))
         return {"as_of": self.seed.get("as_of"), "rule": self.seed.get("rule"), "traders": traders,
                 "coins": coin_rows, "adding_24h": self.adding(24, now)[:15], "adding_7d": self.adding(168, now)[:15],
-                "forward": self.forward(), "discover": self.store.latest_brief("pt_discover")}
+                "forward": self.forward(), "discover": self.store.latest_brief("pt_discover"),
+                "big_money_ts": (self.store.latest_brief("pt_bigmoney") or {}).get("ts")}
 
     def forward(self) -> dict:
         """The forward record of positions opened since tracking began (S3's confirmation)."""
