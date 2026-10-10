@@ -16,6 +16,7 @@ from .config import Settings
 from .llm import Synthesizer
 from .sources import block0, cowboy, reflex
 from .store import Store
+from .position_traders import PositionTraders
 from .tracking import GroupTracker
 
 log = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ log = logging.getLogger(__name__)
 COOLDOWN_S = 12 * 3600  # the same event key is not re-alerted within this window
 MAX_ALERTS_PER_CYCLE = 2  # bounds noise and model spend if a feed glitch fires everything at once
 HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
+LONG_HORIZONS = {"14d": 14 * 86400, "30d": 30 * 86400}  # position traders' picks (study S3)
 SERIES_KEEP_S = 8 * 86400  # per-poll positioning rows for the live flow
 
 
@@ -43,6 +45,7 @@ class Agent:
             else None
         )
         self.tracker = GroupTracker(settings, store, self.reflex)
+        self.positions = PositionTraders(settings, store)
         self.last_cycle: dict[str, Any] = {}
 
     # ------------------------------------------------------------ collect --
@@ -108,6 +111,10 @@ class Agent:
         except Exception as e:  # noqa: BLE001 - tracking must not stop the poll
             log.exception("group tracking failed: %s", e)
             tracked = {}
+        try:
+            tracked.update(await self.positions.step(mids=self.tracker.last_mids))
+        except Exception as e:  # noqa: BLE001 - position traders must not stop the poll
+            log.warning("position traders failed: %s", e)
         try:
             tracked["toxic_alerts"] = await self._toxic_alerts(snaps.get("reflex"), seeding)
         except Exception as e:  # noqa: BLE001
@@ -337,15 +344,20 @@ class Agent:
 
     # ------------------------------------------------------------- journal --
     def score_picks(self, snaps: dict[str, dict]) -> int:
-        """Fill 1d/3d/7d returns for logged picks once each horizon has passed."""
+        """Fill 1d/3d/7d returns for logged picks once each horizon has passed (and 14d/30d for position traders')."""
         now, n = time.time(), 0
         for p in self.store.open_picks():
             hl_px = self.tracker.last_mids.get(p["coin"].upper())
             # group picks were entered at Hyperliquid's mid, so they are scored on it too
-            px = (hl_px or price_of(p["coin"], snaps)) if p.get("origin") == "group" else (price_of(p["coin"], snaps) or hl_px)
+            hl_entry = p.get("origin") in ("group", "position")
+            px = (hl_px or price_of(p["coin"], snaps)) if hl_entry else (price_of(p["coin"], snaps) or hl_px)
             if not px or not p["entry_price"]:
                 continue
-            for h, secs in HORIZONS.items():
+            horizons = dict(HORIZONS)
+            if p.get("origin") == "position":
+                # scored within a day of the horizon, never late (a late price is not the 14- or 30-day price)
+                horizons.update({h: s for h, s in LONG_HORIZONS.items() if now - p["ts"] < s + 86400})
+            for h, secs in horizons.items():
                 if p[f"ret_{h}"] is None and now - p["ts"] >= secs:
                     ret = px / p["entry_price"] - 1
                     if p["direction"] == "short":

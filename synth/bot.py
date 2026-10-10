@@ -4,6 +4,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /following  open groups you follow, trader by trader
   /groups     the latest groups and how they ended
   /now        the live pulse: what smart traders opened and closed in the last 1h, 6h and 24h
+  /positions  what the proven position traders hold now, by coin
 """
 
 from __future__ import annotations
@@ -17,10 +18,12 @@ from . import notify
 log = logging.getLogger(__name__)
 
 HELP = ("Outrider tracks smart traders who converge on a coin. Tap Follow on a group to get a message "
-        "when each trader closes.\n/now  the live pulse (1h, 6h, 24h)\n/following  groups you follow\n"
+        "when each trader closes.\n/now  the live pulse (1h, 6h, 24h)\n/positions  what proven position traders "
+        "hold\n/following  groups you follow\n"
         "/groups  latest groups")
 
 COMMANDS = [{"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
+            {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
             {"command": "groups", "description": "Latest groups"}]
 
@@ -80,6 +83,9 @@ async def handle(agent, update: dict) -> None:
         except Exception as e:  # noqa: BLE001
             log.warning("/now failed: %s", e)
             await notify.telegram(s.telegram_token, chat, "The pulse isn't available right now.")
+        return
+    if cmd == ["/positions"]:
+        await notify.telegram(s.telegram_token, chat, agent.positions.coins_text())
         return
     if cmd == ["/following"]:
         gs = [g for g in store.groups(limit=200) if g["followed"] and g["status"] == "open"]

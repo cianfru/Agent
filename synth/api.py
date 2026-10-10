@@ -276,6 +276,12 @@ def flow_png():
     return Response(agent.pulse()["png"], media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/position-traders", dependencies=[Depends(auth)])
+def position_traders():
+    """Proven position traders (study S3): records, what they hold now and since when, and the forward record."""
+    return agent.positions.board()
+
+
 @app.get("/study", dependencies=[Depends(auth)])
 def study_report():
     """S1 Part L: convergences by whether the engine agreed when they formed, and how they went."""

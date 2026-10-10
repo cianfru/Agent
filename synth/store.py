@@ -89,6 +89,32 @@ CREATE TABLE IF NOT EXISTS members (
     UNIQUE(group_id, address, instrument)
 );
 CREATE INDEX IF NOT EXISTS members_group ON members(group_id);
+CREATE TABLE IF NOT EXISTS pt_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    address TEXT NOT NULL,
+    coin TEXT NOT NULL,
+    side TEXT NOT NULL,
+    opened_ts REAL NOT NULL,
+    known_open INTEGER NOT NULL DEFAULT 1,
+    first_seen REAL NOT NULL,
+    last_seen REAL NOT NULL,
+    value REAL,
+    max_value REAL,
+    entry_px REAL,
+    upnl REAL,
+    status TEXT NOT NULL DEFAULT 'open',
+    closed_ts REAL,
+    baseline INTEGER NOT NULL DEFAULT 0,
+    conviction INTEGER NOT NULL DEFAULT 0,
+    pick_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS pt_positions_open ON pt_positions(address, status);
+CREATE TABLE IF NOT EXISTS pt_traders (
+    address TEXT PRIMARY KEY,
+    equity REAL,
+    gross REAL,
+    last_seen REAL
+);
 CREATE TABLE IF NOT EXISTS series (
     ts REAL NOT NULL,
     source TEXT NOT NULL,
@@ -112,6 +138,11 @@ class Store:
         self._lock = threading.Lock()
         with self._lock:
             self._db.executescript(SCHEMA)
+            cols = {r[1] for r in self._db.execute("PRAGMA table_info(picks)")}
+            for col in ("ret_14d", "ret_30d"):   # added with the position traders' 14/30-day scoring
+                if col not in cols:
+                    self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} REAL")
+            self._db.commit()
 
     # snapshots ----------------------------------------------------------
     def get_snapshot(self, source: str) -> dict | None:
@@ -194,21 +225,23 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
-    def open_picks(self) -> list[dict]:
+    def open_picks(self, now: float | None = None) -> list[dict]:
         rows = self._db.execute(
-            "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d FROM picks "
-            "WHERE ret_7d IS NULL AND entry_price IS NOT NULL"
+            "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d, ret_14d, ret_30d FROM picks "
+            "WHERE entry_price IS NOT NULL AND (ret_7d IS NULL OR (origin='position' AND ret_30d IS NULL AND ts > ?))",
+            ((now or time.time()) - 32 * 86400,),
         ).fetchall()
         return [dict(r) for r in rows]
 
     def set_pick_return(self, pick_id: int, horizon: str, ret: float) -> None:
-        assert horizon in ("1d", "3d", "7d")
+        assert horizon in ("1d", "3d", "7d", "14d", "30d")
         with self._lock:
             self._db.execute(f"UPDATE picks SET ret_{horizon}=? WHERE id=?", (ret, pick_id))
             self._db.commit()
 
     def picks(self, limit: int = 100, origin: str | None = None, since: float = 0) -> list[dict]:
-        q = ("SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d "
+        q = ("SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d, "
+             "ret_14d, ret_30d "
              "FROM picks WHERE ts>=?")
         args: list[Any] = [since]
         if origin:
@@ -217,6 +250,53 @@ class Store:
         q += " ORDER BY ts DESC LIMIT ?"
         args.append(limit)
         return [dict(r) for r in self._db.execute(q, args).fetchall()]
+
+    def set_pick_conviction(self, pick_id: int, conviction: int) -> None:
+        with self._lock:
+            self._db.execute("UPDATE picks SET conviction=? WHERE id=?", (conviction, pick_id))
+            self._db.commit()
+
+    # proven position traders (synth/position_traders.py) ----------------------
+    def pt_trader(self, address: str) -> dict | None:
+        row = self._db.execute("SELECT * FROM pt_traders WHERE address=?", (address,)).fetchone()
+        return dict(row) if row else None
+
+    def pt_set_trader(self, address: str, equity: float, gross: float, ts: float) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO pt_traders(address, equity, gross, last_seen) VALUES(?,?,?,?) "
+                             "ON CONFLICT(address) DO UPDATE SET equity=excluded.equity, gross=excluded.gross, "
+                             "last_seen=excluded.last_seen", (address, equity, gross, ts))
+            self._db.commit()
+
+    def pt_open(self, address: str) -> list[dict]:
+        rows = self._db.execute("SELECT * FROM pt_positions WHERE address=? AND status='open'", (address,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def pt_open_position(self, address: str, coin: str, side: str, opened_ts: float, known_open: int, now: float,
+                         value: float, entry_px: float, upnl: float, baseline: int, pick_id: int | None) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO pt_positions(address, coin, side, opened_ts, known_open, first_seen, last_seen, value, "
+                "max_value, entry_px, upnl, baseline, pick_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (address, coin, side, opened_ts, known_open, now, now, value, value, entry_px, upnl, baseline, pick_id))
+            self._db.commit()
+            return cur.lastrowid
+
+    def pt_touch(self, row_id: int, value: float, entry_px: float, upnl: float, now: float) -> None:
+        with self._lock:
+            self._db.execute("UPDATE pt_positions SET value=?, max_value=MAX(COALESCE(max_value, 0), ?), entry_px=?, "
+                             "upnl=?, last_seen=? WHERE id=?", (value, value, entry_px, upnl, now, row_id))
+            self._db.commit()
+
+    def pt_close(self, row_id: int, now: float) -> None:
+        with self._lock:
+            self._db.execute("UPDATE pt_positions SET status='closed', closed_ts=? WHERE id=?", (now, row_id))
+            self._db.commit()
+
+    def pt_mark_conviction(self, row_id: int) -> None:
+        with self._lock:
+            self._db.execute("UPDATE pt_positions SET conviction=1 WHERE id=?", (row_id,))
+            self._db.commit()
 
     def delete_pick(self, pick_id: int) -> None:
         with self._lock:

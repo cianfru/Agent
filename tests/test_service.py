@@ -44,6 +44,7 @@ class FakeHL:
 
 def offline(agent):
     agent.tracker._hl = FakeHL()
+    agent.positions.traders = {}   # no network: the position traders have their own tests
     return agent
 
 

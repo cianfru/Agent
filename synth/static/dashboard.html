@@ -54,7 +54,12 @@
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
   .card { border-radius: 8px; padding: 8px 10px; border: 1px solid var(--border); }
   .card .c { font-weight: 700; } .card .c span { font: 12px var(--mono); color: var(--t2); font-weight: 400; margin-left: 4px; }
-  .card .m { font: 13px var(--mono); margin-top: 2px; } .card .u { font: 12px var(--mono); color: var(--t2); }
+  .card .m { font: 13px var(--mono); margin-top: 2px; }
+  .lsbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; min-width: 90px; gap: 2px; }
+  .lsbar i { display: block; height: 100%; } .lsbar .l { background: var(--up); } .lsbar .s { background: var(--down); }
+  tr.p-long td:first-child { box-shadow: inset 3px 0 0 var(--up); } tr.p-short td:first-child { box-shadow: inset 3px 0 0 var(--down); }
+  .conv { color: var(--accent); font-size: 12px; margin-left: 6px; }
+  @media (max-width: 700px) { #ptcoins th:nth-child(4), #ptcoins td:nth-child(4) { display: none; } } .card .u { font: 12px var(--mono); color: var(--t2); }
   .ev .t, .ev .s { font-family: var(--mono); color: var(--t3); font-size: 12px; }
   .ev .s { text-align: right; }
   .ev .c { font-weight: 600; }
@@ -96,6 +101,7 @@
 <nav id="tabs">
   <button data-tab="now" class="on">Now</button>
   <button data-tab="groups">Groups</button>
+  <button data-tab="traders">Traders</button>
   <button data-tab="brief">Brief</button>
   <button data-tab="posts">Posts</button>
   <button data-tab="picks">Picks</button>
@@ -128,6 +134,17 @@
         </tr></thead><tbody></tbody></table></div>
       </div>
     </div>
+  </section>
+
+  <section id="traders">
+    <div class="panel" style="margin-bottom:16px">
+      <h2>Proven position traders</h2>
+      <div class="muted" id="ptrule" style="font-size:12px; margin-bottom:10px"></div>
+      <div class="kv" id="ptfwd"></div>
+      <div class="seg" id="ptlev"><button data-lev="0" class="on">All</button><button data-lev="1">Leverage 5x or less</button></div>
+      <div class="scroll"><table id="ptcoins"><thead><tr><th>Coin</th><th>Long</th><th>Short</th><th></th><th>Held</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div id="ptlist"></div>
   </section>
 
   <section id="groups">
@@ -338,6 +355,49 @@ $("#mkscore").onclick = async () => { try { await api("/posts/scorecard", { meth
 const short = (a) => a && a.length > 12 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
 const held = (a, b) => { const h = Math.max(0, ((b || Date.now() / 1000) - a) / 3600);
   return h < 1 ? Math.round(h * 60) + "m" : h < 48 ? Math.round(h) + "h" : Math.round(h / 24) + "d"; };
+let ptData = null, ptModerate = false;
+document.querySelectorAll("#ptlev button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#ptlev button").forEach((x) => x.classList.toggle("on", x === b));
+  ptModerate = b.dataset.lev === "1"; renderTraders();
+});
+async function loadTraders() { ptData = await api("/position-traders"); renderTraders(); }
+function renderTraders() {
+  const d = ptData; if (!d) return;
+  $("#ptrule").textContent = `Picked by study S3 on ${d.as_of}: 5+ positions held 3+ days, profitable, profit factor 1.5+. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal, until the forward record confirms it.`;
+  const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
+  const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
+  $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>
+    <span><b>All, 14d / 30d</b>${fm(fa, "14d")} / ${fm(fa, "30d")}</span><span><b>Conviction, 14d / 30d</b>${fm(fc, "14d")} / ${fm(fc, "30d")}</span>`;
+  const traders = d.traders.filter((t) => !ptModerate || t.moderate);
+  const coins = {};
+  traders.forEach((t) => t.positions.forEach((p) => {
+    const c = coins[p.coin] = coins[p.coin] || { coin: p.coin, long_n: 0, short_n: 0, long_usd: 0, short_usd: 0, held: [] };
+    c[p.side + "_n"]++; c[p.side + "_usd"] += p.value; if (p.held_days != null) c.held.push(p.held_days);
+  }));
+  const med = (v) => { if (!v.length) return null; const s = [...v].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const rows = Object.values(coins).sort((a, b) => (b.long_usd + b.short_usd) - (a.long_usd + a.short_usd)).slice(0, 25);
+  $("#ptcoins tbody").innerHTML = rows.length ? rows.map((c) => { const tot = c.long_usd + c.short_usd || 1, h = med(c.held);
+    return `<tr><td><b>${esc(c.coin)}</b></td><td class="n"><span class="long">${c.long_n}</span> ${usd(c.long_usd)}</td>
+      <td class="n"><span class="short">${c.short_n}</span> ${usd(c.short_usd)}</td>
+      <td><div class="lsbar" title="${Math.round(100 * c.long_usd / tot)}% long by money"><i class="l" style="width:${100 * c.long_usd / tot}%"></i><i class="s" style="width:${100 * c.short_usd / tot}%"></i></div></td>
+      <td class="n">${h == null ? "-" : Math.round(h) + "d"}</td></tr>`; }).join("")
+    : '<tr><td colspan="5" class="empty">No positions read yet. The first poll fills this.</td></tr>';
+  $("#ptlist").innerHTML = traders.map((t) => {
+    const pos = t.positions.length ? `<div class="scroll"><table><thead><tr><th>Coin</th><th>Side</th><th>Value</th><th>Entry</th><th>Held</th><th>PnL</th></tr></thead><tbody>${
+      t.positions.map((p) => `<tr class="p-${p.side}"><td><b>${esc(p.coin)}</b>${p.conviction ? '<span class="conv">conviction</span>' : ""}</td>
+        <td class="${p.side}">${p.side}</td><td class="n">${usd(p.value)}</td><td class="n">${px(p.entry)}</td>
+        <td class="n">${p.held_days == null ? `<span class="muted">${esc(p.held_note || "unknown")}</span>` : Math.round(p.held_days) + "d"}</td>
+        <td class="n ${p.upnl > 0 ? "long" : p.upnl < 0 ? "short" : ""}">${usdSigned(p.upnl)}</td></tr>`).join("")}</tbody></table></div>`
+      : '<div class="muted">Flat now.</div>';
+    return `<div class="panel" style="margin-bottom:12px">
+      <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; margin-bottom:6px">
+        <h2 style="margin:0"><a href="https://hypurrscan.io/address/${esc(t.address)}" target="_blank" rel="noopener" style="color:inherit">${esc(short(t.address))}</a></h2>
+        <span class="muted">${esc(t.record_text)}</span>
+        <span class="muted" style="margin-left:auto">${t.equity ? usd(t.equity) + " account" : ""}${t.leverage != null ? " · " + t.leverage.toFixed(1) + "x leverage" : ""}</span>
+      </div>${pos}</div>`;
+  }).join("") || '<div class="panel empty">No trader matches.</div>';
+}
+
 const ENGINE = { with: "Engine agrees", against: "Engine against", none: "Engine no signal", unknown: "No engine reading" };
 async function loadStudy() {
   const st = await api("/study");
@@ -414,7 +474,7 @@ $("#askbtn").onclick = async () => {
 };
 
 function load(tab) {
-  const f = { now: loadNow, groups: loadGroups, brief: loadBrief, posts: loadPosts, picks: loadPicks }[tab];
+  const f = { now: loadNow, groups: loadGroups, traders: loadTraders, brief: loadBrief, posts: loadPosts, picks: loadPicks }[tab];
   if (f) f().catch((e) => console.warn(e));
 }
 function refresh() { loadStatus(); load(document.querySelector("#tabs .on").dataset.tab); }
