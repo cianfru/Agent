@@ -69,3 +69,13 @@ is the headline lens. Every other class stays visible on its own.
 - class counts and each class's open positions now, per coin: entities long and short, dollars each side;
 - a check against Reflex's known group (0x2371...0883, 0x93ab...11f8, 0xec7f...df39), which must come out as one
   entity, or the rules are wrong.
+
+## Amendment 1 (10 October 2026, before the pull for the pool, after reading the known group's trades)
+
+Reflex's rule is calibrated on a 30-day window. Over 90 days a group that later drifts apart fails it: the known
+BTC group traded as one from June to September, then from 1 October two of its wallets bought ETH while the third
+kept trading BTC alone, which takes each wallet's matched share under 70% and lowers the position correlation.
+So rule 3b is applied over 30-day windows ending now and every 15 days back within the 90 days (5 windows); a
+pair that passes in any window is linked. Seen while checking the shapes of the data: the three wallets were all
+funded in June by one address that has sent money to hundreds of wallets, so the hub rule rightly ignores it as a
+link.
