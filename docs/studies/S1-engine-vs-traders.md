@@ -79,3 +79,13 @@ positions closed after 10 October 2026.
 - Two weeks is short and one market regime. R0 is description, not evidence.
 - Survivorship: coins delisted inside a window drop out.
 - Convergences on the same coin a few hours apart overlap; they are counted once per cluster.
+
+## Amendment 1 (10 October 2026, after the fill download began, before any convergence or outcome was computed)
+
+The owner pointed out that a roster wallet with about 20,000 fills since 26 September is a market maker or a
+bot, not a trader. The volume-to-account-value filter does not catch large accounts. R0 therefore also
+excludes, as Reflex's live tracker does:
+- wallets with more than 2,000 fills in the window (about 140 a day);
+- wallets that at any moment hold more than 25 coins at once (Reflex's "at most 25 positions").
+
+Results are reported with these exclusions (headline) and without them (as declared originally), side by side.
