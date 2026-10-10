@@ -86,8 +86,8 @@ Leverage is shown for every trader (low under 3x, moderate 3-5x, high over 5x), 
 **Big money**, a third lens: the daily scan reads every account of $500K+ in profit all-time anyway, so the agent keeps
 their long and short per coin, **one vote per owner** (owner, 10 October 2026): an owner's wallets are netted per coin
 and vote long or short from $25K, with dollars beside, so one giant account cannot decide the reading (the two largest
-accounts were short about $1.2B of ETH, BTC, SOL and HYPE while holding dollars on Hyperliquid: likely hedges held
-elsewhere). Owners come from study E1 (`synth/data/owners.json`): Hyperliquid's sub-account records and wallets that
+accounts were short about $1.2B of ETH, BTC, SOL and HYPE while holding dollars on Hyperliquid: hedges held elsewhere,
+if they are, cannot be seen from here). Owners come from study E1 (`synth/data/owners.json`): Hyperliquid's sub-account records and wallets that
 trade together; money links are left out until checked. Reflex's profitable traders are picked by monthly return (30%+), which a
 $200M account cannot make, so the biggest and steadiest money never shows there. On XPL (10 October 2026) the two
 disagreed: Reflex's list 19 long ($2.9M) against 5 short ($0.7M); big profitable accounts $7.4M long against $18.4M
