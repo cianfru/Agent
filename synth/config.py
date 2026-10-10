@@ -69,8 +69,10 @@ class Settings:
         )
     )
 
-    # Hourly pulse to Telegram (code-built, no model): events at or above this score in the last hour.
-    pulse_minutes: float = field(default_factory=lambda: _float("SYNTH_PULSE_MINUTES", 60))
+    # Market read to Telegram (code-built, no model) at these UTC hours; empty disables it.
+    pulse_hours_utc: list[int] = field(
+        default_factory=lambda: [int(h) for h in _list("SYNTH_PULSE_HOURS_UTC", "6,10,14,18")]
+    )
     pulse_min_score: float = field(default_factory=lambda: _float("SYNTH_PULSE_MIN_SCORE", 40))
 
     # Optional Telegram push.

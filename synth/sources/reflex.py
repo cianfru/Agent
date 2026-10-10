@@ -152,6 +152,21 @@ async def fetch(rc: ReflexClient) -> dict:
         raise RuntimeError(f"reflex positioning unavailable: {errors.get('positioning')}")
 
     pos = got["positioning"]
+    totals = {"long_usd": 0.0, "short_usd": 0.0, "long_n": 0, "short_n": 0, "opens_long_24h": 0,
+              "opens_short_24h": 0, "day_ago_long_n": 0, "day_ago_short_n": 0, "day_ago_known": False}
+    for r in pos.get("rows") or []:  # all coins, before trimming to TOP_COINS
+        lo, sh = r.get("long") or {}, r.get("short") or {}
+        totals["long_usd"] += lo.get("usd") or 0
+        totals["short_usd"] += sh.get("usd") or 0
+        totals["long_n"] += lo.get("n") or 0
+        totals["short_n"] += sh.get("n") or 0
+        o = r.get("opens_24h") or {}
+        totals["opens_long_24h"] += o.get("long") or 0
+        totals["opens_short_24h"] += o.get("short") or 0
+        if r.get("day_ago"):
+            totals["day_ago_known"] = True
+            totals["day_ago_long_n"] += r["day_ago"].get("long") or 0
+            totals["day_ago_short_n"] += r["day_ago"].get("short") or 0
     rows = sorted(
         pos.get("rows") or [],
         key=lambda r: -(((r.get("long") or {}).get("n") or 0) + ((r.get("short") or {}).get("n") or 0)),
@@ -187,6 +202,7 @@ async def fetch(rc: ReflexClient) -> dict:
         "generated_at": pos.get("updated_at"),
         "stale": bool(pos.get("stale")),
         "tracked_wallets": pos.get("wallets"),
+        "totals": totals,
         "market": market,
         "coins": coins,
         "convergences": convergences,

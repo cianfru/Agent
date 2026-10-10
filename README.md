@@ -100,7 +100,12 @@ Open the service's root URL (`/`) for a private dashboard. If `SYNTH_API_KEY` is
 - **Picks:** every logged pick with 1d, 3d and 7d results and a running hit rate.
 - **Ask:** a free-form question answered from current data.
 
-The **hourly pulse** is a plain-text summary of the last hour's events by coin, plus coins where the layers agree. It is built in code (no model cost) and sent to Telegram only when something happened. Set the cadence with `SYNTH_PULSE_MINUTES` and the bar with `SYNTH_PULSE_MIN_SCORE`.
+The **market read** goes to Telegram at `SYNTH_PULSE_HOURS_UTC` (default 06, 10, 14 and 18 UTC; none at night). It is built in code (`synth/stories.py`), with no model cost:
+- **The overall smart-money lean on Hyperliquid:** shorts $ vs longs $, positions opened each side in 24 hours, and the change since the last read.
+- **One Derive line** for BTC, ETH and HYPE.
+- **"Where it's crowding":** coins where smart money is moving and market data or a second smart signal agrees, for example `STRK short · shorts piling in · 4 smart shorts in 3h (#7) · open interest +34% · funding negative: shorts crowded`.
+
+A raw anomaly on its own (open-interest surge, volume spike, buy/sell imbalance, funding extreme) is never sent. It only appears as context for smart money. The same read is shown at the top of the dashboard's Now tab.
 
 ## API
 
