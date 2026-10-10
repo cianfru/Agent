@@ -97,7 +97,9 @@ What the agent does with them:
 - **Build-up alert** (Telegram, at most 3 a day, one per coin and side per 72 hours): 3+ tracked traders each add $25K+,
   $250K+ in all, within 72 hours, while the price moved under 15%. The shape NEAR had before its move. It also says what
   tracked traders hold on the other side and whether big money agrees. Context, not a signal (study S4: long build-ups
-  beat the market by 4 points over 30 days, but big runs were no more common than for any coin).
+  beat the market by 4 points over 30 days, but big runs were no more common than for any coin). BTC and ETH are left
+  out (owner, 10 October 2026): they read as direction and sentiment, shown on the desk; the alert looks for coins that
+  can run.
 - **Conviction alert** (at most 5 a day): a new position at least 2x the trader's usual size within 4 hours of opening.
 - **Forward record:** every new position of $10K+ is a pick at Hyperliquid's mid, scored at 14 and 30 days.
 
@@ -139,27 +141,31 @@ On Mondays a scorecard built in code (no model) posts the 7-day results: hits, a
 
 The agent has no token. Launching one on Orbio waits until the posts show they are useful.
 
-## Dashboard
+## Dashboard (the desk)
 
-Open the service's root URL (`/`) for a private dashboard. If `SYNTH_API_KEY` is set, the page asks for the key once and keeps it in the browser.
+Open the service's root URL (`/`). If `SYNTH_API_KEY` is set, the page asks for the key once and keeps it in the
+browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/dashboard.html`, `synth/desk.py`).
 
-- **Now:** events over the last 1h, 6h, 24h or 3d, plus a "smart money now" board. The board shows one row per coin with four readings: engine, Hyperliquid profitable traders, Derive smart wallets and options tone. The row says how many agree (for example `3/4 long`, `2L 1S`, `split`). Coins where 3 or more agree are marked.
-- **Brief:** the latest daily brief, or write one now.
-- **Posts:** desk drafts and published posts, with a Publish button.
-- **Picks:** every logged pick with 1d, 3d and 7d results and a running hit rate.
-- **Ask:** a free-form question answered from current data.
-
-The **market read** goes to Telegram at `SYNTH_PULSE_HOURS_UTC` (default 06, 10, 14 and 18 UTC; none at night). It is built in code (`synth/stories.py`), with no model cost:
-- **The overall smart-money lean on Hyperliquid:** shorts $ vs longs $, positions opened each side in 24 hours, and the change since the last read.
-- **One Derive line** for BTC, ETH and HYPE.
-- **"Where it's crowding":** coins where smart money is moving and market data or a second smart signal agrees, for example `STRK short · shorts piling in · 4 smart shorts in 3h (#7) · open interest +34% · funding negative: shorts crowded`.
-
-**Toxic flow (VPIN)** gets priority. VPIN is Reflex's measure of how one-sided taker flow is: 55% and up is toxic, 70% and up is critical. Its side comes from the coin's CVD reading.
-- A coin with toxic flow goes to the top of "Where it's crowding".
-- Toxic coins with no smart-money story get their own line.
-- Critical flow on the same side as smart money is an immediate Telegram alert. It counts toward the daily cap and isn't repeated within 12 hours.
-
-Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell imbalance, funding extreme) is never sent. It only appears as context for smart money. The same read is shown at the top of the dashboard's Now tab.
+- **Desk** (home, `GET /desk`):
+  - a one-line read of the market;
+  - six tiles (crowd long, big money long, tracked long, uptrend share and run age, BTC, alerts in 24 hours);
+  - **direction of BTC and ETH**: each lens's share long by money as a gauge around 50%, whether they agree, the
+    crowd's share over 7 days against price, and what tracked traders added in 24 hours (the majors as one directional
+    reading, like Cowboy's wallets layer);
+  - the crowd against price (BTC above, share of profitable traders long below, 24h / 3d / 7d, hover);
+  - the latest alerts (build-ups with whether big money agrees, conviction bets, convergences);
+  - where the money is moving (tracked traders' net adds per coin, 24h or 7d, or the crowd's opens and closes; the
+    other coins);
+  - **three lenses on the other coins**: the crowd (Reflex's profitable traders), tracked traders and big money, each as
+    long against short money, with whether they agree;
+  - the market read (the text sent to Telegram).
+- **Traders:** tracked traders (proven and riding winners), by coin and one by one, what they are adding.
+- **Groups:** convergence groups trader by trader, with Follow.
+- **Research** (`GET /research`): the market cycle from Reflex's market history (fetched once a day: share of coins in
+  an uptrend, the current risk-on or risk-off run against past runs), and every study as a chart with its finding and
+  verdict (S1 to S4, where the money came from), plus the forward record.
+- **Journal:** brief, picks and desk posts.
+- **Ask:** a question answered from current data (uses the model).
 
 ## API
 
@@ -176,6 +182,8 @@ Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell im
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
+| `GET /desk` | The desk's home: readings, BTC and ETH direction, crowd against price, money moving, three lenses, alerts |
+| `GET /research` | Studies as charts, the forward record, Reflex's market cycle |
 | `GET /position-traders` | Tracked traders (proven and riding winners): records, holdings, what they are adding, the forward record |
 | `GET /study` | Convergences by the engine's reading when they formed, and how they went |
 | `GET /posts` | Desk posts (draft, published, failed, rejected) |

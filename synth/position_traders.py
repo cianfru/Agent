@@ -17,7 +17,8 @@ Each poll reads every tracked trader from Hyperliquid's public API (one light re
   steadiest money is invisible there; the board and the build-up alert show both;
 - alerts on a **conviction** bet (a new position at least 2x the trader's usual size within 4 hours, S3's rule) and on a
   **build-up** (3+ tracked traders adding to one coin within 72 hours, $250K+ in all, while its price moved under 15%:
-  the shape NEAR had before its move). Context, not a signal: neither is proven yet.
+  the shape NEAR had before its move). BTC and ETH are left out of the build-up alert (owner, 10 October 2026): they
+  read as direction, the alert looks for coins that can run. Context, not a signal: neither is proven yet.
 Positions held when the agent first sees a trader are the starting point: no alert, no pick, no flow.
 """
 
@@ -63,6 +64,7 @@ BUILD_MIN_TOTAL_USD = 250_000
 BUILD_MAX_MOVE = 0.15
 BUILD_COOLDOWN_S = 72 * 3600
 MAX_BUILD_ALERTS_PER_DAY = 3
+MAJORS = ("BTC", "ETH")            # direction, not build-ups: shown on their own, left out of the build-up alert
 
 
 def load_seed(path: Path = SEED) -> dict:
@@ -315,6 +317,8 @@ class PositionTraders:
             held[(t["coin"], "long")] = t["long_usd"]
             held[(t["coin"], "short")] = t["short_usd"]
         for b in self.adding(BUILD_WINDOW_S / 3600, now):
+            if b["coin"] in MAJORS:
+                continue
             if b["strong_adders"] < BUILD_MIN_TRADERS or b["net_usd"] < BUILD_MIN_TOTAL_USD:
                 continue
             move = self._price_move(b["coin"], now)
@@ -450,15 +454,22 @@ class PositionTraders:
 
     def coins_text(self, limit: int = 8) -> str:
         b = self.board()
-        rows = b["coins"][:limit]
-        if not rows:
+        if not b["coins"]:
             return "No positions read yet."
-        lines = ["Tracked traders now (by money):"]
+        lines = []
+        majors = {c["coin"]: c for c in b["coins"] if c["coin"] in MAJORS}
+        if majors:
+            lines.append("Direction: " + " · ".join(
+                f"{m} {round(100 * c['long_usd'] / (c['long_usd'] + c['short_usd']))}% long"
+                for m in MAJORS if (c := majors.get(m)) and c["long_usd"] + c["short_usd"]))
+        rows = [c for c in b["coins"] if c["coin"] not in MAJORS][:limit]
+        if rows:
+            lines.append("Tracked traders now (by money):")
         for c in rows:
             held = f" · held ~{c['median_held_days']:.0f}d" if c["median_held_days"] is not None else ""
             lines.append(f"{c['coin']} {c['long_n']} long {usd(c['long_usd'])} / {c['short_n']} short "
                          f"{usd(c['short_usd'])}{held}")
-        adds = [r for r in b["adding_7d"] if r["adders"] >= 2 and r["net_usd"] > 0][:5]
+        adds = [r for r in b["adding_7d"] if r["adders"] >= 2 and r["net_usd"] > 0 and r["coin"] not in MAJORS][:5]
         if adds:
             lines.append("Adding this week:")
             lines += [f"{r['coin']} {r['side']} {r['adders']} traders, net {signed_usd(r['net_usd'])}" for r in adds]
