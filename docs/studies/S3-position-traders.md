@@ -60,3 +60,56 @@ winners, where they exit against the coin's later path (does the exit sit near a
 - **Bias:** the roster was picked on its last month, and wallets that blew up are not in it. That favours finding them
   right, so a positive verdict here is confirmed only by the forward record (the agent logs proven traders' new
   positions from now on, scored at 14 and 30 days).
+
+## Results (run 10 October 2026)
+
+Data: 585 wallets (both rosters; 6 bot-like and 7 incomplete out), 45,258 closed positions, 1,473 open now; 269
+wallet-coin histories left out by the end check. **66 traders are proven position traders today.** At the
+cut-offs: 7 (January), 14 (March), 14 (May), 29 (July).
+
+### Part 3: is it worth following? (test)
+
+| Positions opened (headline, to 10 August) | n / traders | 30 days their way | positive | vs basket |
+|---|---|---|---|---|
+| By proven position traders | 340 / 28 | -0.58% | 48.8% | +0.66% |
+| **Conviction** (2x their usual size in the first 4 hours) | 40 / 10 | **+3.43%** | **65.0%** | +0.38% |
+| Control (other traders with 5+ closed positions) | 8,617 / 262 | -0.85% | 48.1% | +0.93% |
+
+- **Proven traders' positions in general: context, not a signal.** Following everything they open does no better than
+  the control.
+- **Conviction positions meet the declared bar** (at least +3%, 55% positive, 2 points over the control, 30 positions
+  from 10 traders). Read with what came with it:
+  - by cut-off the 30-day median runs +0.8% (January), -4.1% (March), +21.0% (May), +8.7% (July);
+  - 3 traders make 29 of the 40 positions; without the largest, 27 positions, +9.8%, 70% positive;
+  - against the basket the edge is +0.4%, under the control's +0.9%: most of the gain is the market's direction, not
+    coin choice; 22 longs and 18 shorts, mostly BTC, ETH and SOL.
+  - As declared, the roster's selection favours this result, so it stands only once the forward record confirms it.
+    **Promising, not proven.**
+- After 10 August (biased, the month they were picked on): every group, the control included, rose with the rally
+  (+12.7% to +14.3% at 30 days). It says nothing about skill.
+
+### Part 2: their strategy (description, 1,560 swing positions by the 66)
+
+- **Entry:** neither chasing nor fading: the coin's move their way over the 7 days before is -0.2% (median, half
+  between -7.7% and +8.6%); over 30 days +1.9%, slightly with the month's trend.
+- **They sit through drawdowns:** the worst point while held is -6.1% (median; a quarter worse than -11%); their
+  winners went -4.9% against them before paying.
+- **They hold winners longer than losers:** 10.6 days against 7.7.
+- **Per position the gains are modest:** winners +6.7% of size, losers -5.1% (medians). The money is size on the
+  winners and a high win rate on swing positions.
+- **70% of their size is long.**
+
+### Part 1: who and what now (description)
+
+The list (record, style, every open position with since-when, unrealised PnL and leverage now) is in the run's
+output. Examples: one trader with 13 swing positions, 92% won, $4.8M, holding 15 days on the median, now 0.2x
+leverage; another long LIT since 8 June (+$1.5M) and short WLFI since 18 February. Coins with the most proven
+position traders' money now: NEAR (7 long, $32.6M), ZEC (8 long $5.3M against 6 short $12.1M), BTC (11 long, 5
+short), HYPE (14 long). Three of the 66 hold FET long, one since 7 September.
+
+### Next
+
+- The agent logs every new position of a proven position trader from now on, marks conviction ones, and scores
+  them at 14 and 30 days (the forward record that can confirm part 3).
+- A live board of what the proven position traders hold, with since-when, record and leverage.
+- E1 (entities) folds wallets of one trader together before the records are counted.
