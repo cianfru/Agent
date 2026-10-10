@@ -126,24 +126,38 @@ def leverage_band(lev: float | None) -> str | None:
     return "low" if lev < 3 else "moderate" if lev <= 5 else "high"
 
 
+PF_HARDLY_ANY_LOSSES = 20          # above $20 won per $1 lost, the ratio only says the losses were tiny
+
+
+def win_per_loss(pf: float | None, win_rate: float | None) -> str | None:
+    """The profit factor in plain words: dollars won per dollar lost."""
+    if pf is None:
+        return "no losing trade" if win_rate == 1 else None
+    return "hardly any losses" if pf >= PF_HARDLY_ANY_LOSSES else f"wins ${pf:.1f} per $1 lost"
+
+
 def record_line(t: dict, open_now: float | None = None) -> str:
+    """A trader's record in plain words (no ratios to decode)."""
     if t.get("tier") == "riding":
-        tail = f", all-time {signed_usd(t['alltime_pnl'])}" if t.get("alltime_pnl") is not None else ""
+        tail = f", {signed_usd(t['alltime_pnl'])} all-time" if t.get("alltime_pnl") is not None else ""
         op = open_now if open_now is not None else (t.get("open_pnl") or 0)
-        return f"riding · {signed_usd(op)} open profit{tail}"
-    pf = t.get("profit_factor")
+        return f"riding a winner: {signed_usd(op)} profit in open trades{tail}"
+    n = t["swing_positions"]
+    won = round(t["win_rate"] * n)
     paper = t.get("open_swing_pnl")
-    paper_txt = f" ({usd(paper)} on paper)" if paper else ""
-    return (f"proven · {t['swing_positions']} held 3d+, {round(100 * t['win_rate'])}% won, "
-            f"{signed_usd(t['swing_pnl'])}{paper_txt}" + (f", PF {pf}" if pf else "")
-            + f", holds ~{t['median_hold_days']:.0f}d")
+    parts = [f"proven: {n} trades held 3+ days, {won} won",
+             f"{signed_usd(t['swing_pnl'])}" + (f" ({usd(paper)} of it still open)" if paper else ""),
+             win_per_loss(t.get("profit_factor"), t.get("win_rate")),
+             f"usually holds ~{t['median_hold_days']:.0f} days"]
+    return ", ".join(p for p in parts if p)
 
 
 def conviction_text(t: dict, p: dict, lev: float | None) -> str:
     x = p["value"] / t["median_size"] if t.get("median_size") else None
-    head = f"Conviction · {p['coin']} {p['side']} {usd(p['value'])}" + (f" ({x:.1f}x their usual)" if x else "")
-    tail = f"{short(t['address'])} · {record_line(t)}" + (f" · {lev:.1f}x lev now" if lev is not None else "")
-    return f"{head}\n{tail}\nLogged; scored at 14d and 30d."
+    head = f"Conviction · {p['coin']} {p['side']} {usd(p['value'])}" + (f" ({x:.1f}x their usual size)" if x else "")
+    who = short(t["address"]) + (f" · {lev:.1f}x leverage now" if lev is not None else "")
+    rec = record_line(t)
+    return f"{head}\n{who}\n{rec[0].upper()}{rec[1:]}\nLogged; scored after 14 and 30 days."
 
 
 def build_text(b: dict) -> str:

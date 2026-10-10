@@ -52,7 +52,7 @@ Every convergence becomes a numbered group (`#7 STRK short`), and every trader i
   - The caption lists each wallet with size and entry, the entry range, the price now, and that line.
 - **Followed groups** message you when a trader cuts size by half or more or closes (exit, result, time held), and with a summary when all are out. Unfollowed groups are recorded only.
 - **On the dashboard:** the Groups tab shows every group trader by trader, with a Follow toggle and the scoreboard (closed in profit, average result).
-- **In Telegram:** `/now` sends the live pulse; `/positions` what the tracked traders hold and are adding; `/following` lists followed groups; `/groups` shows the latest five. The bot only obeys `TELEGRAM_CHAT_ID`.
+- **In Telegram:** `/now` sends the live pulse; `/positions` what the tracked traders hold and are adding; `/following` lists followed groups; `/groups` shows the latest five; `/help` explains each alert and the words in them. Alerts are written in plain words (a trader's record reads "6 won, +$85K ($55K of it still open), wins $2.2 per $1 lost"; above $20 per $1 it says "hardly any losses", since the ratio then only says the losses were tiny). The bot only obeys `TELEGRAM_CHAT_ID`.
 
 Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
 
