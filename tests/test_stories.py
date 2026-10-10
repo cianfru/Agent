@@ -86,3 +86,58 @@ def test_agent_market_read_from_stored_snapshots(tmp_path):
     assert "Smart money: leaning short" in read["text"]
     assert "shorts +$8.0M, longs -$2.0M" in read["text"]
     assert read["stories"][0]["text"].startswith("STRK short · shorts piling in · 2 smart shorts in 3h (#1)")
+
+
+TOXIC = {
+    **REFLEX,
+    "anomalies": REFLEX["anomalies"] + [
+        {"coin": "PUMP", "type": "VPIN_TOXIC", "direction": "NEUTRAL", "value": 0.74},
+        {"coin": "ZEC", "type": "VPIN_TOXIC", "direction": "NEUTRAL", "value": 0.61},
+        {"coin": "ZEC", "type": "CVD_EXTREME", "direction": "SHORT", "value": 0.4},
+        {"coin": "DOGE", "type": "VPIN_TOXIC", "direction": "NEUTRAL", "value": 0.40},  # elevated, not toxic
+    ],
+}
+
+
+def test_toxic_flow_goes_first_with_its_side():
+    found = stories.coin_stories(TOXIC, [GROUP], [])
+    assert found[0]["coin"] == "PUMP"  # toxic flow outranks STRK's bigger story
+    assert found[0]["text"].startswith("PUMP long · one-sided buying with smart money · 7 new longs vs 1 today")
+    assert "toxic flow 74%, buyers" in found[0]["text"]
+
+
+def test_toxic_flows_and_alert_text():
+    flows = {t["coin"]: t for t in stories.toxic_flows(TOXIC, [GROUP], [])}
+    assert set(flows) == {"PUMP", "ZEC"}
+    assert flows["PUMP"]["aligned"] and flows["PUMP"]["flow"] == "long" and flows["PUMP"]["smart"] == "long"
+    assert not flows["ZEC"]["aligned"] and flows["ZEC"]["smart"] is None
+    text = stories.toxic_alert_text(flows["PUMP"])
+    assert text.splitlines()[0] == "PUMP: toxic buying flow (VPIN 74%) while smart money is long"
+
+
+def test_read_lists_toxic_coins_without_a_story():
+    text = stories.format_read(None, None, [], [], dt.datetime(2026, 10, 10, 6, tzinfo=dt.timezone.utc), None,
+                               [t for t in stories.toxic_flows(TOXIC, [], []) if t["coin"] == "ZEC"])
+    assert text.splitlines()[-1] == "Toxic flow (one-sided, often before a sharp move): ZEC 61% sellers"
+
+
+def test_agent_toxic_alert_once_and_only_when_aligned(tmp_path, monkeypatch):
+    import asyncio
+
+    from synth import notify, service
+    from synth.config import Settings
+    from synth.store import Store
+    from tests.test_service import offline
+
+    sent = []
+
+    async def fake(token, chat, text, buttons=None):
+        sent.append(text)
+
+    monkeypatch.setattr(notify, "telegram", fake)
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1")
+    agent = offline(service.Agent(s, Store(s.db_path)))
+    assert asyncio.run(agent._toxic_alerts(TOXIC, set())) == 1  # PUMP (aligned, 74%); ZEC not aligned
+    assert sent[0].startswith("PUMP: toxic buying flow")
+    assert asyncio.run(agent._toxic_alerts(TOXIC, set())) == 0  # same flow: no repeat
+    assert asyncio.run(agent._toxic_alerts(TOXIC, {"reflex"})) == 0  # first poll: never

@@ -10,6 +10,8 @@ Reflex anomaly directions, as Reflex defines them (anomaly_detector.py):
   LSR_EXTREME      LONG = most accounts long, SHORT = most accounts short
   CVD_EXTREME      LONG = aggressive buying, SHORT = aggressive selling
   VOLUME_SPIKE     value = volume vs normal, no direction
+  VPIN_TOXIC       value = how one-sided taker flow is (0..1; >=0.55 toxic, >=0.70 critical), no
+                   direction of its own: the side comes from the coin's CVD anomaly when there is one
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ from collections import defaultdict
 from .brief import usd
 
 LEAN_RATIO = 1.25  # shorts > 1.25x longs (in dollars) = leaning short, and vice versa
+VPIN_TOXIC = 0.55
+VPIN_CRITICAL = 0.70
 
 
 # ------------------------------------------------------------- sentiment --
@@ -49,9 +53,27 @@ def change(history: list[dict], since_ts: float) -> dict | None:
 # --------------------------------------------------------------- stories --
 
 
+def flow_side(anoms: list[dict]) -> str | None:
+    """Which side the coin's taker flow is on, from its CVD anomaly ('long' buyers / 'short' sellers)."""
+    for a in anoms:
+        if a.get("type") == "CVD_EXTREME":
+            return "short" if str(a.get("direction") or "").upper() == "SHORT" else "long"
+    return None
+
+
+def toxic(anoms: list[dict]) -> float | None:
+    v = max((a.get("value") or 0 for a in anoms if a.get("type") == "VPIN_TOXIC"), default=0)
+    return v if v >= VPIN_TOXIC else None
+
+
 def _market_signals(anoms: list[dict]) -> list[tuple[str, str | None]]:
-    """(text, implied crowd side or None) per Reflex anomaly on one coin."""
+    """(text, implied crowd side or None) per Reflex anomaly on one coin. Toxic flow comes first."""
     out = []
+    v = toxic(anoms)
+    if v:
+        side = flow_side(anoms)
+        who = {"short": ", sellers", "long": ", buyers"}.get(side or "", "")
+        out.append((f"toxic flow {v:.0%}{who}", f"toxic_{side}" if side else "toxic"))
     for a in anoms:
         t, d, v = a.get("type"), str(a.get("direction") or "").upper(), a.get("value")
         if t == "OI_SURGE" and v is not None:
@@ -72,6 +94,8 @@ def _market_signals(anoms: list[dict]) -> list[tuple[str, str | None]]:
 
 def _tag(side: str, marks: set[str]) -> str | None:
     """One plain read of what the combination means."""
+    if f"toxic_{side}" in marks:
+        return f"one-sided {'selling' if side == 'short' else 'buying'} with smart money"
     if side == "short" and "oi_up" in marks:
         return "shorts piling in"
     if side == "long" and "oi_up" in marks:
@@ -85,11 +109,10 @@ def _tag(side: str, marks: set[str]) -> str | None:
     return None
 
 
-def coin_stories(reflex: dict | None, groups: list[tuple[dict, list[dict]]], events: list[dict],
-                 limit: int = 5) -> list[dict]:
-    """Coins where smart money moves and something else agrees. `groups`: recent (group, members);
-    `events`: recent stored events (wallet moves, cohort flips) for the read's window."""
-    smart: dict[str, list[tuple[str, str, int]]] = defaultdict(list)  # coin -> [(side, text, weight)]
+def smart_signals(reflex: dict | None, groups: list[tuple[dict, list[dict]]],
+                  events: list[dict]) -> dict[str, list[tuple[str, str, int]]]:
+    """coin -> [(side, text, weight)] from groups, opens skew, wallet moves and cohort flips."""
+    smart: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
     for g, members in groups:
         n = len({m["address"] for m in members})
         word = "smart option wallets" if g["venue"] == "derive" else f"smart {g['side']}s"
@@ -105,20 +128,38 @@ def coin_stories(reflex: dict | None, groups: list[tuple[dict, list[dict]]], eve
     for e in events:
         if e.get("coin") and e.get("kind") in ("wallet_move", "cohort_flip") and e.get("direction") in ("long", "short"):
             smart[e["coin"]].append((e["direction"], e["title"].rsplit(" (", 1)[0], 1))
+    return smart
 
+
+def smart_side(sigs: list[tuple[str, str, int]]) -> str | None:
+    weight = {"long": 0, "short": 0}
+    for side, _, w in sigs:
+        weight[side] += w
+    if weight["long"] == weight["short"]:
+        return None  # smart money split
+    return "long" if weight["long"] > weight["short"] else "short"
+
+
+def anomalies_by_coin(reflex: dict | None) -> dict[str, list[dict]]:
     anoms: dict[str, list[dict]] = defaultdict(list)
     for a in (reflex or {}).get("anomalies") or []:
         if a.get("coin"):
             anoms[a["coin"]].append(a)
+    return anoms
 
+
+def coin_stories(reflex: dict | None, groups: list[tuple[dict, list[dict]]], events: list[dict],
+                 limit: int = 5) -> list[dict]:
+    """Coins where smart money moves and something else agrees. `groups`: recent (group, members);
+    `events`: recent stored events (wallet moves, cohort flips) for the read's window."""
+    smart = smart_signals(reflex, groups, events)
+    anoms = anomalies_by_coin(reflex)
     out = []
     for coin, sigs in smart.items():
-        weight = {"long": 0, "short": 0}
-        for side, _, w in sigs:
-            weight[side] += w
-        if weight["long"] == weight["short"]:
-            continue  # smart money split on this coin
-        side = "long" if weight["long"] > weight["short"] else "short"
+        side = smart_side(sigs)
+        if side is None:
+            continue
+        weight = sum(w for s, _, w in sigs if s == side)
         mine = [(t, w) for s, t, w in sigs if s == side]
         market = _market_signals(anoms.get(coin, []))
         if not market and len(mine) < 2:
@@ -129,16 +170,42 @@ def coin_stories(reflex: dict | None, groups: list[tuple[dict, list[dict]]], eve
             parts.append(tag)
         parts += [t for t, _ in sorted(mine, key=lambda x: -x[1])[:2]]
         parts += [t for t, _ in market[:2]]
-        out.append({"coin": coin, "side": side, "score": weight[side] + len(market),
-                    "text": " · ".join(parts)})
+        score = weight + len(market) + (5 if toxic(anoms.get(coin, [])) else 0)  # toxic flow first
+        out.append({"coin": coin, "side": side, "score": score, "text": " · ".join(parts)})
     return sorted(out, key=lambda s: -s["score"])[:limit]
+
+
+def toxic_flows(reflex: dict | None, groups: list[tuple[dict, list[dict]]], events: list[dict]) -> list[dict]:
+    """Every coin with toxic flow (VPIN >= 55%): its flow side, smart money's side, and whether they agree."""
+    smart = smart_signals(reflex, groups, events)
+    out = []
+    for coin, anoms in anomalies_by_coin(reflex).items():
+        v = toxic(anoms)
+        if not v:
+            continue
+        flow = flow_side(anoms)
+        sigs = smart.get(coin, [])
+        mine = smart_side(sigs)
+        out.append({"coin": coin, "vpin": v, "flow": flow, "smart": mine,
+                    "aligned": bool(flow and mine and flow == mine),
+                    "smart_text": [t for s, t, _ in sorted(sigs, key=lambda x: -x[2]) if s == mine][:2]})
+    return sorted(out, key=lambda t: (-t["aligned"], -t["vpin"]))
+
+
+def toxic_alert_text(t: dict) -> str:
+    who = "selling" if t["flow"] == "short" else "buying"
+    lines = [f"{t['coin']}: toxic {who} flow (VPIN {t['vpin']:.0%}) while smart money is {t['smart']}"]
+    if t["smart_text"]:
+        lines.append(" · ".join(t["smart_text"]))
+    lines.append("One-sided informed flow often comes before a sharp move.")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- format --
 
 
 def format_read(sent: dict | None, delta: dict | None, derive: list[dict], stories: list[dict],
-                now: dt.datetime, since: dt.datetime | None) -> str:
+                now: dt.datetime, since: dt.datetime | None, toxic_only: list[dict] | None = None) -> str:
     head = f"Outrider · {now.strftime('%H:%M')} UTC"
     if since:
         h = max(1, round((now - since).total_seconds() / 3600))
@@ -156,4 +223,8 @@ def format_read(sent: dict | None, delta: dict | None, derive: list[dict], stori
         lines.append("Derive options: " + " · ".join(f"{d['coin']} {d['lean']}" for d in derive))
     lines += ["", "Where it's crowding"]
     lines += [s["text"] for s in stories] or ["Nothing lining up: no coin where smart money and market data agree."]
+    if toxic_only:
+        side = {"short": " sellers", "long": " buyers"}
+        lines += ["", "Toxic flow (one-sided, often before a sharp move): " + " · ".join(
+            f"{t['coin']} {t['vpin']:.0%}{side.get(t['flow'] or '', '')}" for t in toxic_only[:5])]
     return "\n".join(lines)

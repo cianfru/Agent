@@ -103,6 +103,10 @@ class Agent:
         except Exception as e:  # noqa: BLE001 - tracking must not stop the poll
             log.exception("group tracking failed: %s", e)
             tracked = {}
+        try:
+            tracked["toxic_alerts"] = await self._toxic_alerts(snaps.get("reflex"), seeding)
+        except Exception as e:  # noqa: BLE001
+            log.warning("toxic flow check failed: %s", e)
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
         scored = self.score_picks(snaps)
@@ -181,10 +185,37 @@ class Agent:
         recent = [(g, self.store.members(g["id"])) for g in recent if now - g["ts"] <= 24 * 3600]
         events = self.store.events(since=since_ts, limit=300)
         found = stories.coin_stories(snaps.get("reflex"), recent, events)
+        in_story = {s["coin"] for s in found}
+        toxic_only = [t for t in stories.toxic_flows(snaps.get("reflex"), recent, events) if t["coin"] not in in_story]
         text = stories.format_read(sent, stories.change(hist, since_ts), brief_mod.derive_lines(snaps.get("cowboy")),
                                    found, dt.datetime.fromtimestamp(now, dt.timezone.utc),
-                                   dt.datetime.fromtimestamp(since_ts, dt.timezone.utc))
-        return {"text": text, "sentiment": sent, "stories": found}
+                                   dt.datetime.fromtimestamp(since_ts, dt.timezone.utc), toxic_only)
+        return {"text": text, "sentiment": sent, "stories": found, "toxic": toxic_only}
+
+    async def _toxic_alerts(self, reflex: dict | None, seeding: set[str]) -> int:
+        """Ping at once when flow is critically one-sided (VPIN >= 70%) and smart money is on that side."""
+        if not reflex or "reflex" in seeding:
+            return 0
+        now = time.time()
+        recent = [(g, self.store.members(g["id"])) for g in self.store.groups(status="open", limit=100)
+                  if now - g["ts"] <= 24 * 3600]
+        events = self.store.events(since=now - 24 * 3600, limit=300)
+        sent = 0
+        for t in stories.toxic_flows(reflex, recent, events):
+            if not t["aligned"] or t["vpin"] < stories.VPIN_CRITICAL:
+                continue
+            key = f"toxic:{t['coin']}:{t['flow']}"
+            if self.store.seen_recently(key, COOLDOWN_S):
+                continue
+            text = stories.toxic_alert_text(t)
+            self.store.add_event({"key": key, "kind": "toxic_flow", "coin": t["coin"], "direction": t["flow"],
+                                  "score": 90, "title": text.splitlines()[0], "data": {"source": "reflex", **t}})
+            if self.s.max_alerts_per_day - self.store.count_briefs("alert_sent", now - 86400) <= 0:
+                continue
+            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+            self.store.add_brief("alert_sent", {"toxic": t["coin"]})
+            sent += 1
+        return sent
 
     # --------------------------------------------------------- public posts --
     async def desk_post(self, publish: bool | None = None) -> dict:

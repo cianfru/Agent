@@ -105,7 +105,12 @@ The **market read** goes to Telegram at `SYNTH_PULSE_HOURS_UTC` (default 06, 10,
 - **One Derive line** for BTC, ETH and HYPE.
 - **"Where it's crowding":** coins where smart money is moving and market data or a second smart signal agrees, for example `STRK short · shorts piling in · 4 smart shorts in 3h (#7) · open interest +34% · funding negative: shorts crowded`.
 
-A raw anomaly on its own (open-interest surge, volume spike, buy/sell imbalance, funding extreme) is never sent. It only appears as context for smart money. The same read is shown at the top of the dashboard's Now tab.
+**Toxic flow (VPIN)** gets priority. VPIN is Reflex's measure of how one-sided taker flow is: 55% and up is toxic, 70% and up is critical. Its side comes from the coin's CVD reading.
+- A coin with toxic flow goes to the top of "Where it's crowding".
+- Toxic coins with no smart-money story get their own line.
+- Critical flow on the same side as smart money is an immediate Telegram alert. It counts toward the daily cap and isn't repeated within 12 hours.
+
+Any other raw anomaly on its own (open-interest surge, volume spike, buy/sell imbalance, funding extreme) is never sent. It only appears as context for smart money. The same read is shown at the top of the dashboard's Now tab.
 
 ## API
 
