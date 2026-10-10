@@ -67,11 +67,11 @@ class HL:
             }
         return out
 
-    async def account(self, address: str) -> dict:
-        """Account value and open perp positions: {"equity": float, "positions": {COIN: {side, size, ...}}}."""
-        st = await self._post({"type": "clearinghouseState", "user": address}) or {}
+    @staticmethod
+    def parse_positions(st: dict) -> dict[str, dict]:
+        """Open perp positions from a clearinghouseState, keyed by UPPER coin: {side, size, entry_px, notional, upnl}."""
         out = {}
-        for ap in st.get("assetPositions") or []:
+        for ap in (st or {}).get("assetPositions") or []:
             p = ap.get("position") or {}
             szi = float(p.get("szi") or 0)
             if not szi:
@@ -80,7 +80,13 @@ class HL:
                 "side": "long" if szi > 0 else "short", "size": abs(szi),
                 "entry_px": float(p.get("entryPx") or 0), "notional": abs(float(p.get("positionValue") or 0)),
                 "upnl": float(p.get("unrealizedPnl") or 0)}
-        return {"equity": float((st.get("marginSummary") or {}).get("accountValue") or 0), "positions": out}
+        return out
+
+    async def account(self, address: str) -> dict:
+        """Account value and open perp positions: {"equity": float, "positions": {COIN: {side, size, ...}}}."""
+        st = await self._post({"type": "clearinghouseState", "user": address}) or {}
+        return {"equity": float((st.get("marginSummary") or {}).get("accountValue") or 0),
+                "positions": self.parse_positions(st)}
 
     async def closing_fills(self, address: str, coin: str, since_ms: int) -> list[dict]:
         """Fills that reduced/closed a position in `coin` since `since_ms`: [{time, px, sz, pnl}]."""

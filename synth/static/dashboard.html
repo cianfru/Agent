@@ -200,6 +200,7 @@
   <section id="traders">
     <div class="panel" style="margin-bottom:16px">
       <h2>Tracked traders</h2>
+      <div id="ptkept" style="font: 12.5px var(--mono); color: var(--t2); margin-bottom:4px"></div>
       <div class="muted" id="ptrule" style="font-size:12px; margin-bottom:10px"></div>
       <div class="kv" id="ptfwd"></div>
       <div class="seg" id="ptlev"><button data-f="all" class="on">All</button><button data-f="proven">Proven</button><button data-f="riding">Riding winners</button><button data-f="lev">Leverage 5x or less</button></div>
@@ -606,7 +607,9 @@ async function loadTraders() { ptData = await api("/position-traders"); renderTr
 function renderTraders() {
   const d = ptData; if (!d) return;
   const disc = d.discover ? ` Riders last scanned ${ago(d.discover.ts)} ago: ${d.discover.riding} of ${d.discover.candidates} big accounts.` : " Riders: first scan pending.";
-  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3, ${d.as_of}). Riding winners: $250K+ open profit with a real winner, in profit all-time, found daily.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
+  const rf = d.refresh;
+  $("#ptkept").innerHTML = rf && rf.pool ? `List kept current: <b>${rf.proven}</b> proven now · <span class="long">${rf.joined_7d} joined</span> · <span class="short">${rf.dropped_7d} dropped</span> this week · ${rf.checked} of ${rf.pool} candidates read${rf.waiting ? ` (${rf.waiting} waiting)` : ""}` : "";
+  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3's rule, rerun on every candidate: Reflex's roster rule, $500K+ accounts in profit, the listed; new names first, listed traders every 2 days, the rest weekly; one who stops qualifying drops after 30 days). Riding winners: $250K+ open profit with a real winner, in profit all-time, found daily.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
   const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
   const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
   $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>

@@ -73,10 +73,16 @@ Where it shows:
 ## Tracked traders: proven and riding winners
 
 Two groups, both read every poll from Hyperliquid's public API, one light request per trader (`synth/position_traders.py`):
-- **Proven** (study S3 with the owner's amendment; `synth/data/position_traders.json`, 100 on 10 October 2026): 5+
+- **Proven** (study S3 with the owner's amendment; started from `synth/data/position_traders.json`, 100 on 10 October 2026): 5+
   positions held 3+ days, **open ones counted at their unrealised PnL**, those positions at least half the size the
   trader trades, in profit with a profit factor of 1.5+. Closed positions are not the only record: the trader who opened
   NEAR near the bottom and still holds it counts.
+  **Kept current** (`synth/proven.py`): the rule is rerun in the background on a pool rebuilt daily from the leaderboard
+  (Reflex's profitable-trader rule, accounts of $500K+ in profit, the listed). New names are read first, listed traders
+  every 2 days so their records stay current, the rest weekly; a first read covers 365 days, later reads only the fills
+  since (merged per order, pages joined on the boundary millisecond). Paced to at most 30% of Hyperliquid's per-IP
+  budget. Someone who stops qualifying drops after 30 days; bots stay out. The same reads keep the owner map current:
+  each big account's sub-accounts weekly, and wallets moving in the same minutes (E1 link 3a) recomputed weekly.
 - **Riding winners**, found once a day from Hyperliquid's leaderboard (accounts of $500K+, in profit all-time, not market
   makers): open positions with $250K+ unrealised profit, one of them up 20%+ on its value. No history needed. A rider who
   stops qualifying for 14 days drops off.

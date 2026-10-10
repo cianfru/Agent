@@ -137,7 +137,7 @@ def test_discover_adds_riders_and_prunes(tmp_path, monkeypatch):
     rows = [{"ethAddress": R, "accountValue": "4200000", "windowPerformances": [
         ["month", {"pnl": "1800000", "vlm": "4700000"}], ["allTime", {"pnl": "4400000", "vlm": "1"}]]}]
     out = asyncio.run(pt.discover(now=1_790_000_000.0, rows=rows, hl=hl))
-    assert out == {"candidates": 1, "riding": 1, "dropped": 0} and R in pt.traders and A in pt.traders
+    assert out == {"candidates": 1, "riding": 1, "dropped": 0, "pool": 2} and R in pt.traders and A in pt.traders
     assert pt.big_money() == {"NEAR": {"long_n": 1, "short_n": 0, "long_usd": 3_800_000, "short_usd": 0}}
     assert not pt.discover_due(now=1_790_000_000.0 + 3600)
     asyncio.run(pt.step(now=1_790_000_100.0))

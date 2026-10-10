@@ -143,6 +143,7 @@ async def lifespan(_: FastAPI):
     tasks = [asyncio.create_task(_loop(agent))] if settings.poll_seconds > 0 else []
     if settings.poll_seconds > 0:
         tasks.append(asyncio.create_task(bot.run(agent)))
+        tasks.append(asyncio.create_task(agent.positions.refresh.run_forever(lambda: agent.positions.enabled)))
     yield
     for t in tasks:
         t.cancel()
