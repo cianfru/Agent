@@ -7,7 +7,8 @@
   come first everywhere else (owner, 10 October 2026).
 - `research(agent)`: the studies as charts (`synth/data/research.json`) and the market cycle from Reflex's
   market history (fetched once a day, `compact_history`).
-Context, not signals: every finding carries its verdict.
+Every lens reads by headcount, one vote per trader (big money: per owner), with dollars beside: one giant account
+or a hedge cannot decide a reading (owner, 10 October 2026). Context, not signals: every finding carries its verdict.
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ from .position_traders import MAJORS
 
 RESEARCH = Path(__file__).parent / "data" / "research.json"
 DAY_S = 86400
-LEAN_RATIO = 1.5          # a lens leans one way when its dollars on that side are 1.5x the other side's
+LEAN_RATIO = 1.5          # a lens leans one way when its heads on that side are 1.5x the other side's
+MIN_HEADS = 3             # fewer than 3 traders or owners in a coin: no lean
 
 
 def _day(d: int) -> str:
@@ -53,12 +55,12 @@ def compact_history(body: dict, keep_days: int = 400) -> dict:
     }
 
 
-def lean(long_usd: float, short_usd: float) -> str | None:
-    if not long_usd and not short_usd:
+def lean(long_n: int, short_n: int) -> str | None:
+    if long_n + short_n < MIN_HEADS:
         return None
-    if long_usd >= LEAN_RATIO * short_usd:
+    if long_n >= LEAN_RATIO * short_n:
         return "long"
-    if short_usd >= LEAN_RATIO * long_usd:
+    if short_n >= LEAN_RATIO * long_n:
         return "short"
     return "split"
 
@@ -90,25 +92,25 @@ def _crowd_points(rows: list[tuple[float, dict]], every: int = 1) -> list[list]:
     return out
 
 
-def _share(long_usd: float, short_usd: float) -> float | None:
-    return round(100 * long_usd / (long_usd + short_usd), 1) if long_usd + short_usd else None
+def _share(long_n: float, short_n: float) -> float | None:
+    return round(100 * long_n / (long_n + short_n), 1) if long_n + short_n else None
 
 
 def direction(coin: str, rows: list[tuple[float, dict]], lenses: dict, adding_24h: list[dict], now: float,
               points: int = 120) -> dict:
-    """BTC or ETH as one directional reading: each lens's share long by money and its lean, whether they agree,
+    """BTC or ETH as one directional reading: each lens's share of heads long and its lean, whether they agree,
     the crowd's share over the last 7 days against price, and what tracked traders added in 24 hours."""
     series = []
     for ts, r in rows:
         v = (r.get("c") or {}).get(coin)
-        if v and v[1] + v[3]:
-            series.append([round(ts), _share(v[1], v[3]), v[4] if len(v) > 4 else None])
+        if v and v[0] + v[2]:
+            series.append([round(ts), _share(v[0], v[2]), v[4] if len(v) > 4 else None])
     if len(series) > points:
         step = len(series) / points
         series = [series[int(i * step)] for i in range(points)] + [series[-1]]
     day_ago = next((p for p in series if p[0] >= now - DAY_S), None)
     last = series[-1] if series else None
-    ls = {k: {**x, "share_long": _share(x["long_usd"], x["short_usd"]), "lean": lean(x["long_usd"], x["short_usd"])}
+    ls = {k: {**x, "share_long": _share(x["long_n"], x["short_n"]), "lean": lean(x["long_n"], x["short_n"])}
           for k, x in lenses.items()}
     added = {r["side"]: r["net_usd"] for r in adding_24h if r["coin"] == coin}
     return {"coin": coin, "price": last[2] if last else None,
@@ -133,8 +135,8 @@ def home(agent, now: float | None = None) -> dict:
     bm = pt.big_money()
     bm_long = sum(v["long_usd"] for v in bm.values())
     bm_short = sum(v["short_usd"] for v in bm.values())
-    tr_long = sum(c["long_usd"] for c in board["coins"])
-    tr_short = sum(c["short_usd"] for c in board["coins"])
+    bm_ln, bm_sn = sum(v["long_n"] for v in bm.values()), sum(v["short_n"] for v in bm.values())
+    tr_ln, tr_sn = sum(c["long_n"] for c in board["coins"]), sum(c["short_n"] for c in board["coins"])
     hist = store.get_snapshot("reflex_history") or {}
 
     # the three lenses per coin
@@ -152,7 +154,7 @@ def home(agent, now: float | None = None) -> dict:
         if coin in MAJORS:
             continue
         size = sum((x["long_usd"] + x["short_usd"]) for x in ls.values())
-        leans = {k: lean(x["long_usd"], x["short_usd"]) for k, x in ls.items()}
+        leans = {k: lean(x["long_n"], x["short_n"]) for k, x in ls.items()}
         lens_rows.append({"coin": coin, **ls, "leans": leans, "agree": agreement(list(leans.values())),
                           "size": round(size), "price": (positions.get(coin) or [None] * 5)[4]})
     lens_rows.sort(key=lambda r: -r["size"])
@@ -182,10 +184,11 @@ def home(agent, now: float | None = None) -> dict:
             "crowd": {"share_long": crowd_now[1] if crowd_now else None,
                       "change_24h": round(crowd_now[1] - day_ago[1], 1) if crowd_now and day_ago else None,
                       "spark": [p[1] for p in pts[-96:]]},
-            "big_money": {"share_long": round(100 * bm_long / (bm_long + bm_short), 1) if bm_long + bm_short else None,
+            "big_money": {"share_long": _share(bm_ln, bm_sn), "long_n": bm_ln, "short_n": bm_sn,
                           "long_usd": round(bm_long), "short_usd": round(bm_short),
+                          "owners": (store.latest_brief("pt_bigmoney") or {}).get("owners"),
                           "ts": (store.latest_brief("pt_bigmoney") or {}).get("ts")},
-            "tracked": {"share_long": round(100 * tr_long / (tr_long + tr_short), 1) if tr_long + tr_short else None,
+            "tracked": {"share_long": _share(tr_ln, tr_sn),
                         "traders": len(board["traders"]),
                         "riding": sum(1 for t in board["traders"] if t["tier"] == "riding")},
             "cycle": {**(hist.get("cycle") or {}), "uptrend": (hist.get("rows") or [[None, None]])[-1][1],

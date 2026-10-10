@@ -79,3 +79,13 @@ So rule 3b is applied over 30-day windows ending now and every 15 days back with
 pair that passes in any window is linked. Seen while checking the shapes of the data: the three wallets were all
 funded in June by one address that has sent money to hundreds of wallets, so the hub rule rightly ignores it as a
 link.
+
+## Amendment 2 (10 October 2026, after a first partial run, before the full one)
+
+A partial run (all transfers, trade histories for 931 wallets) joined 647 wallets into one entity. The chain ran
+through three wallets in the pool that each moved $10,000 or more with 56 to 82 other pool wallets: payout or
+service accounts, not one owner. The hub rule in link 2 covered only third addresses. It now covers wallets in the
+pool too: a pool wallet that transferred with more than 10 other pool wallets links nobody by money (9 such
+wallets; their sub-account and trading links stay). With it, the largest entity has 109 wallets, and the known
+group came out as one entity (its three wallets, linked by trading in the same minutes and by Reflex's rule).
+This change was made after seeing a result, so it is reported as such; E1 is a map with no verdict bar.

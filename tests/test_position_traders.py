@@ -3,7 +3,7 @@ import time
 
 from synth import bot, notify, service
 from synth.config import Settings
-from synth.position_traders import (PositionTraders, build_text, conviction_text, leaderboard_candidates,
+from synth.position_traders import (PositionTraders, build_text, conviction_text, leaderboard_candidates, owner_votes,
                                     leverage_band, record_line, ride_qualifies)
 from synth.store import Store
 
@@ -159,7 +159,7 @@ def test_texts_and_bot_command(tmp_path, monkeypatch):
                       "held_usd": 3_810_000, "against_usd": 1_360_000,
                       "big_money": {"long_n": 22, "short_n": 23, "long_usd": 7_390_000, "short_usd": 18_430_000}})
     assert xpl.splitlines()[1:] == ["Against: $1.4M short among tracked traders",
-                                    "Big money (daily): $7.4M long / $18.4M short, leans the other way",
+                                    "Big money (daily): 22 owners long ($7.4M) / 23 short ($18.4M), leans the other way",
                                     "Context, not a signal."]
     pt, store, hl, sent = setup(tmp_path, monkeypatch)
     asyncio.run(pt.step(now=1_790_000_000.0))
@@ -189,3 +189,27 @@ def test_position_picks_score_at_14_and_30_days_never_late(tmp_path):
     assert got[pid]["ret_30d"] == 0.1 and got[pid]["ret_14d"] is None   # 14d was due long ago: left empty
     assert got[late]["ret_30d"] is None                                 # missed its day: never scored late
     assert got[pid]["ret_7d"] == 0.1                                    # older horizons as before
+
+
+def test_big_money_counts_owners_not_dollars():
+    W1, W2, W3, W4 = ("0x" + c * 40 for c in "1234")
+    owners = {W1: W1, W2: W1}                                         # W2 is W1's sub-account
+    states = {W1: {"positions": {"BTC": pos("short", 400_000_000), "HYPE": pos("long", 3_000_000)}},
+              W2: {"positions": {"HYPE": pos("short", 1_000_000)}},
+              W3: {"positions": {"BTC": pos("long", 2_000_000), "HYPE": pos("long", 20_000)}},
+              W4: {"positions": {"BTC": pos("long", 600_000)}}}
+    v = owner_votes(states, owners)
+    assert v["BTC"] == {"long_n": 2, "short_n": 1, "long_usd": 2_600_000, "short_usd": 400_000_000}   # one giant, one vote
+    assert v["HYPE"] == {"long_n": 1, "short_n": 0, "long_usd": 2_000_000, "short_usd": 0}         # netted; $20K is no vote
+    text = build_text({"coin": "HYPE", "side": "short", "traders": 3, "added_usd": 300_000, "move": 0.01,
+                       "big_money": {"long_n": 2, "short_n": 2, "long_usd": 1, "short_usd": 9}})
+    assert "is split" in text
+
+
+def test_scan_from_before_owners_is_redone(tmp_path, monkeypatch):
+    pt, store, hl, sent = setup(tmp_path, monkeypatch, books={})
+    store.add_brief("pt_discover", {"candidates": 1})
+    store.add_brief("pt_bigmoney", {"coins": {}, "wallets": 1})
+    assert pt.discover_due()
+    store.add_brief("pt_bigmoney", {"coins": {}, "wallets": 1, "counted": "owners"})
+    assert not pt.discover_due()

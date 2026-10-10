@@ -83,8 +83,12 @@ Two groups, both read every poll from Hyperliquid's public API, one light reques
 
 Leverage is shown for every trader (low under 3x, moderate 3-5x, high over 5x), never used to leave anyone out.
 
-**Big money**, a third lens, by dollars: the daily scan reads every account of $500K+ in profit all-time anyway, so the
-agent keeps their long and short per coin. Reflex's profitable traders are picked by monthly return (30%+), which a
+**Big money**, a third lens: the daily scan reads every account of $500K+ in profit all-time anyway, so the agent keeps
+their long and short per coin, **one vote per owner** (owner, 10 October 2026): an owner's wallets are netted per coin
+and vote long or short from $25K, with dollars beside, so one giant account cannot decide the reading (the two largest
+accounts were short about $1.2B of ETH, BTC, SOL and HYPE while holding dollars on Hyperliquid: hedges held elsewhere,
+if they are, cannot be seen from here). Owners come from study E1 (`synth/data/owners.json`): Hyperliquid's sub-account records and wallets that
+trade together; money links are left out until checked. Reflex's profitable traders are picked by monthly return (30%+), which a
 $200M account cannot make, so the biggest and steadiest money never shows there. On XPL (10 October 2026) the two
 disagreed: Reflex's list 19 long ($2.9M) against 5 short ($0.7M); big profitable accounts $7.4M long against $18.4M
 short, the largest two shorts held by accounts with $145M and $108M all-time profit at 3-5x.
@@ -149,7 +153,7 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 - **Desk** (home, `GET /desk`):
   - a one-line read of the market;
   - six tiles (crowd long, big money long, tracked long, uptrend share and run age, BTC, alerts in 24 hours);
-  - **direction of BTC and ETH**: each lens's share long by money as a gauge around 50%, whether they agree, the
+  - **direction of BTC and ETH**: each lens's share of heads long as a gauge around 50% (dollars on hover), whether they agree, the
     crowd's share over 7 days against price, and what tracked traders added in 24 hours (the majors as one directional
     reading, like Cowboy's wallets layer);
   - the crowd against price (BTC above, share of profitable traders long below, 24h / 3d / 7d, hover);
@@ -157,7 +161,8 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
   - where the money is moving (tracked traders' net adds per coin, 24h or 7d, or the crowd's opens and closes; the
     other coins);
   - **three lenses on the other coins**: the crowd (Reflex's profitable traders), tracked traders and big money, each as
-    long against short money, with whether they agree;
+    heads long against short (one vote per trader, per owner for big money) with dollars, and whether they agree (a
+    lean needs 3 heads and 1.5 times the other side);
   - the market read (the text sent to Telegram).
 - **Traders:** tracked traders (proven and riding winners), by coin and one by one, what they are adding.
 - **Groups:** convergence groups trader by trader, with Follow.

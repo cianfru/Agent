@@ -17,7 +17,8 @@ def test_compact_history_keeps_share_and_cycle():
 
 
 def test_lean_and_agreement():
-    assert [desk.lean(3, 1), desk.lean(1, 3), desk.lean(1, 1.2), desk.lean(0, 0)] == ["long", "short", "split", None]
+    assert [desk.lean(3, 1), desk.lean(1, 3), desk.lean(2, 2), desk.lean(1, 1), desk.lean(0, 0)] == [
+        "long", "short", "split", None, None]                                  # under 3 heads: no lean
     assert desk.agreement(["long", "long", None]) == "all long"
     assert desk.agreement(["long", "short", "long"]) == "disagree"
     assert desk.agreement(["long", "split"]) == "mixed" and desk.agreement(["short"]) == "one lens"
@@ -35,7 +36,8 @@ def test_home_and_research_on_a_fresh_store(tmp_path):
     store.put_snapshot("reflex_history", desk.compact_history(HISTORY))
     h = desk.home(a, now=1_400.0)
     assert h["kpi"]["crowd"]["share_long"] == round(100 * 6 / 8, 2)
-    assert h["kpi"]["big_money"]["share_long"] == round(100 * 7.4 / 25.8, 1)
+    assert h["kpi"]["big_money"]["share_long"] == round(100 * 22 / 45, 1)        # owners, not dollars
+    assert h["kpi"]["big_money"]["long_usd"] == 7_400_000
     assert h["kpi"]["cycle"]["type"] == "on" and h["kpi"]["cycle"]["uptrend"] == 81.0
     assert [r["coin"] for r in h["lenses"]] == ["XPL"]                       # BTC and ETH read as direction
     btc, eth = h["direction"]
@@ -44,7 +46,7 @@ def test_home_and_research_on_a_fresh_store(tmp_path):
     assert btc["crowd_change_24h"] == 5.0 and btc["agree"] == "one lens" and len(btc["series"]) == 2
     assert eth["price"] is None and eth["lenses"] == {} and eth["agree"] == "one lens"
     xpl = next(r for r in h["lenses"] if r["coin"] == "XPL")
-    assert xpl["leans"] == {"crowd": "short", "big_money": "short"} and xpl["agree"] == "all short"
+    assert xpl["leans"] == {"crowd": "long", "big_money": "split"} and xpl["agree"] == "mixed"
     assert len(h["crowd_series"]) == 2 and h["crowd_series"][-1][2] == 81000.0
     r = desk.research(a)
     assert [x["id"] for x in r["studies"]] == ["S1", "S2", "S3", "S4"] and r["market_cycle"]["cycle"]["type"] == "on"
