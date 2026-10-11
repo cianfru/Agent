@@ -38,6 +38,12 @@ class Settings:
     # The daily brief can use a stronger model (e.g. claude-opus-5-5); defaults to SYNTH_MODEL.
     brief_model: str = field(default_factory=lambda: _env("SYNTH_BRIEF_MODEL"))
     effort: str = field(default_factory=lambda: _env("SYNTH_EFFORT", "low"))
+    # Outrider's posts on X (synth/persona.py): the model that writes them, the UTC hours a draft is made (empty
+    # disables), and "draft" (to your Telegram, Post or Skip) or "live" (published as written).
+    persona_model: str = field(default_factory=lambda: _env("SYNTH_PERSONA_MODEL", "claude-opus-5-5"))
+    persona_hours_utc: list[int] = field(default_factory=lambda: [
+        int(h) for h in _env("SYNTH_PERSONA_HOURS_UTC", "9,13,17,21").split(",") if h.strip()])
+    persona_mode: str = field(default_factory=lambda: _env("SYNTH_PERSONA_MODE", "draft"))
     # Alerts are built in code; set SYNTH_LLM_ALERTS=1 to have the model word them instead.
     llm_alerts: bool = field(default_factory=lambda: _env("SYNTH_LLM_ALERTS") == "1")
 

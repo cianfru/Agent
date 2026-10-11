@@ -128,6 +128,29 @@ Only smart-money events ping you: convergences, big single-wallet moves, smart-c
 
 Reflex flags a convergence when 2+ profitable traders open the same side within 24 hours. The agent alerts only on fast ones, where all the opens came within `SYNTH_FAST_CONVERGENCE_HOURS` (default 6). Slower ones stay on the dashboard and in the pulse but don't ping you.
 
+## Outrider on X (the persona)
+
+Outrider is the public character: a masked scout who rides ahead of the herd and posts what he sees, built to bring
+traders to Cowboy (owner, 11 October 2026). Mostly Derive's options as Cowboy shows them, some Hyperliquid smart money.
+It posts and never replies; it never says what happens next (`synth/persona.py`).
+
+- **Stories, found in code** from Cowboy's public files and Outrider's own alerts, every number formatted before the
+  model sees it: a settlement that just paid (what an answer cost a day out against what it paid), how Derive's option
+  wallets lean per date (headcount against money), a Saloon question (what Higher and Lower cost and how far price must
+  move), where the biggest call and put piles sit, a top trader by codename (the name Cowboy shows,
+  `synth/wallet_names.py`, never an address), the herd, and Hyperliquid conviction bets and build-ups.
+- **Rotation:** Cowboy stories weigh more, fresh ones more again; the same kind within 12 hours or coin within 6 hours
+  weighs less; a story is not told twice in 2 days, a trader not twice in 3 weeks.
+- **Writing:** the model writes in the voice (`VOICE`); `SYNTH_PERSONA_MODEL` (default `claude-opus-5-5`, with
+  Anthropic's server-side refusal fallback on).
+- **Checks in code:** at most 270 characters; no forecast or advice words, emojis, hashtags, links, addresses or other
+  @mentions; never "Reflex" or "Larsson"; @derivexyz exactly once on Cowboy stories; every number must appear in the
+  facts. A failing draft is retried once with the problems, then kept as rejected.
+- **Drafts on Telegram** at `SYNTH_PERSONA_HOURS_UTC` (default 9, 13, 17, 21; empty disables), with **Post** (published
+  through Orbio) and **Skip**; reply to a draft with new text to replace it (checked the same way, except the numbers);
+  `/draft` makes one now. `SYNTH_PERSONA_MODE=live` publishes without asking: only once the drafts have earned it.
+- Needs the X account connected in Orbio (`ORBIO_API_KEY`), as for the desk posts.
+
 ## Public desk posts (X via Orbio)
 
 A separate "desk" account posts once a day. The post is written for a phone and runs at most 280 characters:

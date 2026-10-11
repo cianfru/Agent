@@ -6,6 +6,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /now        the live pulse: what smart traders opened and closed in the last 1h, 6h and 24h
   /positions  what the proven position traders hold now, by coin
   /help       what each alert means and the words in them
+  /draft      one of Outrider's X posts now, as a draft (Post or Skip; reply to a draft to change its text)
 """
 
 from __future__ import annotations
@@ -36,12 +37,14 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /now  live pulse (1h, 6h, 24h)
 /positions  what tracked traders hold
 /following  groups you follow
-/groups  latest groups"""
+/groups  latest groups
+/draft  an Outrider post for X now, as a draft"""
 
 COMMANDS = [{"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
             {"command": "groups", "description": "Latest groups"},
+            {"command": "draft", "description": "An Outrider post for X, as a draft"},
             {"command": "help", "description": "What the alerts and their words mean"}]
 
 
@@ -73,6 +76,9 @@ async def handle(agent, update: dict) -> None:
             gid = int(gid_s)
         except ValueError:
             return
+        if action in ("pp", "px"):
+            await _post_button(agent, cq, msg, action, gid)
+            return
         g = store.get_group(gid)
         if not g:
             await notify.tg(s.telegram_token, "answerCallbackQuery", callback_query_id=cq["id"], text="Unknown group")
@@ -92,7 +98,27 @@ async def handle(agent, update: dict) -> None:
     msg = update.get("message") or {}
     if str((msg.get("chat") or {}).get("id")) != chat:
         return
+    reply_to = (msg.get("reply_to_message") or {}).get("message_id")
+    reply_text = (msg.get("text") or "").strip()
+    if reply_to and reply_text and not reply_text.startswith("/") and (draft := store.post_by_tg(reply_to)):
+        problems = agent.edit_post(draft["id"], msg["text"])
+        if problems:
+            await notify.telegram(s.telegram_token, chat, "Not saved: " + "; ".join(problems))
+        else:
+            await agent.send_draft(draft["id"])
+        return
     cmd = [c.split("@")[0] for c in (msg.get("text") or "").strip().split()[0:1]]
+    if cmd == ["/draft"]:
+        try:
+            res = await agent.persona_post(publish=False)
+        except Exception as e:  # noqa: BLE001 - say why instead of going quiet
+            log.warning("/draft failed: %s", e)
+            res = {"status": "failed", "problems": [str(e)]}
+        if not res:
+            await notify.telegram(s.telegram_token, chat, "Nothing new worth posting right now.")
+        elif res["status"] != "draft":
+            await notify.telegram(s.telegram_token, chat, "No draft: " + "; ".join(res.get("problems") or [res["status"]]))
+        return
     if cmd in (["/now"], ["/pulse"]):
         try:
             p = await asyncio.to_thread(agent.pulse)
@@ -112,6 +138,32 @@ async def handle(agent, update: dict) -> None:
     else:
         lines = [HELP]
     await notify.telegram(s.telegram_token, chat, "\n".join(lines))
+
+
+async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> None:
+    """Post publishes the draft through Orbio; Skip sets it aside. The buttons go once it is done; a failed post
+    keeps them, so it can be tried again (e.g. once the X account is connected in Orbio)."""
+    s = agent.s
+    p = agent.store.get_post(pid)
+    done = True
+    if not p or p["status"] not in ("draft", "rejected", "failed"):
+        text = f"Draft #{pid} is {p['status'] if p else 'gone'}."
+    elif action == "px":
+        agent.store.update_post(pid, status="skipped")
+        text = f"Skipped #{pid}."
+    else:
+        try:
+            res = await agent.publish_post(pid)
+            done = res.get("status") in ("published", "running")
+            text = (f"Posted #{pid}" + (f": {res['url']}" if res.get("url") else ".")) if done else \
+                f"Not posted: {res.get('error')}"
+        except ValueError as e:
+            done, text = False, f"Not posted: {e}"
+    await notify.tg(s.telegram_token, "answerCallbackQuery", callback_query_id=cq["id"], text=text[:190])
+    if done:
+        await notify.tg(s.telegram_token, "editMessageReplyMarkup", chat_id=str(s.telegram_chat_id),
+                        message_id=msg.get("message_id"), reply_markup={"inline_keyboard": []})
+    await notify.telegram(s.telegram_token, str(s.telegram_chat_id), text)
 
 
 async def run(agent) -> None:

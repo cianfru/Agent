@@ -176,6 +176,10 @@ class Store:
                     self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} REAL")
             if "size" not in {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}:
                 self._db.execute("ALTER TABLE pt_positions ADD COLUMN size REAL")
+            post_cols = {r[1] for r in self._db.execute("PRAGMA table_info(posts)")}
+            for col, typ in (("story", "TEXT"), ("tg_msg", "INTEGER")):   # Outrider's posts (synth/persona.py)
+                if col not in post_cols:
+                    self._db.execute(f"ALTER TABLE posts ADD COLUMN {col} {typ}")
             self._db.commit()
 
     # snapshots ----------------------------------------------------------
@@ -438,18 +442,18 @@ class Store:
 
     # public posts --------------------------------------------------------
     def add_post(self, kind: str, text: str, status: str, pick_id: int | None = None,
-                 error: str | None = None) -> int:
+                 error: str | None = None, story: dict | None = None) -> int:
         with self._lock:
             cur = self._db.execute(
-                "INSERT INTO posts(ts, kind, text, status, pick_id, error) VALUES(?,?,?,?,?,?)",
-                (time.time(), kind, text, status, pick_id, error),
+                "INSERT INTO posts(ts, kind, text, status, pick_id, error, story) VALUES(?,?,?,?,?,?,?)",
+                (time.time(), kind, text, status, pick_id, error, json.dumps(story) if story else None),
             )
             self._db.commit()
             return cur.lastrowid
 
     def update_post(self, pid: int, **fields: Any) -> None:
-        allowed = {"status", "orbio_post_id", "url", "error", "published_ts", "text"}
-        cols = {k: v for k, v in fields.items() if k in allowed}
+        allowed = {"status", "orbio_post_id", "url", "error", "published_ts", "text", "story", "tg_msg"}
+        cols = {k: (json.dumps(v) if k == "story" and v is not None else v) for k, v in fields.items() if k in allowed}
         if not cols:
             return
         with self._lock:
@@ -458,9 +462,19 @@ class Store:
             )
             self._db.commit()
 
+    @staticmethod
+    def _post_row(row) -> dict:
+        d = dict(row)
+        d["story"] = json.loads(d["story"]) if d.get("story") else None
+        return d
+
     def get_post(self, post_id: int) -> dict | None:
         row = self._db.execute("SELECT * FROM posts WHERE id=?", (post_id,)).fetchone()
-        return dict(row) if row else None
+        return self._post_row(row) if row else None
+
+    def post_by_tg(self, message_id: int) -> dict | None:
+        row = self._db.execute("SELECT * FROM posts WHERE tg_msg=? ORDER BY id DESC LIMIT 1", (message_id,)).fetchone()
+        return self._post_row(row) if row else None
 
     def posts(self, limit: int = 50, kind: str | None = None, since: float = 0) -> list[dict]:
         q, args = "SELECT * FROM posts WHERE ts>=?", [since]
@@ -469,7 +483,7 @@ class Store:
             args.append(kind)
         q += " ORDER BY ts DESC LIMIT ?"
         args.append(limit)
-        return [dict(r) for r in self._db.execute(q, args).fetchall()]
+        return [self._post_row(r) for r in self._db.execute(q, args).fetchall()]
 
     # groups: traders who converged, tracked to their close ------------------
     def add_group(self, venue: str, coin: str, side: str, key: str, ref_px: float | None,
