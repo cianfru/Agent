@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import logging
 import os
@@ -11,9 +12,9 @@ from typing import Any
 import httpx
 
 from . import brief as brief_mod
-from . import chart, detectors, flow, notify, orbio, post, stories
+from . import chart, detectors, flow, notify, orbio, persona, post, stories
 from .config import Settings
-from .llm import Synthesizer
+from .llm import PersonaWriter, Synthesizer
 from .sources import block0, cowboy, reflex
 from .store import Store
 from .position_traders import PositionTraders
@@ -30,10 +31,11 @@ SERIES_KEEP_S = 8 * 86400  # per-poll positioning rows for the live flow
 
 class Agent:
     def __init__(self, settings: Settings, store: Store, synth: Synthesizer | None = None,
-                 brief_synth: Synthesizer | None = None):
+                 brief_synth: Synthesizer | None = None, persona_writer: PersonaWriter | None = None):
         self.s = settings
         self.store = store
         self.synth = synth
+        self.persona = persona_writer
         self.brief_synth = brief_synth or synth
         self.reflex = (
             reflex.ReflexClient(
@@ -297,6 +299,69 @@ class Agent:
                               f"Draft desk post (approve it in the dashboard, Posts tab)\n\n{text}")
         return {"id": pid, "status": "draft", "text": text, "pick_id": pick_id}
 
+    # ---------------------------------------------------------- Outrider on X --
+    async def persona_post(self, publish: bool | None = None, now: float | None = None,
+                           data: dict | None = None) -> dict | None:
+        """One of Outrider's posts: the best story not told lately, written in the voice, checked, then sent to
+        Telegram as a draft (Post or Skip) or published when SYNTH_PERSONA_MODE=live. None when there is no story."""
+        if not self.persona:
+            raise RuntimeError("no LLM configured (set ANTHROPIC_API_KEY)")
+        now = now or time.time()
+        if data is None:
+            async with httpx.AsyncClient(timeout=30) as http:
+                data = await persona.gather(self.s.cowboy_base_url, http)
+        found = persona.find_stories(data, self.store.briefs_since("pt_alert", now - 8 * 3600),
+                                     self.store.briefs_since("pt_build", now - 86400), now)
+        recent = self.store.posts(limit=60, kind="persona", since=now - 21 * 86400)
+        story = persona.choose(found, [p for p in recent if p["status"] != "rejected"], now)
+        if not story:
+            return None
+        texts = [p["text"] for p in recent if p["status"] in ("draft", "published", "running")]
+        feedback, text, problems = "", "", ["not written"]
+        for _ in range(2):   # one retry with the problems fed back
+            task = persona.task(story, texts)
+            if feedback:
+                task += f"\n\nYour previous draft was rejected: {feedback}. Fix that."
+            text, usage = await asyncio.to_thread(self.persona.write, persona.VOICE, task)
+            self.store.add_brief("persona_draft", {"key": story["key"], "text": text}, usage)
+            problems = persona.lint(text, story)
+            if not problems:
+                break
+            feedback = "; ".join(problems)
+        meta = {k: story[k] for k in ("kind", "coin", "key", "cowboy", "facts")}
+        if problems:
+            pid = self.store.add_post("persona", text, "rejected", None, "; ".join(problems), story=meta)
+            return {"id": pid, "status": "rejected", "text": text, "problems": problems}
+        pid = self.store.add_post("persona", text, "draft", story=meta)
+        live = self.s.persona_mode == "live" if publish is None else publish
+        if live:
+            return await self.publish_post(pid)
+        await self.send_draft(pid)
+        return {"id": pid, "status": "draft", "text": text, "story": story["key"]}
+
+    async def send_draft(self, pid: int) -> None:
+        """A draft on Telegram with Post and Skip; replying to it with new text replaces the text."""
+        p = self.store.get_post(pid)
+        s = p.get("story") or {}
+        head = f"Outrider draft #{pid} · {s.get('kind', '')}{' ' + s['coin'] if s.get('coin') else ''} · {len(p['text'])} chars"
+        msg = await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
+                                    f"{head}\n\n{p['text']}\n\nReply with new text to change it.",
+                                    buttons=notify.post_buttons(pid))
+        if msg and msg.get("message_id"):
+            self.store.update_post(pid, tg_msg=msg["message_id"])
+
+    def edit_post(self, pid: int, text: str) -> list[str]:
+        """The owner's own wording for a draft. Checked like any post, except the facts check (the owner may add
+        what they know). Returns the problems; an empty list means it was saved."""
+        p = self.store.get_post(pid)
+        if not p or p["status"] not in ("draft", "rejected"):
+            return ["that draft is no longer open"]
+        story = {**(p.get("story") or {}), "edited": True}
+        problems = persona.lint(text.strip(), story, check_numbers=False)
+        if not problems:
+            self.store.update_post(pid, text=text.strip(), story=story, status="draft", error=None)
+        return problems
+
     async def weekly_scorecard(self, publish: bool | None = None) -> dict | None:
         nos = self._public_numbers()
         picks = [{**p, "id": nos.get(p["id"], p["id"])}
@@ -330,7 +395,12 @@ class Agent:
             raise KeyError(post_id)
         if p["status"] in ("published", "running"):
             return p  # never post twice
-        if problems := post.lint(p["text"]):
+        if p["kind"] == "persona":
+            story = p.get("story") or {}
+            problems = persona.lint(p["text"], story, check_numbers=not story.get("edited") and "facts" in story)
+        else:
+            problems = post.lint(p["text"])
+        if problems:
             raise ValueError("; ".join(problems))
         try:
             res = await orbio.post_x(self.s.orbio_api_key, p["text"], self.s.orbio_max_cost)
@@ -379,9 +449,11 @@ def make_agent(settings: Settings) -> Agent:
         synth = Synthesizer(settings.model, settings.effort)
         if settings.brief_model and settings.brief_model != settings.model:
             brief_synth = Synthesizer(settings.brief_model, settings.effort)
+        writer = PersonaWriter(settings.persona_model)
     except Exception as e:  # noqa: BLE001 - no key: run detection-only
         log.warning("LLM disabled: %s", e)
-    return Agent(settings, Store(settings.db_path), synth, brief_synth)
+        writer = None
+    return Agent(settings, Store(settings.db_path), synth, brief_synth, writer)
 
 
 def _public(ev: dict) -> dict:

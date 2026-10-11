@@ -20,6 +20,12 @@ def follow_buttons(gid: int, followed: bool = False) -> dict:
                                  {"text": "Ignore", "callback_data": f"i:{gid}"}]]}
 
 
+def post_buttons(pid: int) -> dict:
+    """Post or Skip under one of Outrider's drafts."""
+    return {"inline_keyboard": [[{"text": "Post", "callback_data": f"pp:{pid}"},
+                                 {"text": "Skip", "callback_data": f"px:{pid}"}]]}
+
+
 async def tg(token: str, method: str, http_timeout: float = 15, files: dict | None = None,
              **params) -> dict | list | None:
     """Call a Bot API method; returns `result` or None (never raises)."""

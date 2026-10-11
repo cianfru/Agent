@@ -125,3 +125,43 @@ class Synthesizer:
 
     def ask(self, question: str, digest: dict) -> tuple[Answer, dict]:
         return self._parse(Answer, f"Answer this question from the data only: {question}", digest)
+
+
+# Models that accept server-side refusal fallbacks (`fallbacks: "default"`): a declined post is rerun on Anthropic's
+# recommended fallback model inside the same call instead of coming back empty.
+FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
+
+
+class PersonaWriter:
+    """Writes Outrider's posts as plain text from a system voice and a task (synth/persona.py)."""
+
+    def __init__(self, model: str, effort: str = "medium", client: anthropic.Anthropic | None = None):
+        self.model = model
+        self.effort = effort
+        self.client = client or anthropic.Anthropic()
+
+    def write(self, system: str, task: str) -> tuple[str, dict]:
+        params = {
+            "model": self.model,
+            "max_tokens": 8000,
+            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            "output_config": {"effort": self.effort},
+            "messages": [{"role": "user", "content": task}],
+        }
+        if self.model in FALLBACK_MODELS:
+            response = self.client.beta.messages.create(
+                **params, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+        else:
+            response = self.client.messages.create(**params)
+        if response.stop_reason == "refusal":
+            raise RuntimeError("the model declined to write this post")
+        text = "".join(b.text for b in response.content if b.type == "text").strip()
+        if len(text) > 1 and text[0] == text[-1] and text[0] in "\"'“”":
+            text = text[1:-1].strip()
+        usage = {
+            "model": response.model,
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "cache_read_input_tokens": response.usage.cache_read_input_tokens or 0,
+        }
+        return text, usage

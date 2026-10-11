@@ -41,6 +41,7 @@ async def _loop(agent: Agent) -> None:
             await agent.cycle()
             await _maybe_daily_brief(agent)
             await _maybe_desk_posts(agent)
+            await _maybe_persona(agent)
             await _maybe_pulse(agent)
             await _maybe_reflex_history(agent)
             if agent.positions.enabled and agent.positions.discover_due():
@@ -94,6 +95,22 @@ async def _maybe_desk_posts(agent: Agent) -> None:
         await agent.desk_post()
     if now.weekday() == 0 and not agent.store.posts(limit=1, kind="scorecard", since=today):
         await agent.weekly_scorecard()
+
+
+async def _maybe_persona(agent: Agent) -> None:
+    """One Outrider post per configured UTC hour (default 09, 13, 17, 21): a draft to Telegram unless live."""
+    now = dt.datetime.now(dt.timezone.utc)
+    if not agent.persona or now.hour not in agent.s.persona_hours_utc:
+        return
+    slot = now.replace(minute=0, second=0, microsecond=0).timestamp()
+    if agent.store.posts(limit=1, kind="persona", since=slot) or (
+            (last := agent.store.latest_brief("persona_slot")) and last["ts"] >= slot):
+        return
+    agent.store.add_brief("persona_slot", {"hour": now.hour})     # once per slot, even when nothing is posted
+    try:
+        await agent.persona_post()
+    except Exception:  # noqa: BLE001 - the next slot tries again
+        log.exception("persona post failed")
 
 
 async def _maybe_pulse(agent: Agent) -> None:

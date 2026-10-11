@@ -34,7 +34,7 @@ JARGON = re.compile(r"\b(STRONG_LONG|LIGHT_LONG|RISK_OFF|TRIM_HARD|NO_LONG|REVIV
                     r"BLOWOFF|rr25|z_?1d|z_?4h|taker|delta)\b")
 
 
-def lint(text: str) -> list[str]:
+def lint(text: str, footer: bool = True) -> list[str]:
     problems = []
     if not text or not text.strip():
         problems.append("empty")
@@ -46,7 +46,7 @@ def lint(text: str) -> list[str]:
         problems.append(f'link "{m.group(0)}"')
     if m := JARGON.search(text):
         problems.append(f'internal jargon "{m.group(0)}": use plain words')
-    if FOOTER not in text and SHORT_FOOTER not in text and "scorecard" not in text.lower():
+    if footer and FOOTER not in text and SHORT_FOOTER not in text and "scorecard" not in text.lower():
         problems.append("missing the not-advice footer")
     return problems
 
