@@ -207,6 +207,12 @@
       <div class="scroll"><table id="ptcoins"><thead><tr><th>Coin</th><th>Long</th><th>Short</th><th></th><th>Held</th><th>Big money (daily)</th></tr></thead><tbody></tbody></table></div>
     </div>
     <div class="panel" style="margin-bottom:16px">
+      <h2>Open winners</h2>
+      <p class="hint">The biggest unrealised profits among everyone the agent reads: Reflex's roster rule and $500K+ accounts (read at least weekly) and the tracked traders (every poll). Up 20%+ on price, $10K+, open a week or more. "On margin" is the return Hyperliquid shows the trader (leverage included).</p>
+      <div class="seg" id="owsort"><button data-s="usd" class="on">Biggest profit</button><button data-s="move">Biggest move</button><button data-s="held">Held longest</button></div>
+      <div class="scroll"><table id="owtable"><thead><tr><th>Trader</th><th>Coin</th><th>Held</th><th>Entry</th><th>Up on price</th><th>On margin</th><th>Open profit</th><th>Of account</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
       <h2>What they are adding</h2>
       <div class="seg" id="ptaddwin"><button data-w="24h" class="on">24h</button><button data-w="7d">7d</button></div>
       <div class="cards" id="ptadd"></div>
@@ -603,13 +609,33 @@ document.querySelectorAll("#ptaddwin button").forEach((b) => b.onclick = () => {
   document.querySelectorAll("#ptaddwin button").forEach((x) => x.classList.toggle("on", x === b));
   ptWin = b.dataset.w; renderTraders();
 });
+let owSort = "usd";
+document.querySelectorAll("#owsort button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#owsort button").forEach((x) => x.classList.toggle("on", x === b));
+  owSort = b.dataset.s; renderOpenWinners();
+});
+const pctOrDash = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : "short"}">${x > 0 ? "+" : ""}${Math.round(100 * x)}%</span>`;
+function renderOpenWinners() {
+  const d = ptData; if (!d) return;
+  const key = { usd: (r) => r.upnl, move: (r) => r.move, held: (r) => r.held_days == null ? 1e9 : r.held_days }[owSort];
+  const rows = [...(d.open_winners || [])].sort((a, b) => key(b) - key(a)).slice(0, 25);
+  $("#owtable tbody").innerHTML = rows.length ? rows.map((r) => `<tr>
+      <td><a href="https://hypurrscan.io/address/${esc(r.address)}" target="_blank" rel="noopener" style="color:inherit"><b>${esc(r.codename)}</b></a> <span class="muted">${esc(short(r.address))}</span>${r.listed ? ` <span class="agree ${r.listed === "proven" ? "al" : "dis"}">${esc(r.listed)}</span>` : ""}</td>
+      <td><b>${esc(r.coin)}</b> <span class="${r.side}">${r.side}</span></td>
+      <td class="n">${r.held_days == null ? '<span class="muted">before reads</span>' : Math.round(r.held_days) + "d"}</td>
+      <td class="n">${px(r.entry)}</td><td class="n">${pctOrDash(r.move)}</td>
+      <td class="n">${pctOrDash(r.roe)}${r.lev ? ` <span class="muted">${Math.round(r.lev)}x</span>` : ""}</td>
+      <td class="n long">${usdSigned(r.upnl)}</td><td class="n">${r.share_of_account == null ? "-" : Math.round(100 * r.share_of_account) + "%"}</td></tr>`).join("")
+    : '<tr><td colspan="8" class="empty">Fills as the refresh reads the candidates (a day or two after deploy).</td></tr>';
+}
 async function loadTraders() { ptData = await api("/position-traders"); renderTraders(); }
 function renderTraders() {
   const d = ptData; if (!d) return;
   const disc = d.discover ? ` Riders last scanned ${ago(d.discover.ts)} ago: ${d.discover.riding} of ${d.discover.candidates} big accounts.` : " Riders: first scan pending.";
   const rf = d.refresh;
+  renderOpenWinners();
   $("#ptkept").innerHTML = rf && rf.pool ? `List kept current: <b>${rf.proven}</b> proven now · <span class="long">${rf.joined_7d} joined</span> · <span class="short">${rf.dropped_7d} dropped</span> this week · ${rf.checked} of ${rf.pool} candidates read${rf.waiting ? ` (${rf.waiting} waiting)` : ""}` : "";
-  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3's rule, rerun on every candidate: Reflex's roster rule, $500K+ accounts in profit, the listed; new names first, listed traders every 2 days, the rest weekly; one who stops qualifying drops after 30 days). Riding winners: $250K+ open profit with a real winner, in profit all-time, found daily.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
+  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3's rule, rerun on every candidate: Reflex's roster rule, $500K+ accounts in profit, the listed; new names first, listed traders every 2 days, the rest weekly; one who stops qualifying drops after 30 days). Riding winners: $250K+ open profit with a real winner (found daily among $500K+ accounts), or any account holding a position 14+ days that is up 30%+ on price and $10K+ (read with the refresh); in profit all-time.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
   const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
   const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
   $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>
@@ -635,11 +661,12 @@ function renderTraders() {
       <td class="n">${c.big_money ? `<span class="long">${c.big_money.long_n} · ${usd(c.big_money.long_usd)}</span> / <span class="short">${c.big_money.short_n} · ${usd(c.big_money.short_usd)}</span>` : "-"}</td></tr>`; }).join("")
     : '<tr><td colspan="6" class="empty">No positions read yet. The first poll fills this.</td></tr>';
   $("#ptlist").innerHTML = traders.map((t) => {
-    const pos = t.positions.length ? `<div class="scroll"><table><thead><tr><th>Coin</th><th>Side</th><th>Value</th><th>Entry</th><th>Held</th><th>PnL</th></tr></thead><tbody>${
+    const pos = t.positions.length ? `<div class="scroll"><table><thead><tr><th>Coin</th><th>Side</th><th>Value</th><th>Entry</th><th>Held</th><th>PnL</th><th>Up on price</th><th>On margin</th></tr></thead><tbody>${
       t.positions.map((p) => `<tr class="p-${p.side}"><td><b>${esc(p.coin)}</b>${p.conviction ? '<span class="conv">conviction</span>' : ""}</td>
         <td class="${p.side}">${p.side}</td><td class="n">${usd(p.value)}</td><td class="n">${px(p.entry)}</td>
         <td class="n">${p.held_days == null ? `<span class="muted">${esc(p.held_note || "unknown")}</span>` : Math.round(p.held_days) + "d"}</td>
-        <td class="n ${p.upnl > 0 ? "long" : p.upnl < 0 ? "short" : ""}">${usdSigned(p.upnl)}</td></tr>`).join("")}</tbody></table></div>`
+        <td class="n ${p.upnl > 0 ? "long" : p.upnl < 0 ? "short" : ""}">${usdSigned(p.upnl)}</td>
+        <td class="n">${pctOrDash(p.move)}</td><td class="n">${pctOrDash(p.roe)}${p.lev ? ` <span class="muted">${Math.round(p.lev)}x</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`
       : '<div class="muted">Flat now.</div>';
     return `<div class="panel" style="margin-bottom:12px">
       <div style="display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; margin-bottom:6px">

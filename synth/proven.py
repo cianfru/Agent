@@ -39,7 +39,7 @@ from typing import Any
 
 import httpx
 
-from .hyperliquid import HL
+from .hyperliquid import HL, move
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -63,6 +63,12 @@ MOVES_DAYS = 90
 SUBS_EVERY_S = 7 * DAY
 LINKS_EVERY_S = 7 * DAY
 ROSTER_SIZE = 600
+# Riding a long-held winner, any account size (owner, 12 October 2026: "if a guy is up 200% unrealized, I need to
+# know"): a position open 14+ days, up 30%+ on price the trader's way, $10K+ in profit, in an account in profit
+# all-time. Price, not return on margin, so leverage cannot make a small move look large; both are shown.
+RIDE_HELD_DAYS = 14
+RIDE_MOVE = 0.30
+RIDE_MOVE_MIN_USD = 10_000
 
 
 # ------------------------------------------------------------------ the pool --
@@ -224,7 +230,8 @@ def evaluate(address: str, closed: list[list], coins: dict, live: dict, now_ms: 
         open_since[f"{coin}:{p['side']}"] = t0 / 1000 if t0 else None
         if t0 and (now_ms - t0) / DAY_MS >= 3:
             ps.append({"coin": coin, "side": p["side"], "t0": t0, "t1": now_ms, "size": p["notional"],
-                       "pnl": p["upnl"], "hold_d": (now_ms - t0) / DAY_MS, "swing": True, "open": True})
+                       "pnl": p["upnl"], "hold_d": (now_ms - t0) / DAY_MS, "swing": True, "open": True,
+                       "move": move(p["side"], p.get("entry_px"), p.get("size"), p["upnl"]), "roe": p.get("roe")})
     r = record(ps)
     pf = None if r["pf"] == math.inf else round(r["pf"], 2)
     summary = {"positions": r["n"], "swing_positions": r["swing_n"], "swing_pnl": round(r["swing_pnl"]),
@@ -243,9 +250,44 @@ def evaluate(address: str, closed: list[list], coins: dict, live: dict, now_ms: 
              "median_hold_days": round(r["median_hold"], 1), "median_size": round(r["median_size"]),
              "long_share": round(sum(p["size"] for p in sw if p["side"] == "long") / (sum(p["size"] for p in sw) or 1), 2),
              "best": {"coin": best["coin"], "side": best["side"], "pnl": round(best["pnl"]), "opened": _day(best["t0"]),
-                      "closed": None if best.get("open") else _day(best["t1"])},
+                      "closed": None if best.get("open") else _day(best["t1"]),
+                      **({"move": round(best["move"], 4)} if best.get("move") is not None else {}),
+                      **({"roe": round(best["roe"], 4)} if best.get("roe") is not None else {})},
              "alltime_pnl": (info or {}).get("alltime_pnl"), "open_since": open_since, "checked": now_ms / 1000}
     return summary, entry
+
+
+def live_summary(live: dict, coins: dict, equity: float, now: float) -> dict:
+    """A wallet's open positions at this read, with how long each has been open (from the rebuilt fills) and how far
+    the price has moved its way. Pure."""
+    pos = {}
+    for c, p in live.items():
+        seg = (coins.get(c) or {}).get("seg")
+        m = move(p["side"], p.get("entry_px"), p.get("size"), p["upnl"])
+        pos[c] = {"side": p["side"], "value": round(p["notional"]), "upnl": round(p["upnl"]), "entry": p.get("entry_px"),
+                  "size": p.get("size"), "roe": round(p["roe"], 4) if p.get("roe") is not None else None,
+                  "lev": p.get("lev"), "move": round(m, 4) if m is not None else None,
+                  "since": seg["t0"] / 1000 if seg and seg["side"] == p["side"] else None}
+    return {"equity": round(equity), "ts": now, "positions": pos}
+
+
+def rides_long_winner(summary: dict, info: dict, now: float) -> dict | None:
+    """Riding a long-held winner (see RIDE_HELD_DAYS): a list entry, else None. Pure."""
+    if info.get("alltime_pnl") is not None and info["alltime_pnl"] <= 0:
+        return None
+    ps = summary.get("positions") or {}
+    winners = [(c, p) for c, p in ps.items() if p.get("since") and now - p["since"] >= RIDE_HELD_DAYS * DAY
+               and (p.get("move") or 0) >= RIDE_MOVE and p["upnl"] >= RIDE_MOVE_MIN_USD]
+    if not winners:
+        return None
+    coin, best = max(winners, key=lambda kv: kv[1]["upnl"])
+    vals = [p["value"] for p in ps.values()]
+    return {"tier": "riding", "rule": "long-held winner", "open_pnl": round(sum(p["upnl"] for p in ps.values())),
+            "median_size": round(statistics.median(vals)),
+            "long_share": round(sum(p["value"] for p in ps.values() if p["side"] == "long") / (sum(vals) or 1), 2),
+            "best": {"coin": coin, "side": best["side"], "pnl": best["upnl"], "move": best["move"], "roe": best.get("roe"),
+                     "opened": _day(best["since"] * 1000), "closed": None},
+            "alltime_pnl": info.get("alltime_pnl"), "month_pnl": info.get("month_pnl"), "checked": now}
 
 
 # ----------------------------------------------------------------- owners --
@@ -395,15 +437,19 @@ class Refresher:
         big = (row.get("info") or {}).get("av", 0) >= BIG_AV or address in self.seed_traders
         moves = add_moves(moves, last, fills, now_ms - MOVES_DAYS * DAY_MS) if big else []
         summary, entry = evaluate(address, closed, coins, live, now_ms, row.get("info"))
-        status = "proven" if entry else "no"
-        self._list(address, entry, now)
+        equity = float((st.get("marginSummary") or {}).get("accountValue") or 0)
+        live_now = live_summary(live, coins, equity, now)
+        rider = None if entry else rides_long_winner(live_now, row.get("info") or {}, now)
+        status = "proven" if entry else "riding" if rider else "no"
+        self._list(address, entry or rider, now)
         subs, subs_ts = row.get("subs"), row.get("subs_ts")
         if big and (not subs_ts or now - subs_ts >= SUBS_EVERY_S):
             got = await self._call(hl, {"type": "subAccounts", "user": address}) or []
             subs, subs_ts = [str(s.get("subAccountUser", "")).lower() for s in got if s.get("subAccountUser")], now
         self.store.pt_cand_save(address, checked_ts=now, status=status, fills_ms=max([f[1] for f in fills] or
                                 [int(row.get("fills_ms") or now_ms - 1)]), state=coins, closed=closed, moves=moves,
-                                moves_last=last if big else {}, record=summary, subs=subs, subs_ts=subs_ts)
+                                moves_last=last if big else {}, record=summary, subs=subs, subs_ts=subs_ts,
+                                live=live_now)
         return status
 
     def _save_skip(self, row: dict, status: str, now: float) -> str:
@@ -413,8 +459,9 @@ class Refresher:
         return status
 
     def _list(self, address: str, entry: dict | None, now: float) -> None:
-        """Proven: on the list, its record refreshed. Not proven: a seed trader seen for the first time keeps its
-        seed record with the grace counted from the seed's date; anyone else listed keeps its grace running."""
+        """Proven or riding a long-held winner: on the list, its record refreshed. Neither: a seed trader seen for the
+        first time keeps its seed record with the grace counted from the seed's date; anyone else listed keeps its
+        grace running."""
         seeded = address in self.seed_traders
         if entry:
             self.store.pt_list_upsert(address, entry, now, added_ts=self.seed_ts if seeded else None)

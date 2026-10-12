@@ -66,7 +66,8 @@ ADDRESS = re.compile(r"\b0x[0-9a-fA-F]{6,}")
 MENTION = re.compile(r"@(\w+)")
 HASHTAG = re.compile(r"(?<![\w&])#[A-Za-z_]\w*")     # "#1" is a rank, not a hashtag
 WEIGHT = {"settled": 1.3, "lean": 1.1, "saloon": 1.0, "walls": 0.9, "wallet": 0.9, "conviction": 0.85,
-          "build": 0.8, "herd": 0.6}
+          "open_winner": 0.85, "build": 0.8, "herd": 0.6}
+ONCE_IN_3_WEEKS = ("wallet", "open_winner")      # the same trader is not featured twice in 3 weeks
 
 
 # ---------------------------------------------------------------- formatting --
@@ -291,6 +292,24 @@ def hyperliquid_stories(alerts: list[dict], builds: list[dict]) -> list[dict]:
     return out
 
 
+def open_winner_stories(winners: list[dict]) -> list[dict]:
+    """A Hyperliquid wallet sitting on a big winner for a month or more: held, up on price, on margin, open profit."""
+    out = []
+    for w in winners:
+        if (w.get("held_days") or 0) < 30 or (w.get("move") or 0) < 0.5 or w["upnl"] < 50_000:
+            continue
+        since = dt.date.fromisoformat(w["since"]).strftime("%-d %b") if w.get("since") else None
+        facts = {"venue": "Hyperliquid", "codename": w["codename"], "coin": w["coin"], "side": w["side"],
+                 "held": f"{int(w['held_days'])} days", "since": since, "up_on_price": pct(w["move"]),
+                 "on_margin": pct(w["roe"]) if w.get("roe") is not None else None, "open_profit": money(w["upnl"]),
+                 "of_the_account": f"{round(100 * w['share_of_account'])}%" if w.get("share_of_account") else None,
+                 "still_open": "yes, not sold"}
+        out.append(_story("open_winner", w["coin"], f"open:{w['address']}:{w['coin']}",
+                          {k: v for k, v in facts.items() if v is not None},
+                          ["the patience: how long they have sat in it and what it is worth now"], cowboy=False))
+    return out
+
+
 # ---------------------------------------------------------------- gathering --
 async def gather(base_url: str, client: httpx.AsyncClient | None = None, coins: int = 6) -> dict:
     """Cowboy's public files the stories need: markets, traders, the Saloon per coin and fresh settlement history."""
@@ -322,11 +341,12 @@ async def gather(base_url: str, client: httpx.AsyncClient | None = None, coins: 
             "histories": {k: h for k, h in zip(want, hist) if h}}
 
 
-def find_stories(data: dict, alerts: list[dict], builds: list[dict], now: float) -> list[dict]:
+def find_stories(data: dict, alerts: list[dict], builds: list[dict], now: float,
+                 winners: list[dict] | None = None) -> list[dict]:
     q, m = data.get("questions") or {}, data.get("markets") or {}
     return (settled_stories(q, data.get("histories") or {}, now) + lean_stories(q) + saloon_stories(q)
             + walls_stories(m) + wallet_stories(data.get("traders") or {}) + herd_story(m)
-            + hyperliquid_stories(alerts, builds))
+            + hyperliquid_stories(alerts, builds) + open_winner_stories(winners or []))
 
 
 def choose(stories: list[dict], recent: list[dict], now: float) -> dict | None:
@@ -339,7 +359,7 @@ def choose(stories: list[dict], recent: list[dict], now: float) -> dict | None:
     best, best_score = None, 0.0
     for s in stories:
         last = told.get(s["key"])
-        if last and now - last < (21 if s["kind"] == "wallet" else 2) * DAY:
+        if last and now - last < (21 if s["kind"] in ONCE_IN_3_WEEKS else 2) * DAY:
             continue
         score = s["weight"]
         for r in recent:

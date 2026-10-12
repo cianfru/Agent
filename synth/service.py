@@ -311,7 +311,8 @@ class Agent:
             async with httpx.AsyncClient(timeout=30) as http:
                 data = await persona.gather(self.s.cowboy_base_url, http)
         found = persona.find_stories(data, self.store.briefs_since("pt_alert", now - 8 * 3600),
-                                     self.store.briefs_since("pt_build", now - 86400), now)
+                                     self.store.briefs_since("pt_build", now - 86400), now,
+                                     winners=self.positions.open_winners(now))
         recent = self.store.posts(limit=60, kind="persona", since=now - 21 * 86400)
         story = persona.choose(found, [p for p in recent if p["status"] != "rejected"], now)
         if not story:

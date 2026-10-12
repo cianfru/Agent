@@ -199,3 +199,17 @@ def test_failed_post_keeps_its_buttons_and_commands_are_not_edits(tmp_path, monk
     assert not any(m.get("method") == "editMessageReplyMarkup" for m in sent)
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/help", "reply_to_message": {"message_id": 101}}}))
     assert agent.store.get_post(pid)["text"] == SETTLED_POST
+
+
+def test_open_winner_story_and_three_week_rule():
+    winners = [{"address": "0x" + "1" * 40, "codename": "Amber Lemur", "coin": "ENA", "side": "long", "upnl": 318_862,
+                "move": 1.74, "roe": 5.2, "held_days": 89.4, "since": "2026-07-15", "share_of_account": 0.8},
+               {"address": "0x" + "2" * 40, "codename": "Quiet Crow", "coin": "W", "side": "long", "upnl": 20_000,
+                "move": 0.6, "held_days": 40, "since": "2026-09-01"}]                 # under $50K: no story
+    st = persona.open_winner_stories(winners)
+    assert len(st) == 1 and st[0]["cowboy"] is False
+    f = st[0]["facts"]
+    assert (f["held"], f["since"], f["up_on_price"], f["on_margin"], f["open_profit"], f["of_the_account"]) == (
+        "89 days", "15 Jul", "+174.0%", "+520.0%", "$319K", "80%")
+    told = [{"ts": NOW - 10 * 86400, "story": {"kind": "open_winner", "key": st[0]["key"]}}]
+    assert persona.choose(st, told, NOW) is None

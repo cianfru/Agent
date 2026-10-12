@@ -83,9 +83,18 @@ Two groups, both read every poll from Hyperliquid's public API, one light reques
   since (merged per order, pages joined on the boundary millisecond). Paced to at most 30% of Hyperliquid's per-IP
   budget. Someone who stops qualifying drops after 30 days; bots stay out. The same reads keep the owner map current:
   each big account's sub-accounts weekly, and wallets moving in the same minutes (E1 link 3a) recomputed weekly.
-- **Riding winners**, found once a day from Hyperliquid's leaderboard (accounts of $500K+, in profit all-time, not market
-  makers): open positions with $250K+ unrealised profit, one of them up 20%+ on its value. No history needed. A rider who
-  stops qualifying for 14 days drops off.
+- **Riding winners**, two ways, both in profit all-time and not market makers:
+  - found once a day from Hyperliquid's leaderboard among accounts of $500K+: open positions with $250K+ unrealised
+    profit, one of them up 20%+ on its value;
+  - **any account size** (owner, 12 October 2026: "if a guy is up 200% unrealized, I need to know"), read with the
+    refresh: a position open 14+ days, up 30%+ on price the trader's way and $10K+ in profit. Price, not return on
+    margin, so leverage cannot make a small move look large; both are shown.
+  A rider who stops qualifying for 14 days drops off. A trader whose list place rests on open profit (closed trades not
+  in profit) reads "riding a winner", with the trade that carries it.
+- **Open winners** (desk, Traders tab): the biggest unrealised profits among everyone the agent reads (the refresh pool
+  at its last check, the tracked traders every poll), up 20%+ on price, $10K+, open a week or more: held since, entry,
+  up on price, return on margin and leverage as Hyperliquid shows them, open profit, share of the account. Outrider can
+  post the ones held a month or more (up 50%+ on price, $50K+).
 
 Leverage is shown for every trader (low under 3x, moderate 3-5x, high over 5x), never used to leave anyone out.
 

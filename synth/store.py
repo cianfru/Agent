@@ -139,7 +139,8 @@ CREATE TABLE IF NOT EXISTS pt_cand (
     moves_last TEXT,
     record TEXT,
     subs TEXT,
-    subs_ts REAL
+    subs_ts REAL,
+    live TEXT
 );
 CREATE TABLE IF NOT EXISTS pt_traders (
     address TEXT PRIMARY KEY,
@@ -176,6 +177,12 @@ class Store:
                     self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} REAL")
             if "size" not in {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}:
                 self._db.execute("ALTER TABLE pt_positions ADD COLUMN size REAL")
+            pt_cols = {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}
+            for col in ("roe", "lev"):                       # return on margin and leverage, as Hyperliquid shows them
+                if col not in pt_cols:
+                    self._db.execute(f"ALTER TABLE pt_positions ADD COLUMN {col} REAL")
+            if "live" not in {r[1] for r in self._db.execute("PRAGMA table_info(pt_cand)")}:
+                self._db.execute("ALTER TABLE pt_cand ADD COLUMN live TEXT")
             post_cols = {r[1] for r in self._db.execute("PRAGMA table_info(posts)")}
             for col, typ in (("story", "TEXT"), ("tg_msg", "INTEGER")):   # Outrider's posts (synth/persona.py)
                 if col not in post_cols:
@@ -318,22 +325,22 @@ class Store:
 
     def pt_open_position(self, address: str, coin: str, side: str, opened_ts: float, known_open: int, now: float,
                          value: float, entry_px: float, upnl: float, baseline: int, pick_id: int | None,
-                         size: float | None = None) -> int:
+                         size: float | None = None, roe: float | None = None, lev: float | None = None) -> int:
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO pt_positions(address, coin, side, opened_ts, known_open, first_seen, last_seen, value, "
-                "max_value, entry_px, upnl, baseline, pick_id, size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "max_value, entry_px, upnl, baseline, pick_id, size, roe, lev) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (address, coin, side, opened_ts, known_open, now, now, value, value, entry_px, upnl, baseline, pick_id,
-                 size))
+                 size, roe, lev))
             self._db.commit()
             return cur.lastrowid
 
     def pt_touch(self, row_id: int, value: float, entry_px: float, upnl: float, now: float,
-                 size: float | None = None) -> None:
+                 size: float | None = None, roe: float | None = None, lev: float | None = None) -> None:
         with self._lock:
             self._db.execute("UPDATE pt_positions SET value=?, max_value=MAX(COALESCE(max_value, 0), ?), entry_px=?, "
-                             "upnl=?, last_seen=?, size=COALESCE(?, size) WHERE id=?",
-                             (value, value, entry_px, upnl, now, size, row_id))
+                             "upnl=?, last_seen=?, size=COALESCE(?, size), roe=COALESCE(?, roe), lev=COALESCE(?, lev) "
+                             "WHERE id=?", (value, value, entry_px, upnl, now, size, roe, lev, row_id))
             self._db.commit()
 
     def pt_add_flow(self, ts: float, address: str, coin: str, side: str, usd: float, px: float | None) -> None:
@@ -373,7 +380,7 @@ class Store:
         return gone
 
     # proven-list candidates (synth/proven.py) ------------------------------------
-    _CAND_JSON = ("src", "info", "state", "closed", "moves", "moves_last", "record", "subs")
+    _CAND_JSON = ("src", "info", "state", "closed", "moves", "moves_last", "record", "subs", "live")
 
     def pt_cand_pool(self, pool: dict[str, tuple[list[str], dict]], now: float) -> None:
         """Add or refresh candidates: their sources and leaderboard info (kept when none is given)."""
@@ -420,6 +427,11 @@ class Store:
     def pt_cand_moves(self) -> dict[str, list]:
         return {r[0]: json.loads(r[1]) for r in self._db.execute(
             "SELECT address, moves FROM pt_cand WHERE moves IS NOT NULL AND moves != '[]'").fetchall()}
+
+    def pt_cand_live(self) -> dict[str, dict]:
+        """Each read candidate's open positions at its last check: {equity, ts, positions}."""
+        return {r[0]: json.loads(r[1]) for r in self._db.execute(
+            "SELECT address, live FROM pt_cand WHERE live IS NOT NULL").fetchall()}
 
     def pt_cand_subs(self) -> dict[str, list]:
         return {r[0]: json.loads(r[1]) for r in self._db.execute(

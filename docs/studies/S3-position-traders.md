@@ -140,3 +140,12 @@ downloads joined pages one millisecond after the last fill, so a page ending ins
 pieces. On one heavy trader, 30 days lost 2.7% of the dollars traded and 11% of the rebuilt profit. The studies' data
 for the heaviest traders may be off by a few percent; the refresh reads fills merged per order and joins pages on
 the boundary millisecond, and recomputes every listed record that way.
+
+## Riding a long-held winner, any account size (owner, 12 October 2026; changes the agent's list, not the verdict)
+
+"If a guy is up 200% in unrealised profit I need to know, because maybe he's a long-term trader." Riding winners were
+found only among accounts of $500K+ with $250K+ of open profit. Now any wallet the refresh reads (Reflex's roster rule,
+$500K+ accounts) is also listed as riding when it holds a position open 14+ days, up 30%+ on price its way and $10K+ in
+profit, in an account in profit all-time. Hyperliquid's return on margin is shown beside the price move, never used for
+the rule. A list place that rests on open profit (closed trades not in profit) reads "riding a winner" with the trade
+that carries it: 13 of the 100 on the original list read that way.
