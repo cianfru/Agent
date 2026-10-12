@@ -202,8 +202,9 @@ The agent has no token. Launching one on Orbio waits until the posts show they a
 
 ## Dashboard (the desk)
 
-Open the service's root URL (`/`). If `SYNTH_API_KEY` is set, the page asks for the key once and keeps it in the
-browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/dashboard.html`, `synth/desk.py`).
+Open the service's root URL (`/`). Token holders press **Connect wallet** (see "Token holders" below); the owner
+enters the key once and the browser keeps it. Holders see everything but the owner's controls (Ask, Posts, writing a
+brief, Follow). Bright, chart-first, dark and light, phone and desktop (`synth/static/dashboard.html`, `synth/desk.py`).
 
 - **Desk** (home, `GET /desk`):
   - a one-line read of the market;
@@ -253,7 +254,17 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `POST /cycle` | Run one poll now |
 | `GET /backup` | A consistent copy of the whole SQLite database, for keeping off the server |
 
-If `SYNTH_API_KEY` is set, every route except `/health` needs the header `X-API-Key`.
+**Who can call what.** The owner (header `X-API-Key: SYNTH_API_KEY`) can call everything. A token holder signed in with their wallet (below) can read the desk: `/board`, `/pulse`, `/events`, `/coin`, `GET /brief`, `/picks`, `/groups`, `/flow`, `/desk`, `/research`, `/position-traders`, `/study`. Only the owner can do what posts, runs, writes or costs money: `POST /brief`, `/ask`, `/posts` and publishing, Follow, `/cycle`, `/backup`. `/health`, `/` and `/auth/*` need nothing.
+
+## Token holders (the gate)
+
+The desk opens to wallets holding at least `GATE_THRESHOLD` of the token (a fixed number of tokens, not a dollar value), checked on the server (`synth/gate.py`):
+- The holder presses **Connect wallet**. The server writes a Sign-In with Ethereum message (EIP-4361: its domain, the chain, a single-use nonce, 10 minutes to sign), and the wallet signs it. No transaction, no gas.
+- The server checks the signature (a plain wallet, or a smart-contract wallet such as a Safe through EIP-1271), then reads the token balance on-chain (`balanceOf`).
+- Enough tokens: a session, a signed HttpOnly cookie, for 12 hours. The balance is read again every 10 minutes, so selling below the threshold closes the desk.
+- Until `GATE_RPC_URL`, `GATE_TOKEN` and `GATE_THRESHOLD` are set (the token is not launched yet), only the owner's key opens the desk.
+- Set `SYNTH_SESSION_SECRET` (any long random string) so sessions survive restarts, and `GATE_DOMAIN` to the desk's host name.
+- Not covered yet: smart wallets that are not deployed yet (ERC-6492) and WalletConnect (phone wallets without their own browser). On a phone the holder opens the desk in their wallet's own browser.
 
 ## Run
 

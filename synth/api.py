@@ -27,12 +27,15 @@ import time
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
 from . import backup, board, bot, config, desk, notify, study
+from . import gate as gate_mod
+from .gate import GateError
 from . import groups as G
 from .service import Agent, build_digest, coin_context, make_agent
 
@@ -172,6 +175,8 @@ STATIC = Path(__file__).parent / "static"
 settings = config.load()
 agent = make_agent(settings)
 STARTED = time.time()
+gate = gate_mod.from_settings(settings)
+SESSION_COOKIE = "desk_session"
 
 
 def _dashboard_csp() -> str:
@@ -204,7 +209,8 @@ app = FastAPI(title="Market synthesizer", lifespan=lifespan, docs_url=None, redo
 
 
 def auth(x_api_key: str | None = Header(default=None)) -> None:
-    # Fail closed: with no SYNTH_API_KEY the data routes stay shut unless SYNTH_ALLOW_OPEN=1 (local use).
+    """The owner: everything that posts, runs, writes or costs money.
+    Fail closed: with no SYNTH_API_KEY the data routes stay shut unless SYNTH_ALLOW_OPEN=1 (local use)."""
     if not settings.api_key:
         if os.environ.get("SYNTH_ALLOW_OPEN") == "1":
             return
@@ -213,12 +219,95 @@ def auth(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(401, "bad or missing X-API-Key")
 
 
+def _owner_key(x_api_key: str | None) -> bool:
+    return bool(settings.api_key and x_api_key
+                and hmac.compare_digest(x_api_key.encode(), settings.api_key.encode()))
+
+
+async def reader(request: Request, x_api_key: str | None = Header(default=None)) -> str:
+    """Who may read the desk: the owner (API key), or a token holder signed in with their wallet (synth/gate.py)."""
+    if _owner_key(x_api_key):
+        return "owner"
+    who = await gate.session(request.cookies.get(SESSION_COOKIE))
+    if who:
+        return who
+    auth(x_api_key)                                  # the owner's errors: 503 with no key set, else 401
+    return "owner"
+
+
+class Challenge(BaseModel):
+    address: str = Field(min_length=42, max_length=42)
+
+
+class Signed(BaseModel):
+    nonce: str = Field(min_length=8, max_length=64)
+    signature: str = Field(min_length=10, max_length=2000)
+
+
+_auth_hits: dict[str, list[float]] = {}
+
+
+def _throttle(request: Request, per_min: int = 10) -> None:
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    hits = [t for t in _auth_hits.get(ip, []) if now - t < 60]
+    if len(hits) >= per_min:
+        raise HTTPException(429, "too many sign-in attempts; wait a minute")
+    _auth_hits[ip] = hits + [now]
+    if len(_auth_hits) > 10_000:
+        _auth_hits.clear()
+
+
+@app.get("/auth/me")
+async def auth_me(request: Request, x_api_key: str | None = Header(default=None)):
+    """Who this browser is (owner, holder or nobody) and what the gate asks for."""
+    gate_info = {"on": gate.on, "chain_id": gate.chain_id, "token": gate.token or None,
+                 "threshold": gate.threshold or None}
+    if _owner_key(x_api_key) or (not settings.api_key and os.environ.get("SYNTH_ALLOW_OPEN") == "1"):
+        return {"role": "owner", "gate": gate_info}
+    who = await gate.session(request.cookies.get(SESSION_COOKIE))
+    return {"role": "holder" if who else None, "address": who, "gate": gate_info}
+
+
+@app.post("/auth/challenge")
+def auth_challenge(body: Challenge, request: Request):
+    _throttle(request)
+    domain = settings.gate_domain or (request.url.hostname or "localhost")
+    uri = f"https://{settings.gate_domain}" if settings.gate_domain else str(request.base_url).rstrip("/")
+    try:
+        return gate.challenge(body.address, domain, uri)
+    except GateError as e:
+        raise HTTPException(e.status, str(e))
+
+
+@app.post("/auth/verify")
+async def auth_verify(body: Signed, request: Request):
+    _throttle(request)
+    try:
+        res = await gate.verify(body.nonce, body.signature)
+    except GateError as e:
+        raise HTTPException(e.status, str(e))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"could not read the chain: {type(e).__name__}")
+    out = JSONResponse({"role": "holder", "address": res["address"], "balance": res["balance"]})
+    out.set_cookie(SESSION_COOKIE, res["cookie"], max_age=res["max_age"], httponly=True, secure=True,
+                   samesite="strict", path="/")
+    return out
+
+
+@app.post("/auth/logout")
+def auth_logout():
+    out = JSONResponse({"role": None})
+    out.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+    return out
+
+
 @app.get("/", include_in_schema=False)
 def dashboard():
     return FileResponse(STATIC / "dashboard.html", headers=DASHBOARD_HEADERS)
 
 
-@app.get("/board", dependencies=[Depends(auth)])
+@app.get("/board", dependencies=[Depends(reader)])
 def smart_money_board(hours: float = 24):
     """Where the layers line up per coin, plus recent events."""
     events = agent.store.events(time.time() - hours * 3600, limit=500)
@@ -227,7 +316,7 @@ def smart_money_board(hours: float = 24):
             "as_of": {n: s.get("generated_at") for n, s in _snaps().items()}}
 
 
-@app.get("/pulse", dependencies=[Depends(auth)])
+@app.get("/pulse", dependencies=[Depends(reader)])
 def pulse(hours: float = 4, min_score: float = 0):
     """Events of the last `hours`, and the market read for that window."""
     events = agent.store.events(time.time() - hours * 3600, min_score=min_score, limit=500)
@@ -247,12 +336,12 @@ def health():
     return JSONResponse(body, status_code=503 if stale else 200)
 
 
-@app.get("/events", dependencies=[Depends(auth)])
+@app.get("/events", dependencies=[Depends(reader)])
 def events(hours: float = 24, coin: str | None = None, min_score: float = 0, limit: int = 100):
     return {"events": agent.store.events(time.time() - hours * 3600, coin, min_score, limit)}
 
 
-@app.get("/coin/{coin}", dependencies=[Depends(auth)])
+@app.get("/coin/{coin}", dependencies=[Depends(reader)])
 def coin(coin: str):
     snaps = {n: s for n in ("cowboy", "reflex") if (s := agent.store.get_snapshot(n))}
     return {
@@ -262,7 +351,7 @@ def coin(coin: str):
     }
 
 
-@app.get("/brief", dependencies=[Depends(auth)])
+@app.get("/brief", dependencies=[Depends(reader)])
 def latest_brief():
     b = agent.store.latest_brief("daily")
     if not b:
@@ -292,7 +381,7 @@ def ask(q: Question):
     return {**answer.model_dump(), "usage": usage}
 
 
-@app.get("/picks", dependencies=[Depends(auth)])
+@app.get("/picks", dependencies=[Depends(reader)])
 def picks(limit: int = 100):
     # every pick, voided ones with their reason: the journal is shown whole
     return {"picks": agent.store.picks(min(max(limit, 1), 1000), include_void=True)}
@@ -331,7 +420,7 @@ async def publish(post_id: int):
         raise HTTPException(422, f"post fails the checks: {e}") from e
 
 
-@app.get("/groups", dependencies=[Depends(auth)])
+@app.get("/groups", dependencies=[Depends(reader)])
 def list_groups(limit: int = 100):
     """Every convergence group, trader by trader, plus the running scoreboard."""
     gs = agent.store.groups(limit=limit)
@@ -349,37 +438,37 @@ def list_groups(limit: int = 100):
     return {"groups": out, "scoreboard": G.scoreboard(gs, members)}
 
 
-@app.get("/flow", dependencies=[Depends(auth)])
+@app.get("/flow", dependencies=[Depends(reader)])
 def get_flow(hours: float = 1):
     """What profitable Hyperliquid traders opened and closed in the last `hours`, and the lean over time."""
     return agent.flow(max(0.25, min(hours, 192)))
 
 
-@app.get("/flow.png", dependencies=[Depends(auth)])
+@app.get("/flow.png", dependencies=[Depends(reader)])
 def flow_png():
     """The pulse picture sent to Telegram."""
     return Response(agent.pulse()["png"], media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/desk", dependencies=[Depends(auth)])
+@app.get("/desk", dependencies=[Depends(reader)])
 def desk_home():
     """The desk's home: headline readings, the crowd against price, where money is moving, three lenses, alerts."""
     return desk.home(agent)
 
 
-@app.get("/research", dependencies=[Depends(auth)])
+@app.get("/research", dependencies=[Depends(reader)])
 def desk_research():
     """The studies as charts, the forward record and Reflex's market cycle."""
     return desk.research(agent)
 
 
-@app.get("/position-traders", dependencies=[Depends(auth)])
+@app.get("/position-traders", dependencies=[Depends(reader)])
 def position_traders():
     """Proven position traders (study S3): records, what they hold now and since when, and the forward record."""
     return agent.positions.board()
 
 
-@app.get("/study", dependencies=[Depends(auth)])
+@app.get("/study", dependencies=[Depends(reader)])
 def study_report():
     """S1 Part L: convergences by whether the engine agreed when they formed, and how they went."""
     gs = agent.store.groups(limit=10_000)

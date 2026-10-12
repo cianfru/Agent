@@ -86,6 +86,16 @@ class Settings:
     )
     pulse_min_score: float = field(default_factory=lambda: _float("SYNTH_PULSE_MIN_SCORE", 40))
 
+    # The token gate (synth/gate.py): holders of GATE_TOKEN (at least GATE_THRESHOLD whole tokens, read through
+    # GATE_RPC_URL on chain GATE_CHAIN_ID) sign in with their wallet to read the desk. Off until all three are set.
+    gate_rpc_url: str = field(default_factory=lambda: _env("GATE_RPC_URL"))
+    gate_token: str = field(default_factory=lambda: _env("GATE_TOKEN"))
+    gate_threshold: float = field(default_factory=lambda: _float("GATE_THRESHOLD", 0))
+    gate_chain_id: int = field(default_factory=lambda: int(_float("GATE_CHAIN_ID", 1)))
+    gate_decimals: int | None = field(default_factory=lambda: int(_env("GATE_DECIMALS")) if _env("GATE_DECIMALS") else None)
+    gate_domain: str = field(default_factory=lambda: _env("GATE_DOMAIN"))     # the desk's host name, as in the URL
+    session_secret: str = field(default_factory=lambda: _env("SYNTH_SESSION_SECRET"))
+
     # Optional Telegram push.
     telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
     telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))

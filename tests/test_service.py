@@ -155,3 +155,29 @@ def test_an_existing_journal_is_migrated_in_place(tmp_path):
     assert got[1]["void_reason"] is None and got[1]["ret_30d"] is None
     store.void_pick(2, "test")
     assert [p["id"] for p in store.picks(limit=10)] == [1] and len(store.picks(limit=10, include_void=True)) == 2
+
+
+def test_the_store_serves_many_threads_at_once(tmp_path):
+    # the dashboard asks for several routes at once and the server answers them on different threads
+    import threading
+    from synth.store import Store
+    store = Store(str(tmp_path / "t.db"))
+    store.put_snapshot("cowboy", {"coins": {f"C{i}": {"price": i} for i in range(200)}})
+    errors = []
+
+    def work(i):
+        try:
+            for _ in range(200):
+                assert store.get_snapshot("cowboy")["coins"]["C1"]["price"] == 1
+                store.events(0, limit=50)
+                if i % 2:
+                    store.add_brief("t", {"i": i})
+        except Exception as e:  # noqa: BLE001
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and store.count_briefs("t", 0) == 4 * 200

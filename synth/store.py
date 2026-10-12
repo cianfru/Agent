@@ -165,11 +165,15 @@ CREATE TABLE IF NOT EXISTS briefs (
 
 
 class Store:
+    """One SQLite connection per thread (the server reads from several threads at once, and two reads on one
+    connection at the same moment fail), WAL so reads never wait on the writer; writes go one at a time."""
+
     def __init__(self, path: str):
-        self._db = sqlite3.connect(path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
+        self._path = path
+        self._local = threading.local()
         self._lock = threading.Lock()
         with self._lock:
+            self._db.execute("PRAGMA journal_mode=WAL")
             self._db.executescript(SCHEMA)
             cols = {r[1] for r in self._db.execute("PRAGMA table_info(picks)")}
             for col in ("ret_14d", "ret_30d"):   # added with the position traders' 14/30-day scoring
@@ -197,6 +201,15 @@ class Store:
                 if col not in post_cols:
                     self._db.execute(f"ALTER TABLE posts ADD COLUMN {col} {typ}")
             self._db.commit()
+
+    @property
+    def _db(self) -> sqlite3.Connection:
+        db = getattr(self._local, "db", None)
+        if db is None:
+            db = sqlite3.connect(self._path, check_same_thread=False, timeout=15)
+            db.row_factory = sqlite3.Row
+            self._local.db = db
+        return db
 
     # snapshots ----------------------------------------------------------
     def get_snapshot(self, source: str) -> dict | None:
