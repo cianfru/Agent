@@ -85,7 +85,8 @@ Two groups, both read every poll from Hyperliquid's public API, one light reques
   (Reflex's profitable-trader rule, accounts of $500K+ in profit, the listed). New names are read first, listed traders
   every 2 days so their records stay current, the rest weekly; a first read covers 365 days, later reads only the fills
   since (merged per order, pages joined on the boundary millisecond). Paced to at most 30% of Hyperliquid's per-IP
-  budget. Someone who stops qualifying drops after 30 days; bots stay out. The same reads keep the owner map current:
+  budget, and every Hyperliquid read in the agent (this refresh, the daily scan, tracking, scoring) draws on one budget
+  of 900 weight a minute, three quarters of the limit; a 429 waits as long as Hyperliquid asks. Someone who stops qualifying drops after 30 days; bots stay out. The same reads keep the owner map current:
   each big account's sub-accounts weekly, and wallets moving in the same minutes (E1 link 3a) recomputed weekly.
 - **Riding winners**, two ways, both in profit all-time and not market makers:
   - found once a day from Hyperliquid's leaderboard among accounts of $500K+: open positions with $250K+ unrealised
@@ -250,6 +251,7 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `POST /posts/scorecard?publish=false` | Build the weekly scorecard now |
 | `POST /posts/{id}/publish` | Approve a draft: publish it via Orbio |
 | `POST /cycle` | Run one poll now |
+| `GET /backup` | A consistent copy of the whole SQLite database, for keeping off the server |
 
 If `SYNTH_API_KEY` is set, every route except `/health` needs the header `X-API-Key`.
 
@@ -264,6 +266,11 @@ python -m synth serve                # API + background poller on $PORT (default
 ```
 
 Deploy: the `Dockerfile` runs `python -m synth serve`. On Railway, mount a volume at `/data` so the SQLite state (`SYNTH_DB=/data/synth.db`) survives restarts.
+
+- **Pinned dependencies:** the image installs `requirements.lock` (exact versions, hash-checked). After changing `requirements.txt`, regenerate both locks: `uv pip compile requirements.txt --python-version 3.12 --generate-hashes -o requirements.lock` (and the same for `requirements-dev.txt` into `requirements-dev.lock`).
+- **CI** (`.github/workflows/test.yml`): every push and pull request runs the tests on Python 3.12 from the dev lock and builds the image.
+- **Backups:** once a day the journal (every pick, voided ones too, every post, group and group member: what cannot be read again from anywhere) is written to `SYNTH_BACKUP_DIR` (`/data/backups` in the image) as gzipped JSON; the last 30 are kept, and nothing is written when the disk is nearly full. These sit on the same volume, so keep copies elsewhere too: `GET /backup` returns a consistent copy of the whole database (`curl -H "X-API-Key: …" -o synth.db https://…/backup`).
+- **Health:** `/health` returns 503 when no poll has finished for three intervals; point an uptime monitor at it.
 
 ## Secrets you need to add (never commit them)
 

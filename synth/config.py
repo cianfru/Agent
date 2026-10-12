@@ -49,6 +49,8 @@ class Settings:
 
     # Service.
     db_path: str = field(default_factory=lambda: _env("SYNTH_DB", "synth.db"))
+    # Daily journal backups go here (the Docker image sets /data/backups); empty disables them.
+    backup_dir: str = field(default_factory=lambda: _env("SYNTH_BACKUP_DIR"))
     poll_seconds: float = field(default_factory=lambda: _float("SYNTH_POLL_SECONDS", 300))
     brief_hour_utc: int = field(default_factory=lambda: int(_float("SYNTH_BRIEF_HOUR_UTC", 8)))
     api_key: str = field(default_factory=lambda: _env("SYNTH_API_KEY"))

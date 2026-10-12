@@ -563,7 +563,7 @@ class PositionTraders:
                     if (self.store.pt_list().get(a) or {}).get("tier") != "proven":   # proven outranks riding
                         self.store.pt_list_upsert(a, q, now)
                     found += 1
-            await asyncio.sleep(1.0)   # about 4 reads a second: well inside the per-IP budget
+            await asyncio.sleep(1.0)   # about 4 reads a second; every read also draws on the shared budget
         owners = load_owners(pairs=self.refresh.owner_pairs())
         agg = owner_votes(held, owners)
         self.store.add_brief("pt_bigmoney", {"coins": agg, "counted": "owners",

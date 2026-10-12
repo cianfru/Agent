@@ -1,13 +1,16 @@
 """Hyperliquid's public info API (free, no key): positions, fills, mids and candles.
 
-POST https://api.hyperliquid.xyz/info. Reads per wallet weigh ~2 of the 1,200/min per-IP budget, so a few
-dozen tracked wallets every 5 minutes is far inside it. Coin names: Reflex upper-cases Hyperliquid's
-"k" markets ("KPEPE"); Hyperliquid itself says "kPEPE". `names()` maps upper-case back to Hyperliquid's.
+POST https://api.hyperliquid.xyz/info. Hyperliquid allows 1,200 request weight per IP a minute: an account or the
+mids weigh 2, other reads 20 plus 1 per 20 items returned (60 for candles). Every read in this process draws on one
+budget (`BUDGET`, 900 a minute: three quarters of the limit), so the daily scan, the background refresh, tracking and
+scoring together can never exceed it; a 429 waits as long as Hyperliquid asks. Coin names: Reflex upper-cases
+Hyperliquid's "k" markets ("KPEPE"); Hyperliquid itself says "kPEPE". `names()` maps upper-case back to Hyperliquid's.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import httpx
@@ -28,22 +31,82 @@ def move(side: str, entry: float | None, size: float | None, upnl: float | None)
     return upnl / cost if cost and upnl is not None else None
 
 
+LIGHT = {"clearinghouseState", "allMids", "l2Book", "orderStatus", "spotClearinghouseState", "exchangeStatus"}
+
+
+def weight(body: dict) -> int:
+    """A read's weight before its answer (Hyperliquid's info rate limits)."""
+    return 2 if body.get("type") in LIGHT else 20
+
+
+def extra_weight(body: dict, res: Any) -> int:
+    """What the items returned add: 1 per 20 (per 60 for candles)."""
+    if not isinstance(res, list):
+        return 0
+    return len(res) // (60 if body.get("type") == "candleSnapshot" else 20)
+
+
+class Budget:
+    """One request-weight budget for every Hyperliquid read in this process: refills at `per_min`, holds at most a
+    quarter of a minute's worth, so a burst cannot spend the minute at once. Single event loop: no lock needed."""
+
+    def __init__(self, per_min: float, clock=time.monotonic):
+        self.rate = per_min / 60
+        self.cap = per_min / 4
+        self.tokens = self.cap
+        self.clock = clock
+        self.t = clock()
+        self.spent = 0.0
+
+    def _refill(self) -> None:
+        now = self.clock()
+        self.tokens = min(self.cap, self.tokens + (now - self.t) * self.rate)
+        self.t = now
+
+    async def take(self, w: float) -> None:
+        while True:
+            self._refill()
+            if self.tokens >= min(w, self.cap) - 1e-6:   # rounding must not leave it a hair short for ever
+                self.tokens -= w
+                self.spent += w
+                return
+            await asyncio.sleep((min(w, self.cap) - self.tokens) / self.rate)
+
+    def charge(self, w: float) -> None:
+        """Weight known only from the answer: owed, so the next reads wait for it."""
+        self._refill()
+        self.tokens -= w
+        self.spent += w
+
+
+BUDGET = Budget(900)
+
+
 class HL:
-    def __init__(self, client: httpx.AsyncClient | None = None, url: str = INFO_URL):
+    def __init__(self, client: httpx.AsyncClient | None = None, url: str = INFO_URL, budget: Budget | None = None):
         self.http = client or httpx.AsyncClient(timeout=20)
         self.url = url
+        self.budget = budget or BUDGET
         self._names: dict[str, str] = {}
 
     async def _post(self, body: dict, tries: int = 3) -> Any:
-        """POST with backoff on 429/5xx (the info API rate-limits per IP)."""
+        """POST within the shared budget; on 429 wait as long as Hyperliquid says (else back off), and on 5xx back
+        off."""
         for i in range(tries):
+            await self.budget.take(weight(body))
             r = await self.http.post(self.url, json=body)
             if r.status_code == 429 or r.status_code >= 500:
                 if i < tries - 1:
-                    await asyncio.sleep(2 ** (i + 1))
+                    try:
+                        wait = float(r.headers.get("retry-after") or 0)
+                    except ValueError:
+                        wait = 0.0
+                    await asyncio.sleep(min(max(wait, 2 ** (i + 1)), 60))
                     continue
             r.raise_for_status()
-            return r.json()
+            res = r.json()
+            self.budget.charge(extra_weight(body, res))
+            return res
 
     async def mids(self) -> dict[str, float]:
         """Mid price per coin, keyed by UPPER-case name (also refreshes the name map)."""

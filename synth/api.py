@@ -29,9 +29,10 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
-from . import board, bot, config, desk, notify, study
+from . import backup, board, bot, config, desk, notify, study
 from . import groups as G
 from .service import Agent, build_digest, coin_context, make_agent
 
@@ -45,7 +46,8 @@ LOOP_ERRORS: dict[str, dict] = {}        # the last failure of each stage, for /
 async def _loop(agent: Agent) -> None:
     stages = (("cycle", agent.cycle), ("brief", lambda: _maybe_daily_brief(agent)),
               ("desk posts", lambda: _maybe_desk_posts(agent)), ("persona", lambda: _maybe_persona(agent)),
-              ("pulse", lambda: _maybe_pulse(agent)), ("reflex history", lambda: _maybe_reflex_history(agent)))
+              ("pulse", lambda: _maybe_pulse(agent)), ("reflex history", lambda: _maybe_reflex_history(agent)),
+              ("backup", lambda: _maybe_backup(agent)))
     while True:
         for name, stage in stages:       # one failing stage does not skip the others
             try:
@@ -59,6 +61,12 @@ async def _loop(agent: Agent) -> None:
             _background.add(t)
             t.add_done_callback(_background.discard)
         await asyncio.sleep(agent.s.poll_seconds)
+
+
+async def _maybe_backup(agent: Agent) -> None:
+    """The journal's daily export (synth/backup.py), when SYNTH_BACKUP_DIR is set."""
+    if agent.s.backup_dir:
+        await asyncio.to_thread(backup.daily, agent.store, agent.s.backup_dir)
 
 
 async def _maybe_reflex_history(agent: Agent) -> None:
@@ -391,6 +399,19 @@ def follow_group(gid: int, on: bool = True):
     if not g:
         raise HTTPException(404, "no such group")
     return g
+
+
+@app.get("/backup", dependencies=[Depends(auth)])
+async def whole_backup():
+    """A consistent copy of the whole database, for keeping off this machine (deleted here once sent)."""
+    folder = settings.backup_dir or os.path.dirname(os.path.abspath(settings.db_path))
+    try:
+        path = await asyncio.to_thread(backup.snapshot, agent.store, folder)
+    except OSError as e:
+        raise HTTPException(507, str(e))
+    name = f"synth-{dt.datetime.now(dt.timezone.utc):%Y%m%d-%H%M}.db"
+    return FileResponse(path, filename=name, media_type="application/vnd.sqlite3",
+                        background=BackgroundTask(os.remove, path))
 
 
 @app.post("/cycle", dependencies=[Depends(auth)])

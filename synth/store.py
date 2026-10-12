@@ -609,6 +609,18 @@ class Store:
                                  (*cols.values(), mid))
                 self._db.commit()
 
+    # backups (synth/backup.py) ---------------------------------------------
+    def journal(self) -> dict:
+        """Every pick (voided ones too), post, group and group member: what cannot be read again from anywhere."""
+        def rows(table: str) -> list[dict]:
+            return [dict(r) for r in self._db.execute(f"SELECT * FROM {table} ORDER BY id").fetchall()]
+        return {"picks": rows("picks"), "posts": rows("posts"), "groups": rows("groups"), "members": rows("members")}
+
+    def snapshot(self, path: str) -> None:
+        """A consistent copy of the whole database (SQLite's VACUUM INTO), safe while the agent runs."""
+        with self._lock:
+            self._db.execute("VACUUM INTO ?", (path,))
+
     # briefs -------------------------------------------------------------
     def add_brief(self, kind: str, body: dict, usage: dict | None = None) -> int:
         with self._lock:

@@ -394,6 +394,8 @@ class Refresher:
 
     # one check -----------------------------------------------------------------
     async def _call(self, hl: HL, body: dict, weight: int | None = None) -> Any:
+        """One read, then a pause for its weight: the refresh keeps to its own share (WEIGHT_PER_MIN) of the shared
+        budget every Hyperliquid read draws on (synth/hyperliquid.py)."""
         res = await hl._post(body)
         w = weight if weight is not None else 20 + (len(res) // 20 if isinstance(res, list) else 0)
         await asyncio.sleep(w * 60 / self.weight_per_min)

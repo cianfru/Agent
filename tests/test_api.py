@@ -1,3 +1,4 @@
+import os
 import base64
 import hashlib
 import importlib
@@ -54,3 +55,13 @@ def test_ask_refuses_an_overlong_question(api):
     mod, c = api
     r = c.post("/ask", json={"question": "x" * 501}, headers={"x-api-key": "k"})
     assert r.status_code == 422
+
+
+def test_backup_route_sends_a_snapshot_and_keeps_no_copy(api, tmp_path):
+    mod, c = api
+    mod.settings = mod.settings.__class__(**{**mod.settings.__dict__, "backup_dir": str(tmp_path / "bk")})
+    mod.agent.store.add_pick("alert", "HYPE", "long", 3, 40.0, "t", {})
+    assert c.get("/backup").status_code == 401
+    r = c.get("/backup", headers={"x-api-key": "k"})
+    assert r.status_code == 200 and r.content[:16] == b"SQLite format 3\x00"
+    assert "attachment" in r.headers["content-disposition"] and os.listdir(tmp_path / "bk") == []
