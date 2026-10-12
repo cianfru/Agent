@@ -96,6 +96,9 @@ class Settings:
     gate_domain: str = field(default_factory=lambda: _env("GATE_DOMAIN"))     # the desk's host name, as in the URL
     session_secret: str = field(default_factory=lambda: _env("SYNTH_SESSION_SECRET"))
 
+    # The public record (synth/receipts.py, /r): calls are shown this many hours after they were logged.
+    receipts_delay_h: float = field(default_factory=lambda: _float("RECEIPTS_DELAY_H", 24))
+
     # Optional Telegram push.
     telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
     telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))

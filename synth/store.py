@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -154,6 +155,17 @@ CREATE TABLE IF NOT EXISTS series (
     body TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS series_src_ts ON series(source, ts);
+CREATE TABLE IF NOT EXISTS ledger (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    kind TEXT NOT NULL,
+    pick_id INTEGER,
+    body TEXT NOT NULL,
+    body_hash TEXT NOT NULL,
+    prev TEXT NOT NULL,
+    hash TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS ledger_pick ON ledger(pick_id);
 CREATE TABLE IF NOT EXISTS briefs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts REAL NOT NULL,
@@ -162,6 +174,26 @@ CREATE TABLE IF NOT EXISTS briefs (
     usage TEXT
 );
 """
+
+
+GENESIS = "0" * 64
+PUBLIC_SOURCE = {"alert": "smart-money alert", "post": "desk setup", "group": "convergence",
+                 "position": "tracked trader", "brief": "brief setup"}
+
+
+def canon(obj: dict) -> str:
+    """The one way a ledger body is written, so anyone can hash it again and get the same bytes."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def sha(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def link(prev: str, body_hash: str) -> str:
+    """An entry's hash: the previous entry's hash and this body's, so no entry can change or go without the chain
+    breaking after it, and a body can be withheld (only its hash shown) without breaking the chain."""
+    return sha(f"{prev}:{body_hash}")
 
 
 class Store:
@@ -200,6 +232,7 @@ class Store:
             for col, typ in (("story", "TEXT"), ("tg_msg", "INTEGER")):   # Outrider's posts (synth/persona.py)
                 if col not in post_cols:
                     self._db.execute(f"ALTER TABLE posts ADD COLUMN {col} {typ}")
+            self._backfill_ledger()
             self._db.commit()
 
     @property
@@ -288,15 +321,74 @@ class Store:
     # picks journal: logged before the outcome, scored at 1/3/7 days --------
     def add_pick(self, origin: str, coin: str, direction: str, conviction: int | None,
                  entry_price: float | None, thesis: str, state: dict) -> int:
+        ts = time.time()
         with self._lock:
             cur = self._db.execute(
                 "INSERT INTO picks(ts, origin, coin, direction, conviction, entry_price, thesis, state) "
                 "VALUES(?,?,?,?,?,?,?,?)",
-                (time.time(), origin, coin.upper(), direction, conviction, entry_price, thesis,
-                 json.dumps(state)),
+                (ts, origin, coin.upper(), direction, conviction, entry_price, thesis, json.dumps(state)),
             )
+            self._append("call", cur.lastrowid, self._call_body(cur.lastrowid, ts, origin, coin.upper(), direction,
+                                                                conviction, entry_price, thesis, state), ts)
             self._db.commit()
             return cur.lastrowid
+
+    # the ledger: every pick's life as a hash chain (logged, voided, posted, scored), for the public record ---------
+    @staticmethod
+    def _call_body(pick_id, ts, origin, coin, direction, conviction, entry, thesis, state, backfilled=False) -> dict:
+        """What the public sees of a call. Its reasons (the thesis, and the context with any wallet addresses) stay
+        private, committed by hash so they can be shown later and checked."""
+        body = {"v": 1, "pick": pick_id, "ts": ts, "source": PUBLIC_SOURCE.get(origin, origin), "coin": coin,
+                "side": direction, "conviction": conviction, "entry": entry,
+                "detail": sha(canon({"thesis": thesis, "state": state}))}
+        if backfilled:
+            body["backfilled"] = True
+        return body
+
+    def _append(self, kind: str, pick_id: int | None, body: dict, ts: float | None = None) -> None:
+        """Called with the write lock held, inside the write's own transaction."""
+        row = self._db.execute("SELECT hash FROM ledger ORDER BY seq DESC LIMIT 1").fetchone()
+        prev = row[0] if row else GENESIS
+        text = canon(body)
+        bh = sha(text)
+        self._db.execute("INSERT INTO ledger(ts, kind, pick_id, body, body_hash, prev, hash) VALUES(?,?,?,?,?,?,?)",
+                         (ts or time.time(), kind, pick_id, text, bh, prev, link(prev, bh)))
+
+    def ledger(self, after: int = 0) -> list[dict]:
+        rows = self._db.execute("SELECT * FROM ledger WHERE seq>? ORDER BY seq", (after,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def ledger_verify(self) -> dict:
+        """Recompute the whole chain: {ok, length, head, broken_at}."""
+        prev, n = GENESIS, 0
+        for r in self._db.execute("SELECT * FROM ledger ORDER BY seq"):
+            n += 1
+            if r["prev"] != prev or sha(r["body"]) != r["body_hash"] or link(prev, r["body_hash"]) != r["hash"]:
+                return {"ok": False, "length": n, "head": prev, "broken_at": r["seq"]}
+            prev = r["hash"]
+        return {"ok": True, "length": n, "head": prev, "broken_at": None}
+
+    def _backfill_ledger(self) -> None:
+        """Picks logged before the ledger existed join it once, marked backfilled, in their own order."""
+        if self._db.execute("SELECT 1 FROM ledger LIMIT 1").fetchone():
+            return
+        now = time.time()
+        for p in self._db.execute("SELECT * FROM picks ORDER BY id").fetchall():
+            p = dict(p)
+            state = json.loads(p.get("state") or "{}")
+            self._append("call", p["id"], self._call_body(p["id"], p["ts"], p["origin"], p["coin"], p["direction"],
+                                                          p["conviction"], p["entry_price"], p["thesis"], state,
+                                                          backfilled=True), now)
+            for h in ("1d", "3d", "7d", "14d", "30d"):
+                if p.get(f"ret_{h}") is not None:
+                    self._append("score", p["id"], {"v": 1, "pick": p["id"], "horizon": h, "ret": p[f"ret_{h}"],
+                                                    "ts": now, "backfilled": True}, now)
+            if p.get("published_ts"):
+                self._append("posted", p["id"], {"v": 1, "pick": p["id"], "ts": p["published_ts"],
+                                                 "px": p.get("published_px"), "backfilled": True}, now)
+            if p.get("void_reason"):
+                self._append("void", p["id"], {"v": 1, "pick": p["id"], "reason": p["void_reason"], "ts": now,
+                                               "backfilled": True}, now)
 
     def open_picks(self, now: float | None = None, window_s: float = 60 * 86400) -> list[dict]:
         """Valid picks logged within `window_s` with a horizon still unscored (the caller decides which are due)."""
@@ -312,7 +404,11 @@ class Store:
         assert horizon in ("1d", "3d", "7d", "14d", "30d")
         with self._lock:
             # a horizon is written once: a result is never overwritten
-            self._db.execute(f"UPDATE picks SET ret_{horizon}=? WHERE id=? AND ret_{horizon} IS NULL", (ret, pick_id))
+            cur = self._db.execute(f"UPDATE picks SET ret_{horizon}=? WHERE id=? AND ret_{horizon} IS NULL",
+                                   (ret, pick_id))
+            if cur.rowcount == 1:
+                self._append("score", pick_id, {"v": 1, "pick": pick_id, "horizon": horizon, "ret": ret,
+                                                "ts": time.time()})
             self._db.commit()
 
     def picks(self, limit: int = 100, origin: str | None = None, since: float = 0,
@@ -337,17 +433,25 @@ class Store:
     def void_pick(self, pick_id: int, reason: str) -> None:
         """Take a pick out of every count, kept with its reason (the journal is never deleted from or rewritten)."""
         with self._lock:
-            self._db.execute("UPDATE picks SET void_reason=? WHERE id=? AND void_reason IS NULL", (reason, pick_id))
+            cur = self._db.execute("UPDATE picks SET void_reason=? WHERE id=? AND void_reason IS NULL",
+                                   (reason, pick_id))
+            if cur.rowcount == 1:
+                self._append("void", pick_id, {"v": 1, "pick": pick_id, "reason": reason, "ts": time.time()})
             self._db.commit()
 
     def mark_pick_published(self, pick_id: int, ts: float | None, px: float | None) -> None:
         """When (and at what price) a desk setup reached X; None clears it when Orbio later reports the post failed."""
         with self._lock:
             if ts is None:
-                self._db.execute("UPDATE picks SET published_ts=NULL, published_px=NULL WHERE id=?", (pick_id,))
+                cur = self._db.execute("UPDATE picks SET published_ts=NULL, published_px=NULL WHERE id=? "
+                                       "AND published_ts IS NOT NULL", (pick_id,))
+                if cur.rowcount == 1:
+                    self._append("unposted", pick_id, {"v": 1, "pick": pick_id, "ts": time.time()})
             else:
-                self._db.execute("UPDATE picks SET published_ts=?, published_px=? WHERE id=? AND published_ts IS NULL",
-                                 (ts, px, pick_id))
+                cur = self._db.execute("UPDATE picks SET published_ts=?, published_px=? WHERE id=? "
+                                       "AND published_ts IS NULL", (ts, px, pick_id))
+                if cur.rowcount == 1:
+                    self._append("posted", pick_id, {"v": 1, "pick": pick_id, "ts": ts, "px": px})
             self._db.commit()
 
     # proven position traders (synth/position_traders.py) ----------------------
@@ -594,8 +698,11 @@ class Store:
         with self._lock:
             self._db.execute("DELETE FROM members WHERE group_id=?", (gid,))
             self._db.execute("DELETE FROM groups WHERE id=?", (gid,))
-            self._db.execute("UPDATE picks SET void_reason=? WHERE origin='group' AND thesis=? AND void_reason IS NULL",
-                             (reason, f"group #{gid}"))
+            ids = [r[0] for r in self._db.execute(
+                "SELECT id FROM picks WHERE origin='group' AND thesis=? AND void_reason IS NULL", (f"group #{gid}",))]
+            for pid in ids:
+                self._db.execute("UPDATE picks SET void_reason=? WHERE id=?", (reason, pid))
+                self._append("void", pid, {"v": 1, "pick": pid, "reason": reason, "ts": time.time()})
             self._db.commit()
 
     def add_member(self, gid: int, m: dict) -> int | None:

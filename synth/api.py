@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
-from . import backup, board, bot, config, desk, notify, study
+from . import backup, board, bot, config, desk, notify, receipts, study
 from . import gate as gate_mod
 from .gate import GateError
 from . import groups as G
@@ -300,6 +300,36 @@ def auth_logout():
     out = JSONResponse({"role": None})
     out.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
     return out
+
+
+_public_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _cached(key: str, build, ttl: float = 60) -> dict:
+    """Public routes are read by anyone: built at most once a minute, whoever asks."""
+    hit = _public_cache.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    value = build()
+    _public_cache[key] = (time.time(), value)
+    return value
+
+
+PUBLIC_HEADERS = {"cache-control": "public, max-age=60", "access-control-allow-origin": "*"}
+
+
+@app.get("/r/receipts.json")
+def receipts_json():
+    """The public record: every call logged at least RECEIPTS_DELAY_H ago, how it went, misses and voids included."""
+    body = _cached("receipts", lambda: receipts.public(agent.store, settings.receipts_delay_h * 3600))
+    return JSONResponse(body, headers=PUBLIC_HEADERS)
+
+
+@app.get("/r/ledger.json")
+def ledger_json():
+    """The whole hash chain behind the record, with calls inside the delay withheld (hashes only)."""
+    body = _cached("ledger", lambda: receipts.public_ledger(agent.store, settings.receipts_delay_h * 3600))
+    return JSONResponse(body, headers=PUBLIC_HEADERS)
 
 
 @app.get("/", include_in_schema=False)
