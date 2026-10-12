@@ -223,3 +223,13 @@ def test_check_lists_any_account_riding_a_long_held_winner(tmp_path):
     assert e["tier"] == "riding" and e["rule"] == "long-held winner" and e["best"]["coin"] == "W"
     live = store.pt_cand_live()[W]
     assert live["equity"] == 1_000_000 and live["positions"]["W"]["move"] == 0.5 and live["positions"]["W"]["roe"] == 1.5
+
+
+def test_margin_alone_can_make_a_long_held_winner():
+    coins = {}
+    P.fold(coins, P.compact([fill("W", NOW_MS - 20 * DAY_MS, 100, 1000, "B", 0)]))
+    live = {"W": {"side": "long", "size": 1000.0, "entry_px": 100.0, "notional": 115_000, "upnl": 15_000, "roe": 6.74}}
+    r = P.rides_long_winner(P.live_summary(live, coins, 50_000, NOW), {"alltime_pnl": 1}, NOW)
+    assert r and r["best"]["move"] == 0.15 and r["best"]["roe"] == 6.74     # +15% on price, +674% on margin
+    low = {"W": {**live["W"], "roe": 1.5}}
+    assert P.rides_long_winner(P.live_summary(low, coins, 50_000, NOW), {}, NOW) is None

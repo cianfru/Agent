@@ -86,13 +86,16 @@ Two groups, both read every poll from Hyperliquid's public API, one light reques
 - **Riding winners**, two ways, both in profit all-time and not market makers:
   - found once a day from Hyperliquid's leaderboard among accounts of $500K+: open positions with $250K+ unrealised
     profit, one of them up 20%+ on its value;
-  - **any account size** (owner, 12 October 2026: "if a guy is up 200% unrealized, I need to know"), read with the
-    refresh: a position open 14+ days, up 30%+ on price the trader's way and $10K+ in profit. Price, not return on
-    margin, so leverage cannot make a small move look large; both are shown.
+  - **any account size** (owner, 12 October 2026: "if a guy is up 200% unrealized, I need to know"; "we should
+    track everyone that has an open position"): a position open 14+ days, up 30%+ on price the trader's way or 200%+
+    on margin, with $10K+ in profit. Every profitable account of $10K+ on the leaderboard (about 14,400 on 12 October,
+    against 4,500 before) is read once a day; a wallet holding a big open winner goes to the front of the refresh,
+    which reads its fills for how long it has been open and lists it when it qualifies.
   A rider who stops qualifying for 14 days drops off. A trader whose list place rests on open profit (closed trades not
   in profit) reads "riding a winner", with the trade that carries it.
-- **Open winners** (desk, Traders tab): the biggest unrealised profits among everyone the agent reads (the refresh pool
-  at its last check, the tracked traders every poll), up 20%+ on price, $10K+, open a week or more: held since, entry,
+- **Open winners** (desk, Traders tab): the biggest unrealised profits among everyone the agent reads (every profitable
+  $10K+ account daily, the refresh pool at its last check, the tracked traders every poll), up 20%+ on price or 100%+
+  on margin, $10K+, open a week or more: held since, entry,
   up on price, return on margin and leverage as Hyperliquid shows them, open profit, share of the account. Outrider can
   post the ones held a month or more (up 50%+ on price, $50K+).
 

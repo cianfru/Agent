@@ -149,3 +149,8 @@ $500K+ accounts) is also listed as riding when it holds a position open 14+ days
 profit, in an account in profit all-time. Hyperliquid's return on margin is shown beside the price move, never used for
 the rule. A list place that rests on open profit (closed trades not in profit) reads "riding a winner" with the trade
 that carries it: 13 of the 100 on the original list read that way.
+
+Widened the same day (owner: "we should track everyone that has an open position and consider unrealized PnL as a
+solid principle"): the daily scan reads every account of $10K+ in profit all-time, not market makers (about 14,400,
+against 4,500 in the refresh pool), and a position up 200%+ on margin also qualifies (beside 30%+ on price), still
+open 14+ days with $10K+ of profit.

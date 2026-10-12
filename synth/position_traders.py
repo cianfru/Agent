@@ -44,7 +44,7 @@ import httpx
 from . import notify
 from .config import Settings
 from .hyperliquid import HL, move
-from .proven import PROVEN_GRACE_S, Refresher, roster_candidates
+from .proven import PROVEN_GRACE_S, Refresher, big_open_winner, roster_candidates
 from .wallet_names import codename
 from .store import Store
 
@@ -65,6 +65,7 @@ RIDE_WINNER_SHARE = 0.2
 RIDE_WINNER_MIN = 50_000
 RIDE_GRACE_S = 14 * 86400
 DISCOVER_MIN_AV = 500_000
+WIDE_MIN_AV = 10_000               # the daily scan reads every profitable account of $10K+ for big open winners
 DISCOVER_EVERY_S = 86400
 
 BUILD_WINDOW_S = 72 * 3600
@@ -478,7 +479,9 @@ class PositionTraders:
         return not self.discovering and (last is None or stale or (now or time.time()) - last["ts"] >= DISCOVER_EVERY_S)
 
     async def discover(self, now: float | None = None, rows: list[dict] | None = None, hl: HL | None = None) -> dict:
-        """Find traders riding big open winners: leaderboard (daily download) -> positions now -> the riding rule."""
+        """Once a day: the leaderboard (download) -> every profitable account of $10K+ read once -> big money (from
+        the $500K+ accounts), riders of $250K+ (same), and every wallet holding a big open winner flagged for the
+        refresh (which reads how long it has been open and lists it when it qualifies)."""
         self.discovering = True
         now = now or time.time()
         try:
@@ -487,21 +490,23 @@ class PositionTraders:
                     r = await http.get(LEADERBOARD_URL)
                     r.raise_for_status()
                     rows = r.json().get("leaderboardRows") or []
-            big = leaderboard_candidates(rows)
-            pool = self.refresh.update_pool(roster_candidates(rows), big, now)
-            cands = {a: i for a, i in big.items() if a not in self.seed_traders}
+            wide = leaderboard_candidates(rows, WIDE_MIN_AV)
+            big = {a: i for a, i in wide.items() if i["av"] >= DISCOVER_MIN_AV}
+            roster = roster_candidates(rows)
+            cands = {a: i for a, i in wide.items() if a not in self.seed_traders}
             del rows
-            found = 0
             if hl is None:
                 async with httpx.AsyncClient(timeout=20) as http:
-                    found = await self._scan(HL(http), cands, now)
+                    found, flagged = await self._scan(HL(http), cands, now)
             else:
-                found = await self._scan(hl, cands, now)
+                found, flagged = await self._scan(hl, cands, now)
+            pool = self.refresh.update_pool(roster, big, now, winners=flagged)
             gone = self.store.pt_list_prune({"riding": now - RIDE_GRACE_S, "proven": now - PROVEN_GRACE_S})
             if gone:
                 self.store.add_brief("pt_dropped", {"dropped": gone})
             dropped = len(gone)
-            out = {"candidates": len(cands), "riding": found, "dropped": dropped, "pool": pool}
+            out = {"candidates": len(cands), "riding": found, "dropped": dropped, "pool": pool,
+                   "open_winners": len(flagged)}
             self.store.add_brief("pt_discover", out)
             log.info("discover %s", out)
             return out
@@ -513,15 +518,21 @@ class PositionTraders:
         b = self.store.latest_brief("pt_bigmoney")
         return (b or {}).get("coins") or {}
 
-    async def _scan(self, hl: HL, cands: dict[str, dict], now: float) -> int:
+    async def _scan(self, hl: HL, cands: dict[str, dict], now: float) -> tuple[int, dict[str, dict]]:
         found, addrs = 0, list(cands)
         held: dict[str, dict] = {}
+        flagged: dict[str, dict] = {}
         for i in range(0, len(addrs), 4):
             chunk = addrs[i:i + 4]
             states = await asyncio.gather(*(hl.account(a) for a in chunk), return_exceptions=True)
             for a, st in zip(chunk, states):
                 if isinstance(st, Exception) or not st:
                     continue
+                if any(big_open_winner(p) for p in (st.get("positions") or {}).values()):
+                    flagged[a] = cands[a]
+                    self.refresh.note_live(a, st["positions"], st.get("equity") or 0, now)
+                if cands[a].get("av", 0) < DISCOVER_MIN_AV:
+                    continue                                    # big money and $250K riders: $500K+ accounts
                 if st.get("positions"):
                     held[a] = {"positions": st["positions"]}
                 q = ride_qualifies(st, cands[a])
@@ -532,9 +543,10 @@ class PositionTraders:
             await asyncio.sleep(1.0)   # about 4 reads a second: well inside the per-IP budget
         owners = load_owners(pairs=self.refresh.owner_pairs())
         agg = owner_votes(held, owners)
-        self.store.add_brief("pt_bigmoney", {"coins": agg, "wallets": len(addrs), "counted": "owners",
+        self.store.add_brief("pt_bigmoney", {"coins": agg, "counted": "owners",
+                                             "wallets": sum(1 for a in addrs if cands[a].get("av", 0) >= DISCOVER_MIN_AV),
                                              "owners": len({owners.get(a, a) for a in held})})
-        return found
+        return found, flagged
 
     # ----------------------------------------------------------------- board --
     def board(self, now: float | None = None) -> dict:
@@ -599,11 +611,12 @@ class PositionTraders:
             out[name] = row
         return out
 
-    def open_winners(self, now: float | None = None, limit: int = 40, min_move: float = 0.20,
+    def open_winners(self, now: float | None = None, limit: int = 40, min_move: float = 0.20, min_roe: float = 1.0,
                      min_usd: float = 10_000, min_days: float = 7) -> list[dict]:
-        """The biggest open winners among everyone the agent reads: each candidate's positions at its last check
-        (Reflex's roster rule and $500K+ accounts, read at least weekly) and the tracked traders' (every poll).
-        Up 20%+ on price their way, $10K+ in profit, open a week or more (or since before the agent could see)."""
+        """The biggest open winners among everyone the agent reads: each wallet's positions at its last read (the
+        refresh pool at least weekly, and every profitable account of $10K+ the daily scan saw holding a big winner)
+        and the tracked traders' (every poll). Up 20%+ on price or 100%+ on margin, $10K+ in profit, open a week or
+        more (or for an unknown time, until the wallet's fills are read)."""
         now = now or time.time()
         rows: dict[tuple[str, str], dict] = {}
         for a, lv in self.store.pt_cand_live().items():
@@ -623,7 +636,7 @@ class PositionTraders:
                                         "as_of": r["last_seen"]}
         out = []
         for r in rows.values():
-            if (r.get("move") or 0) < min_move or (r.get("upnl") or 0) < min_usd:
+            if ((r.get("move") or 0) < min_move and (r.get("roe") or 0) < min_roe) or (r.get("upnl") or 0) < min_usd:
                 continue
             held = (now - r["since"]) / 86400 if r.get("since") else None
             if held is not None and held < min_days:
