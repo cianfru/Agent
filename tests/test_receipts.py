@@ -101,4 +101,4 @@ def test_public_routes_need_no_key(tmp_path, monkeypatch):
     page = c.get("/r")
     assert page.status_code == 200 and "Every call, scored." in page.text
     csp = page.headers["content-security-policy"]
-    assert "script-src 'sha256-" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
+    assert "script-src 'self' 'sha256-" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]

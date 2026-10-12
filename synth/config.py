@@ -94,6 +94,8 @@ class Settings:
     gate_chain_id: int = field(default_factory=lambda: int(_float("GATE_CHAIN_ID", 1)))
     gate_decimals: int | None = field(default_factory=lambda: int(_env("GATE_DECIMALS")) if _env("GATE_DECIMALS") else None)
     gate_domain: str = field(default_factory=lambda: _env("GATE_DOMAIN"))     # the desk's host name, as in the URL
+    gate_symbol: str = field(default_factory=lambda: _env("GATE_SYMBOL"))     # the token's ticker, as holders see it
+    gate_buy_url: str = field(default_factory=lambda: _env("GATE_BUY_URL"))   # where to get the token (https)
     session_secret: str = field(default_factory=lambda: _env("SYNTH_SESSION_SECRET"))
 
     # The public record (synth/receipts.py, /r): calls are shown this many hours after they were logged.

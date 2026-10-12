@@ -25,7 +25,10 @@ def main(argv: list[str]) -> int:
 
         import uvicorn
 
-        uvicorn.run("synth.api:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
+        # behind the host's proxy every visitor arrives from the proxy's address: trust its forwarded one, or the
+        # sign-in limit would be shared by everyone. FORWARDED_ALLOW_IPS narrows it where the app is reachable directly.
+        uvicorn.run("synth.api:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), proxy_headers=True,
+                    forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "*"))
         return 0
 
     from . import config

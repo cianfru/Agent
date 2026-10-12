@@ -39,7 +39,7 @@ def test_dashboard_runs_only_its_own_script(api):
     csp = r.headers["content-security-policy"]
     script = re.search(r"<script>(.*?)</script>", r.text, re.S).group(1)
     digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
-    assert f"script-src 'sha256-{digest}';" in csp and "unsafe-inline'; img" in csp and "frame-ancestors 'none'" in csp
+    assert f"script-src 'self' 'sha256-{digest}';" in csp and "unsafe-inline'; img" in csp and "frame-ancestors 'none'" in csp
     assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
 
 
@@ -65,3 +65,14 @@ def test_backup_route_sends_a_snapshot_and_keeps_no_copy(api, tmp_path):
     r = c.get("/backup", headers={"x-api-key": "k"})
     assert r.status_code == 200 and r.content[:16] == b"SQLite format 3\x00"
     assert "attachment" in r.headers["content-disposition"] and os.listdir(tmp_path / "bk") == []
+
+
+def test_serve_trusts_the_proxy_for_the_visitor_address(monkeypatch):
+    import uvicorn
+
+    import synth.__main__ as cli
+    seen = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: seen.update(kw))
+    monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
+    cli.main(["synth", "serve"])
+    assert seen["proxy_headers"] is True and seen["forwarded_allow_ips"] == "*"

@@ -203,10 +203,22 @@ The agent has no token. Launching one on Orbio waits until the posts show they a
 ## Dashboard (the desk)
 
 Open the service's root URL (`/`). Token holders press **Connect wallet** (see "Token holders" below); the owner
-enters the key once and the browser keeps it. Holders see everything but the owner's controls (Ask, Posts, writing a
-brief, Follow). Bright, chart-first, dark and light, phone and desktop (`synth/static/dashboard.html`, `synth/desk.py`).
+chooses **Owner**, enters the key once and the browser keeps it. Holders see everything but the owner's controls (Ask,
+Posts, writing a brief, Follow) (`synth/static/dashboard.html`, `synth/desk.py`).
 
-- **Desk** (home, `GET /desk`):
+**Design** (shared with the public record: `synth/static/assets/ui.css` and `ui.js`, served at `/static`): Apple's system type and
+colours, glass cards over a quiet ambient light, dark and light, phone and desktop. No pills: tabs are underlined text.
+Minimal text on screen; every explanation sits behind an (i) that opens on hover, focus or tap.
+
+**Signing in** is one sheet that shows one state at a time, so every outcome has its own screen: the desk's name and
+who it is for; a wallet chooser when the browser has several (EIP-6963); on a phone without a wallet, buttons that open
+the page in MetaMask or Coinbase Wallet; Connect, Sign (free, no gas) and Check balance as three steps; declined, a
+request already open in the wallet, too busy, or the chain unreachable, each with Try again; too few tokens, with the
+balance against the threshold and **Get {symbol}** (`GATE_BUY_URL`); a session that ended (12 hours, or the balance fell);
+then the desk. Switching account in the wallet signs out. The account menu (top right) shows the wallet, its balance,
+the public record and Sign out.
+
+- **Market** (home, `GET /desk`):
   - a one-line read of the market;
   - six tiles (crowd long, big money long, tracked long, uptrend share and run age, BTC, alerts in 24 hours);
   - **direction of BTC and ETH**: each lens's share of heads long as a gauge around 50% (dollars on hover), whether they agree, the
@@ -225,7 +237,7 @@ brief, Follow). Bright, chart-first, dark and light, phone and desktop (`synth/s
 - **Research** (`GET /research`): the market cycle from Reflex's market history (fetched once a day: share of coins in
   an uptrend, the current risk-on or risk-off run against past runs), and every study as a chart with its finding and
   verdict (S1 to S4, where the money came from), plus the forward record.
-- **Journal:** brief, picks and desk posts.
+- **Record:** picks (scored at 1, 3 and 7 days, voided ones listed with their reason), the brief, and desk posts (owner).
 - **Ask:** a question answered from current data (uses the model).
 
 ## API
@@ -275,6 +287,10 @@ The desk opens to wallets holding at least `GATE_THRESHOLD` of the token (a fixe
 - Enough tokens: a session, a signed HttpOnly cookie, for 12 hours. The balance is read again every 10 minutes, so selling below the threshold closes the desk.
 - Until `GATE_RPC_URL`, `GATE_TOKEN` and `GATE_THRESHOLD` are set (the token is not launched yet), only the owner's key opens the desk.
 - Set `SYNTH_SESSION_SECRET` (any long random string) so sessions survive restarts, and `GATE_DOMAIN` to the desk's host name.
+- `GATE_SYMBOL` names the token on the page ("For holders of 1,000 OUT"); `GATE_BUY_URL` (https only) is offered to a wallet short of it.
+- Sign-in allows 10 challenges and 10 verifications a minute per visitor address. Behind the host's proxy the visitor's
+  address comes from the proxy's forwarded header (`FORWARDED_ALLOW_IPS`, `*` by default; narrow it if the app is
+  reachable directly), or every visitor would share one limit.
 - Not covered yet: smart wallets that are not deployed yet (ERC-6492) and WalletConnect (phone wallets without their own browser). On a phone the holder opens the desk in their wallet's own browser.
 
 ## Run

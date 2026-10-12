@@ -38,9 +38,11 @@ EIP1271_MAGIC = "0x1626ba7e"
 
 
 class GateError(Exception):
-    def __init__(self, status: int, message: str):
+    """`code` tells the page which state to show: closed, address, busy, expired, signature, balance."""
+
+    def __init__(self, status: int, message: str, code: str = "error", **data):
         super().__init__(message)
-        self.status = status
+        self.status, self.code, self.data = status, code, data
 
 
 def personal_hash(message: str) -> bytes:
@@ -146,13 +148,13 @@ class Gate:
     # ---- sign-in
     def challenge(self, address: str, domain: str, uri: str, now: float | None = None) -> dict:
         if not self.on:
-            raise GateError(503, "the token gate is not set up yet: the desk opens with the owner's key only")
+            raise GateError(503, "the token gate is not set up yet: the desk opens with the owner's key only", "closed")
         if not is_address(address):
-            raise GateError(400, "not an address")
+            raise GateError(400, "not an address", "address")
         now = now or time.time()
         self._pending = {k: v for k, v in self._pending.items() if v["exp"] > now}
         if len(self._pending) >= MAX_PENDING:
-            raise GateError(429, "too many sign-ins at once; try again in a minute")
+            raise GateError(429, "too many sign-ins at once; try again in a minute", "busy")
         nonce = secrets.token_hex(12)
         msg = siwe_message(domain, address, uri, self.chain_id, nonce, now, now + CHALLENGE_S)
         self._pending[nonce] = {"address": address.lower(), "message": msg, "exp": now + CHALLENGE_S}
@@ -163,33 +165,49 @@ class Gate:
         now = now or time.time()
         ch = self._pending.pop(nonce, None)              # single use, whatever the outcome
         if not ch or ch["exp"] < now:
-            raise GateError(401, "this sign-in request expired; start again")
+            raise GateError(401, "this sign-in request expired; start again", "expired")
         address = ch["address"]
         signer = recover(ch["message"], signature)
         if signer != address and not await self._contract_signed(address, ch["message"], signature):
-            raise GateError(401, "the signature is not from this wallet")
+            raise GateError(401, "the signature is not from this wallet", "signature")
         held = await self.balance(address, now)
         if held < self.threshold:
-            raise GateError(403, f"holds {held:g} tokens; the desk opens from {self.threshold:g}")
+            raise GateError(403, f"holds {held:g} tokens; the desk opens from {self.threshold:g}", "balance",
+                            held=held, threshold=self.threshold, address=address)
         exp = now + self.session_hours * 3600
         return {"address": address, "balance": held, "cookie": self._sign({"a": address, "exp": exp}),
                 "max_age": int(exp - now)}
 
     async def session(self, cookie: str | None, now: float | None = None) -> str | None:
         """The holder behind a session cookie, while it is valid and the wallet still holds enough; else None."""
+        return (await self.check(cookie, now))[0]
+
+    async def check(self, cookie: str | None, now: float | None = None) -> tuple[str | None, str | None]:
+        """(holder, None) for a good session; (None, why) otherwise: None (no session), "expired", "balance",
+        "invalid" or "closed", so the page can say why the desk closed."""
         now = now or time.time()
-        data = self._open(cookie or "")
-        if not data or data.get("exp", 0) < now or not self.on:
-            return None
+        if not cookie:
+            return None, None
+        data = self._open(cookie)
+        if not data:
+            return None, "invalid"
+        if not self.on:
+            return None, "closed"
+        if data.get("exp", 0) < now:
+            return None, "expired"
         try:
             if await self.balance(data["a"], now) < self.threshold:
-                return None
+                return None, "balance"
         except (httpx.HTTPError, GateError, ValueError) as e:
             log.warning("balance read failed for %s: %s", data["a"], e)
             got = self._balances.get(data["a"])          # a chain hiccup keeps a recent good read
             if not got or got[0] < self.threshold or now - got[1] > 4 * BALANCE_TTL_S:
-                return None
-        return data["a"]
+                return None, "balance" if got and got[0] < self.threshold else "expired"
+        return data["a"], None
+
+    def held(self, address: str) -> float | None:
+        got = self._balances.get(address.lower())
+        return got[0] if got else None
 
     # ---- cookies
     def _sign(self, data: dict) -> str:

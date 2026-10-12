@@ -30,6 +30,7 @@ from pathlib import Path
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
@@ -185,7 +186,7 @@ def _page_csp(name: str) -> str:
     html = (STATIC / name).read_text()
     scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
     hashes = " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(x.encode()).digest()).decode()}'" for x in scripts)
-    return (f"default-src 'self'; script-src {hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+    return (f"default-src 'self'; script-src 'self' {hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
             "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
@@ -208,6 +209,16 @@ async def lifespan(_: FastAPI):
 
 # no /docs, /redoc or /openapi.json: they would list every route without a key
 app = FastAPI(title="Market synthesizer", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+# the design system (ui.css, ui.js) only: the pages themselves are served with their own policy, never from here
+app.mount("/static", StaticFiles(directory=STATIC / "assets"), name="static")
+
+
+@app.middleware("http")
+async def _nosniff(request: Request, call_next):
+    """Pages may load scripts from this origin (the design system), so no other response may be read as one."""
+    resp = await call_next(request)
+    resp.headers.setdefault("x-content-type-options", "nosniff")
+    return resp
 
 
 def auth(x_api_key: str | None = Header(default=None)) -> None:
@@ -249,13 +260,14 @@ class Signed(BaseModel):
 _auth_hits: dict[str, list[float]] = {}
 
 
-def _throttle(request: Request, per_min: int = 10) -> None:
-    ip = request.client.host if request.client else "?"
+def _throttle(request: Request, step: str, per_min: int = 10) -> None:
+    """Each sign-in step (challenge, verify) allows `per_min` a minute per address."""
+    key = f"{step}:{request.client.host if request.client else '?'}"
     now = time.time()
-    hits = [t for t in _auth_hits.get(ip, []) if now - t < 60]
+    hits = [t for t in _auth_hits.get(key, []) if now - t < 60]
     if len(hits) >= per_min:
-        raise HTTPException(429, "too many sign-in attempts; wait a minute")
-    _auth_hits[ip] = hits + [now]
+        raise HTTPException(429, {"code": "busy", "message": "too many sign-in attempts; wait a minute"})
+    _auth_hits[key] = hits + [now]
     if len(_auth_hits) > 10_000:
         _auth_hits.clear()
 
@@ -264,33 +276,36 @@ def _throttle(request: Request, per_min: int = 10) -> None:
 async def auth_me(request: Request, x_api_key: str | None = Header(default=None)):
     """Who this browser is (owner, holder or nobody) and what the gate asks for."""
     gate_info = {"on": gate.on, "chain_id": gate.chain_id, "token": gate.token or None,
-                 "threshold": gate.threshold or None}
+                 "threshold": gate.threshold or None, "symbol": settings.gate_symbol or None,
+                 "buy_url": settings.gate_buy_url if settings.gate_buy_url.startswith("https://") else None}
     if _owner_key(x_api_key) or (not settings.api_key and os.environ.get("SYNTH_ALLOW_OPEN") == "1"):
         return {"role": "owner", "gate": gate_info}
-    who = await gate.session(request.cookies.get(SESSION_COOKIE))
-    return {"role": "holder" if who else None, "address": who, "gate": gate_info}
+    who, why = await gate.check(request.cookies.get(SESSION_COOKIE))
+    if who:
+        return {"role": "holder", "address": who, "balance": gate.held(who), "gate": gate_info}
+    return {"role": None, "ended": why, "gate": gate_info}
 
 
 @app.post("/auth/challenge")
 def auth_challenge(body: Challenge, request: Request):
-    _throttle(request)
+    _throttle(request, "challenge")
     domain = settings.gate_domain or (request.url.hostname or "localhost")
     uri = f"https://{settings.gate_domain}" if settings.gate_domain else str(request.base_url).rstrip("/")
     try:
         return gate.challenge(body.address, domain, uri)
     except GateError as e:
-        raise HTTPException(e.status, str(e))
+        raise HTTPException(e.status, {"code": e.code, "message": str(e), **e.data})
 
 
 @app.post("/auth/verify")
 async def auth_verify(body: Signed, request: Request):
-    _throttle(request)
+    _throttle(request, "verify")
     try:
         res = await gate.verify(body.nonce, body.signature)
     except GateError as e:
-        raise HTTPException(e.status, str(e))
+        raise HTTPException(e.status, {"code": e.code, "message": str(e), **e.data})
     except httpx.HTTPError as e:
-        raise HTTPException(502, f"could not read the chain: {type(e).__name__}")
+        raise HTTPException(502, {"code": "chain", "message": f"could not read the chain: {type(e).__name__}"})
     out = JSONResponse({"role": "holder", "address": res["address"], "balance": res["balance"]})
     out.set_cookie(SESSION_COOKIE, res["cookie"], max_age=res["max_age"], httponly=True, secure=True,
                    samesite="strict", path="/")
