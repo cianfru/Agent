@@ -43,8 +43,9 @@ import httpx
 
 from . import notify
 from .config import Settings
-from .hyperliquid import HL
+from .hyperliquid import HL, move
 from .proven import PROVEN_GRACE_S, Refresher, roster_candidates
+from .wallet_names import codename
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -165,6 +166,10 @@ def _day_month(iso: str | None) -> str | None:
         return None
 
 
+def _r4(x: float | None) -> float | None:
+    return round(x, 4) if x is not None else None
+
+
 def shown_tier(t: dict) -> str:
     """"proven" only when the closed trades made money; a list place earned on open profit reads "riding"."""
     if t.get("tier") == "riding":
@@ -175,13 +180,27 @@ def shown_tier(t: dict) -> str:
     return "proven" if closed > 0 else "riding"
 
 
+def _carry(best: dict, total: float) -> str:
+    """", most of it one ENA long (+$319K, +174% on price since 15 Jul)" when one open trade makes most of `total`."""
+    if not (best.get("pnl") and not best.get("closed") and best["pnl"] >= 0.5 * total > 0):
+        return ""
+    nearly_all = best["pnl"] >= 0.9 * total
+    bits = [] if nearly_all else [signed_usd(best["pnl"])]
+    if best.get("move") is not None:
+        bits.append(f"{100 * best['move']:+.0f}% on price")
+    since = _day_month(best.get("opened"))
+    detail = ", ".join(bits) + (f"{' ' if bits else ''}since {since}" if since else "")
+    return (f", {'nearly all' if nearly_all else 'most'} of it one {best['coin']} {best['side']}"
+            + (f" ({detail})" if detail else ""))
+
+
 def record_line(t: dict, open_now: float | None = None) -> str:
     """A trader's record in plain words: closed trades and open ones apart, the trade that carries it when one does,
     and "proven" only when the closed trades made money (open profit alone reads "riding a winner")."""
     if t.get("tier") == "riding":
-        tail = f", {signed_usd(t['alltime_pnl'])} all-time" if t.get("alltime_pnl") is not None else ""
+        tail = f"; {signed_usd(t['alltime_pnl'])} all-time" if t.get("alltime_pnl") is not None else ""
         op = open_now if open_now is not None else (t.get("open_pnl") or 0)
-        return f"riding a winner: {signed_usd(op)} profit in open trades{tail}"
+        return f"riding a winner: {signed_usd(op)} profit in open trades{_carry(t.get('best') or {}, op)}{tail}"
     opened = t.get("open_swing_pnl") or 0
     closed = t.get("realized_swing_pnl")
     if closed is None:
@@ -195,12 +214,7 @@ def record_line(t: dict, open_now: float | None = None) -> str:
         parts = [f"{word}: {n} trades held 3+ days ({round(t['win_rate'] * n)} won), {signed_usd(closed)} on closed ones"]
         open_part = f"{signed_usd(opened)} on open ones"
     if opened:
-        best = t.get("best") or {}
-        if best.get("pnl") and not best.get("closed") and best["pnl"] >= 0.5 * opened > 0:
-            since = _day_month(best.get("opened"))
-            open_part += (f", most of it one {best['coin']} {best['side']} "
-                          f"({signed_usd(best['pnl'])}{' since ' + since if since else ''})")
-        parts.append(open_part)
+        parts.append(open_part + _carry(t.get("best") or {}, opened))
     if closed > 0:
         parts.append(win_per_loss(t.get("profit_factor"), t.get("win_rate")))
     parts.append(f"usually holds ~{t['median_hold_days']:.0f} days")
@@ -347,7 +361,8 @@ class PositionTraders:
                     delta = p["size"] - row["size"]
                     if abs(delta) * px >= 1:
                         self.store.pt_add_flow(now, a, coin, p["side"], delta * px, px)
-                self.store.pt_touch(row["id"], p["notional"], p["entry_px"], p["upnl"], now, p["size"])
+                self.store.pt_touch(row["id"], p["notional"], p["entry_px"], p["upnl"], now, p["size"],
+                                    p.get("roe"), p.get("lev"))
                 young = now - row["opened_ts"] <= CONVICTION_WINDOW_S if row["known_open"] else False
                 if young and not row["conviction"] and not row["baseline"] and self._is_conviction(t, p["notional"]):
                     res["conviction"] += await self._conviction(t, row["id"], row.get("pick_id"),
@@ -363,7 +378,8 @@ class PositionTraders:
                     pick_id = self.store.add_pick("position", coin, p["side"], 1, self._mids.get(coin) or p["entry_px"] or None,
                                                   f"pt {a} {coin} {p['side']}", {"wallet": a, "size_usd": round(p["notional"])})
             rid = self.store.pt_open_position(a, coin, p["side"], opened, int(not baseline or bool(since)), now,
-                                              p["notional"], p["entry_px"], p["upnl"], int(baseline), pick_id, p["size"])
+                                              p["notional"], p["entry_px"], p["upnl"], int(baseline), pick_id, p["size"],
+                                              p.get("roe"), p.get("lev"))
             if not baseline:
                 res["new"] += 1
                 if p["notional"] >= MIN_NEW_USD and self._is_conviction(t, p["notional"]):
@@ -536,7 +552,9 @@ class PositionTraders:
                     "held_note": None if r["known_open"] else (
                         ("over a year" if t.get("checked") else "before Oct 2025")
                         if f"{r['coin']}:{r['side'].upper()}" in seed_keys else "unknown"),
-                    "conviction": bool(r["conviction"]), "new": not r["baseline"]} for r in rows]
+                    "conviction": bool(r["conviction"]), "new": not r["baseline"],
+                    "move": _r4(move(r["side"], r["entry_px"], r.get("size"), r["upnl"])), "roe": _r4(r.get("roe")),
+                    "lev": r.get("lev")} for r in rows]
             open_pnl = sum(p["upnl"] for p in pos)
             traders.append({"address": a, "tier": shown_tier(t), "record": {k: t.get(k) for k in (
                 "swing_positions", "swing_pnl", "realized_swing_pnl", "open_swing_pnl", "profit_factor", "win_rate",
@@ -565,7 +583,7 @@ class PositionTraders:
         return {"as_of": self.seed.get("as_of"), "rule": self.seed.get("rule"), "traders": traders,
                 "coins": coin_rows, "adding_24h": self.adding(24, now)[:15], "adding_7d": self.adding(168, now)[:15],
                 "forward": self.forward(), "discover": self.store.latest_brief("pt_discover"),
-                "refresh": self.refresh.stats(now),
+                "refresh": self.refresh.stats(now), "open_winners": self.open_winners(now),
                 "big_money_ts": (self.store.latest_brief("pt_bigmoney") or {}).get("ts")}
 
     def forward(self) -> dict:
@@ -580,6 +598,46 @@ class PositionTraders:
                           "positive_pct": round(100 * sum(x > 0 for x in v) / len(v), 1) if v else None}
             out[name] = row
         return out
+
+    def open_winners(self, now: float | None = None, limit: int = 40, min_move: float = 0.20,
+                     min_usd: float = 10_000, min_days: float = 7) -> list[dict]:
+        """The biggest open winners among everyone the agent reads: each candidate's positions at its last check
+        (Reflex's roster rule and $500K+ accounts, read at least weekly) and the tracked traders' (every poll).
+        Up 20%+ on price their way, $10K+ in profit, open a week or more (or since before the agent could see)."""
+        now = now or time.time()
+        rows: dict[tuple[str, str], dict] = {}
+        for a, lv in self.store.pt_cand_live().items():
+            for c, p in (lv.get("positions") or {}).items():
+                rows[(a, c)] = {**p, "address": a, "coin": c, "equity": lv.get("equity"), "as_of": lv.get("ts")}
+        listed = self.traders
+        for a in listed:
+            info = self.store.pt_trader(a) or {}
+            for r in self.store.pt_open(a):
+                prev = rows.get((a, r["coin"])) or {}
+                since = r["opened_ts"] if r["known_open"] else (prev.get("since") if prev.get("side") == r["side"] else None)
+                rows[(a, r["coin"])] = {"address": a, "coin": r["coin"], "side": r["side"], "value": r["value"],
+                                        "upnl": r["upnl"], "entry": r["entry_px"], "size": r.get("size"),
+                                        "roe": r.get("roe") if r.get("roe") is not None else prev.get("roe"),
+                                        "lev": r.get("lev"), "move": move(r["side"], r["entry_px"], r.get("size"), r["upnl"]),
+                                        "since": since, "equity": info.get("equity") or prev.get("equity"),
+                                        "as_of": r["last_seen"]}
+        out = []
+        for r in rows.values():
+            if (r.get("move") or 0) < min_move or (r.get("upnl") or 0) < min_usd:
+                continue
+            held = (now - r["since"]) / 86400 if r.get("since") else None
+            if held is not None and held < min_days:
+                continue
+            t = listed.get(r["address"])
+            out.append({"address": r["address"], "codename": codename(r["address"]), "coin": r["coin"], "side": r["side"],
+                        "value": round(r["value"] or 0), "upnl": round(r["upnl"]), "move": _r4(r["move"]),
+                        "roe": _r4(r.get("roe")), "lev": r.get("lev"), "entry": r.get("entry"),
+                        "held_days": round(held, 1) if held is not None else None,
+                        "since": time.strftime("%Y-%m-%d", time.gmtime(r["since"])) if r.get("since") else None,
+                        "share_of_account": round(r["upnl"] / r["equity"], 3) if r.get("equity") else None,
+                        "listed": shown_tier(t) if t else None, "as_of": r.get("as_of")})
+        out.sort(key=lambda x: -x["upnl"])
+        return out[:limit]
 
     def coins_text(self, limit: int = 8) -> str:
         b = self.board()

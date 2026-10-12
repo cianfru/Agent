@@ -15,6 +15,19 @@ import httpx
 INFO_URL = "https://api.hyperliquid.xyz/info"
 
 
+def _num(x: Any) -> float | None:
+    try:
+        return float(x) if x is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def move(side: str, entry: float | None, size: float | None, upnl: float | None) -> float | None:
+    """How far the price has moved the trader's way since entry (0.5 = +50%), leverage aside."""
+    cost = (entry or 0) * (size or 0)
+    return upnl / cost if cost and upnl is not None else None
+
+
 class HL:
     def __init__(self, client: httpx.AsyncClient | None = None, url: str = INFO_URL):
         self.http = client or httpx.AsyncClient(timeout=20)
@@ -69,7 +82,8 @@ class HL:
 
     @staticmethod
     def parse_positions(st: dict) -> dict[str, dict]:
-        """Open perp positions from a clearinghouseState, keyed by UPPER coin: {side, size, entry_px, notional, upnl}."""
+        """Open perp positions from a clearinghouseState, keyed by UPPER coin: {side, size, entry_px, notional, upnl,
+        roe (return on margin, as Hyperliquid shows it), lev, liq}."""
         out = {}
         for ap in (st or {}).get("assetPositions") or []:
             p = ap.get("position") or {}
@@ -79,7 +93,8 @@ class HL:
             out[str(p.get("coin", "")).upper()] = {
                 "side": "long" if szi > 0 else "short", "size": abs(szi),
                 "entry_px": float(p.get("entryPx") or 0), "notional": abs(float(p.get("positionValue") or 0)),
-                "upnl": float(p.get("unrealizedPnl") or 0)}
+                "upnl": float(p.get("unrealizedPnl") or 0), "roe": _num(p.get("returnOnEquity")),
+                "lev": _num((p.get("leverage") or {}).get("value")), "liq": _num(p.get("liquidationPx"))}
         return out
 
     async def account(self, address: str) -> dict:

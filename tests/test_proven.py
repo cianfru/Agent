@@ -47,7 +47,8 @@ class FakeHL:
         self.calls.append(body["type"])
         if body["type"] == "clearinghouseState":
             return {"assetPositions": [{"position": {"coin": c, "szi": str(p["szi"]), "entryPx": "100",
-                                                     "positionValue": str(p["value"]), "unrealizedPnl": str(p["upnl"])}}
+                                                     "positionValue": str(p["value"]), "unrealizedPnl": str(p["upnl"]),
+                                                     "returnOnEquity": str(p.get("roe", 0)), "leverage": {"value": p.get("lev", 1)}}}
                                        for c, p in self.positions.items()], "marginSummary": {"accountValue": "1000000"}}
         if body["type"] == "subAccounts":
             return [{"subAccountUser": s} for s in self.subs]
@@ -192,3 +193,33 @@ def test_pages_join_on_the_boundary_millisecond(tmp_path, monkeypatch):
           fill("X", 3, 102, 1, "B", 3)]
     got, ok = asyncio.run(r._fills(FakeHL(fs, page=2), W, 0, 10))
     assert ok and [f[1] for f in got] == [1, 2, 2, 3]                 # the second fill at t=2 is not lost
+
+
+def test_long_held_winner_rule():
+    coins = {}
+    P.fold(coins, P.compact([fill("W", NOW_MS - 30 * DAY_MS, 100, 1000, "B", 0)]))
+    live = {"W": {"side": "long", "size": 1000.0, "entry_px": 100.0, "notional": 150_000, "upnl": 50_000, "roe": 1.5, "lev": 3.0}}
+    sm = P.live_summary(live, coins, 200_000, NOW)
+    w = sm["positions"]["W"]
+    assert w["move"] == 0.5 and w["roe"] == 1.5 and w["since"] == (NOW_MS - 30 * DAY_MS) / 1000
+    r = P.rides_long_winner(sm, {"alltime_pnl": 40_000}, NOW)
+    assert r["tier"] == "riding" and r["best"]["move"] == 0.5 and r["best"]["opened"] == P._day(NOW_MS - 30 * DAY_MS)
+    assert P.rides_long_winner(sm, {"alltime_pnl": -5}, NOW) is None                     # lost money all-time
+    assert P.rides_long_winner(P.live_summary(live, {}, 200_000, NOW), {}, NOW) is None  # open since before the reads
+    small = {"W": {**live["W"], "notional": 105_000, "upnl": 5_000}}
+    assert P.rides_long_winner(P.live_summary(small, coins, 200_000, NOW), {}, NOW) is None
+    recent = {}
+    P.fold(recent, P.compact([fill("W", NOW_MS - 5 * DAY_MS, 100, 1000, "B", 0)]))
+    assert P.rides_long_winner(P.live_summary(live, recent, 200_000, NOW), {}, NOW) is None   # 5 days is not long
+
+
+def test_check_lists_any_account_riding_a_long_held_winner(tmp_path):
+    r, store = refresher(tmp_path)
+    store.pt_cand_pool({W: (["roster"], {"av": 60_000, "alltime_pnl": 40_000})}, NOW)
+    hl = FakeHL([fill("W", NOW_MS - 30 * DAY_MS, 100, 1000, "B", 0)],
+                positions={"W": {"szi": 1000, "value": 150_000, "upnl": 50_000, "roe": 1.5, "lev": 3}})
+    assert asyncio.run(r.check(hl, W, NOW)) == "riding"
+    e = store.pt_list()[W]
+    assert e["tier"] == "riding" and e["rule"] == "long-held winner" and e["best"]["coin"] == "W"
+    live = store.pt_cand_live()[W]
+    assert live["equity"] == 1_000_000 and live["positions"]["W"]["move"] == 0.5 and live["positions"]["W"]["roe"] == 1.5

@@ -142,7 +142,7 @@ def test_discover_adds_riders_and_prunes(tmp_path, monkeypatch):
     assert not pt.discover_due(now=1_790_000_000.0 + 3600)
     asyncio.run(pt.step(now=1_790_000_100.0))
     t = next(x for x in pt.board()["traders"] if x["address"] == R)
-    assert t["tier"] == "riding" and t["record_text"] == "riding a winner: +$2.0M profit in open trades, +$4.4M all-time"
+    assert t["tier"] == "riding" and t["record_text"] == "riding a winner: +$2.0M profit in open trades, nearly all of it one NEAR long; +$4.4M all-time"
     hl.books[R] = {}
     out = asyncio.run(pt.discover(now=1_790_000_000.0 + 15 * 86400, rows=rows, hl=hl))
     assert out["dropped"] == 1 and R not in pt.traders
@@ -223,3 +223,22 @@ def test_scan_from_before_owners_is_redone(tmp_path, monkeypatch):
     assert pt.discover_due()
     store.add_brief("pt_bigmoney", {"coins": {}, "wallets": 1, "counted": "owners"})
     assert not pt.discover_due()
+
+
+def test_open_winners_from_every_read(tmp_path, monkeypatch):
+    pt, store, hl, sent = setup(tmp_path, monkeypatch)
+    now = 1_790_000_000.0
+    asyncio.run(pt.step(now=now, mids={"LIT": 2.6}))          # A: LIT long, +$1.5M on $1M, held since the seed date
+    B, C = "0x" + "b" * 40, "0x" + "c" * 40
+    store.pt_cand_save(B, live={"equity": 200_000, "ts": now - 86400, "positions": {
+        "W": {"side": "long", "value": 150_000, "upnl": 50_000, "entry": 100.0, "size": 1000.0, "roe": 1.5, "lev": 3,
+              "move": 0.5, "since": now - 30 * 86400}}})
+    store.pt_cand_save(C, live={"equity": 50_000, "ts": now, "positions": {
+        "X": {"side": "short", "value": 90_000, "upnl": 9_000, "move": 0.1, "since": now - 30 * 86400},
+        "Y": {"side": "long", "value": 60_000, "upnl": 30_000, "move": 1.0, "since": now - 2 * 86400}}})
+    w = pt.open_winners(now)
+    assert [(r["coin"], r["listed"]) for r in w] == [("LIT", "proven"), ("W", None)]   # X too small a move, Y too young
+    lit, wr = w
+    assert lit["move"] == 1.5 and lit["held_days"] == round((now - 1_780_000_000.0) / 86400, 1)
+    assert wr["codename"] and wr["roe"] == 1.5 and wr["share_of_account"] == 0.25 and wr["since"]
+    assert pt.board(now)["traders"][0]["positions"][0]["move"] == 1.5
