@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Outrider · The record</title>
+<meta name="description" content="Every call Outrider's desk logged, scored at 1, 3 and 7 days. Misses included. Checkable by anyone.">
+<meta property="og:title" content="Outrider · The record">
+<meta property="og:description" content="Every call, scored. Misses included. Checkable by anyone.">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<style>
+  :root {
+    --ground: #09090b; --s1: rgba(255,255,255,.035); --s2: rgba(255,255,255,.06); --line: rgba(255,255,255,.09);
+    --line-2: rgba(255,255,255,.16); --t1: #f4f4f5; --t2: #a1a1aa; --t3: #71717a;
+    --up: #34d399; --down: #f43f5e; --warn: #fbbf24; --accent: #ffb020;
+    --up-soft: rgba(52,211,153,.12); --down-soft: rgba(244,63,94,.12); --accent-soft: rgba(255,176,32,.12);
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --r-card: 20px; --r-lg: 24px;
+    --glow: radial-gradient(1200px 500px at 15% -10%, rgba(255,176,32,.07), transparent 60%),
+            radial-gradient(900px 400px at 100% 0%, rgba(52,211,153,.05), transparent 60%);
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --ground: #f8fafc; --s1: #ffffff; --s2: #f1f5f9; --line: rgba(15,23,42,.07); --line-2: rgba(15,23,42,.14);
+      --t1: #0f172a; --t2: #475569; --t3: #64748b; --up: #059669; --down: #e11d48; --warn: #b45309; --accent: #c77a00;
+      --up-soft: rgba(5,150,105,.09); --down-soft: rgba(225,29,72,.08); --accent-soft: rgba(199,122,0,.1);
+      --glow: radial-gradient(1200px 500px at 15% -10%, rgba(199,122,0,.06), transparent 60%); }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--glow), var(--ground); background-attachment: fixed; color: var(--t1);
+    font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+  a:hover { text-decoration-color: currentColor; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+  /* top */
+  header { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    background: color-mix(in srgb, var(--ground) 78%, transparent); border-bottom: 1px solid var(--line); }
+  header .wrap { display: flex; align-items: center; gap: 12px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 750; letter-spacing: .2px; font-size: 17px; }
+  .brand i { width: 12px; height: 12px; border-radius: 3px; transform: rotate(45deg); display: inline-block;
+    background: linear-gradient(135deg, var(--accent), var(--down)); }
+  .brand span { color: var(--t3); font-weight: 500; font-size: 14px; }
+  .chainmark { margin-left: auto; font: 12px var(--mono); color: var(--t3); display: flex; align-items: center; gap: 8px;
+    white-space: nowrap; }
+  .chainmark b { width: 7px; height: 7px; border-radius: 50%; background: var(--t3); display: inline-block; }
+  .chainmark.ok b { background: var(--up); } .chainmark.bad b { background: var(--down); }
+  .chainmark.ok { color: var(--t2); }
+
+  /* hero */
+  .hero { padding: 56px 0 28px; }
+  .hero h1 { font-size: clamp(30px, 6vw, 52px); line-height: 1.04; letter-spacing: -.035em; margin: 0 0 16px;
+    font-weight: 750; max-width: 15ch; }
+  .hero h1 em { font-style: normal; color: var(--t3); }
+  .hero p { color: var(--t2); max-width: 60ch; margin: 0; font-size: 16px; }
+
+  /* bento */
+  .bento { display: grid; gap: 14px; grid-template-columns: repeat(6, 1fr); margin: 28px 0 14px; }
+  .card { background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-card); padding: 22px 22px 20px;
+    position: relative; overflow: hidden; }
+  .card h3 { margin: 0 0 14px; font-size: 12.5px; font-weight: 600; color: var(--t3); letter-spacing: .02em; }
+  .big { font: 700 clamp(40px, 7vw, 64px)/1 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+  .mid { font: 650 32px/1.05 var(--mono); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--t2); font-size: 13.5px; margin-top: 10px; }
+  .sub .num { color: var(--t1); }
+  .c-hero { grid-column: span 3; grid-row: span 2; display: flex; flex-direction: column; }
+  .c-hero .bar { margin-top: auto; padding-top: 22px; }
+  .c-a { grid-column: span 3; } .c-b { grid-column: span 3; }
+  .c-chain { grid-column: span 6; display: grid; grid-template-columns: 1fr auto; gap: 8px 24px; align-items: center; }
+  .up { color: var(--up); } .down { color: var(--down); } .muted { color: var(--t3); } .warn { color: var(--warn); }
+
+  /* the right-way bar: one cell per scored call, green right way, red wrong way */
+  .cells { display: flex; flex-wrap: wrap; gap: 3px; }
+  .cells i { width: 9px; height: 9px; border-radius: 2.5px; background: var(--line-2); }
+  .cells.few { gap: 5px; } .cells.few i { width: 15px; height: 15px; border-radius: 4px; }
+  .notyet { color: var(--t3); font: 650 .55em var(--sans); letter-spacing: -.02em; }
+  .cells i.u { background: var(--up); } .cells i.d { background: var(--down); opacity: .85; }
+  .legend { display: flex; gap: 14px; color: var(--t3); font-size: 12px; margin-top: 10px; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+
+  .hash { font: 12.5px var(--mono); color: var(--t2); }
+  .hash .h { overflow-wrap: anywhere; }
+  .check { font-weight: 650; display: flex; align-items: center; gap: 10px; font-size: 15px; }
+  .check .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--t3); flex: none; }
+  .check.ok .dot { background: var(--up); box-shadow: 0 0 0 4px var(--up-soft); }
+  .check.bad .dot { background: var(--down); box-shadow: 0 0 0 4px var(--down-soft); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 9px 16px; font: 600 13px var(--sans);
+    border: 1px solid var(--line-2); background: var(--s2); color: var(--t1); cursor: pointer; text-decoration: none;
+    transition: transform .15s ease, border-color .15s ease; white-space: nowrap; }
+  .btn:hover { transform: scale(1.02); border-color: var(--t3); } .btn:active { transform: scale(.98); }
+
+  /* sections */
+  section { margin: 46px 0; }
+  section > h2 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 6px; font-weight: 700; }
+  section > p.lede { color: var(--t2); margin: 0 0 18px; max-width: 62ch; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font: 600 12px var(--sans); color: var(--t3); padding: 10px 12px; border-bottom: 1px solid var(--line);
+    white-space: nowrap; }
+  td { padding: 13px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.n, th.n { text-align: right; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .tablecard { padding: 6px 8px; }
+
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+  .filters button { border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--t2);
+    padding: 7px 14px; font: 500 13px var(--sans); cursor: pointer; transition: all .15s ease; }
+  .filters button:hover { border-color: var(--line-2); color: var(--t1); }
+  .filters button.on { background: var(--t1); color: var(--ground); border-color: var(--t1); }
+  .filters label { margin-left: auto; color: var(--t3); font-size: 13px; display: flex; gap: 8px; align-items: center; cursor: pointer; }
+
+  .side { font-weight: 650; text-transform: lowercase; }
+  .side.long { color: var(--up); } .side.short { color: var(--down); }
+  .coin { font-weight: 700; letter-spacing: -.01em; }
+  .src { color: var(--t3); font-size: 13px; }
+  .ret { font: 600 13.5px var(--mono); font-variant-numeric: tabular-nums; }
+  .ret.u { color: var(--up); } .ret.d { color: var(--down); } .ret.p { color: var(--t3); font-weight: 400; }
+  .ret .sm { display: none; }
+  .what .cs { white-space: nowrap; }
+  .med { color: var(--t3); } .voidn { color: var(--t3); white-space: nowrap; }
+  .tag { font: 600 11px var(--sans); color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 2px 7px;
+    margin-left: 8px; white-space: nowrap; }
+  tr.void td { color: var(--t3); }
+  tr.void .coin, tr.void .side { text-decoration: line-through; text-decoration-color: var(--t3); color: var(--t3); }
+  .why { color: var(--t3); font-size: 12.5px; }
+  .more { margin-top: 14px; text-align: center; }
+
+  .empty { text-align: center; padding: 48px 20px; color: var(--t2); }
+  .empty b { display: block; color: var(--t1); font-size: 17px; margin-bottom: 6px; }
+
+  .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .how .card p { margin: 0; color: var(--t2); font-size: 14px; }
+  .how .card h3 { color: var(--t1); font-size: 15px; margin-bottom: 8px; letter-spacing: -.01em; }
+  code { font: 12.5px var(--mono); background: var(--s2); border-radius: 6px; padding: 1px 6px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 60px; padding: 26px 0 40px; color: var(--t3); font-size: 13px; }
+  footer .wrap { display: flex; gap: 12px 28px; flex-wrap: wrap; justify-content: space-between; }
+
+  /* entry */
+  .rise { opacity: 0; transform: translateY(8px); animation: rise .5s cubic-bezier(.2,.7,.2,1) forwards;
+    animation-delay: calc(var(--i, 0) * 60ms); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } .btn, .filters button { transition: none; } }
+
+  /* phones: the table becomes cards */
+  @media (max-width: 760px) {
+    .hero { padding: 36px 0 18px; }
+    .bento { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .c-hero { grid-column: span 2; grid-row: auto; } .c-a, .c-b { grid-column: span 1; } .c-chain { grid-column: span 2; grid-template-columns: 1fr; }
+    .card { padding: 18px; border-radius: 18px; }
+    .mid { font-size: 26px; }
+    .how { grid-template-columns: 1fr; }
+    #calls table, #calls thead, #calls tbody, #calls tr, #calls td { display: block; }
+    #calls thead { display: none; }
+    #calls tr { padding: 14px 4px; border-bottom: 1px solid var(--line); display: grid;
+      grid-template-columns: 1fr auto auto auto; gap: 4px 14px; align-items: baseline; }
+    #calls td { border: 0; padding: 0; }
+    #calls td.when { grid-column: 1 / -1; order: -1; color: var(--t3); font-size: 12.5px; }
+    #calls td.what { grid-column: 1; }
+    #calls td.r { text-align: right; }
+    #calls td.r::before { content: attr(data-h); display: block; font: 500 10.5px var(--sans); color: var(--t3); }
+    #calls td.entry { display: none; }
+    .bysrc td.hide-sm, .bysrc th.hide-sm { display: none; }
+    .bysrc .med, .bysrc .voidn { display: block; font-size: 11.5px; }
+    .bysrc td, .bysrc th { padding-left: 8px; padding-right: 8px; }
+    .ret .lg { display: none; } .ret .sm { display: inline; }
+    .cells.few i { width: 13px; height: 13px; }
+    .chainmark span { display: none; }
+  }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="brand"><i></i>Outrider <span>the record</span></div>
+  <div class="chainmark" id="chainmark"><b></b><span id="chainmarktext">checking the chain…</span></div>
+</div></header>
+
+<main class="wrap">
+  <div class="hero rise" style="--i:0">
+    <h1>Every call, scored. <em>Misses included.</em></h1>
+    <p id="lede">Outrider's desk logs each call before the outcome. It appears here a day later with how it went at 1, 3 and 7 days. Nothing is taken out: a voided call stays, with the reason.</p>
+  </div>
+
+  <div class="bento" id="bento">
+    <div class="card c-hero rise" style="--i:1">
+      <h3>Right way at 7 days</h3>
+      <div class="big" id="k7">–</div>
+      <div class="sub" id="k7s">No call has reached 7 days yet.</div>
+      <div class="bar">
+        <div class="cells" id="cells"></div>
+        <div class="legend" id="legend" hidden><span><i style="background:var(--up)"></i>moved the call's way</span><span><i style="background:var(--down)"></i>moved against it</span></div>
+      </div>
+    </div>
+    <div class="card c-a rise" style="--i:2">
+      <h3>Right way at 1 day</h3>
+      <div class="mid" id="k1">–</div>
+      <div class="sub" id="k1s"></div>
+    </div>
+    <div class="card c-b rise" style="--i:3">
+      <h3>Calls on the record</h3>
+      <div class="mid" id="kn">–</div>
+      <div class="sub" id="kns"></div>
+    </div>
+    <div class="card c-chain rise" style="--i:4">
+      <div>
+        <h3>Check it yourself</h3>
+        <div class="check" id="check"><span class="dot"></span><span id="checktext">Checking the chain in your browser…</span></div>
+        <div class="sub">Every call, result and change is one link in a hash chain, recomputed here by your browser. A call edited, removed or slipped in later would break it.</div>
+        <div class="hash" id="head" style="margin-top:12px"></div>
+      </div>
+      <div><a class="btn" href="/r/ledger.json" target="_blank" rel="noopener">The raw chain ↗</a></div>
+    </div>
+  </div>
+
+  <section class="rise" style="--i:5">
+    <h2>By kind of call</h2>
+    <p class="lede">The share that moved the call's way, and the median move its way, before fees and funding.</p>
+    <div class="card tablecard"><table class="bysrc">
+      <thead><tr><th>Kind</th><th class="n">Calls</th><th class="n">1 day</th><th class="n hide-sm">3 days</th><th class="n">7 days</th><th class="n hide-sm">30 days</th></tr></thead>
+      <tbody id="bysrc"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section id="calls" class="rise" style="--i:6">
+    <h2>Every call</h2>
+    <p class="lede">Newest first. A return is the move in the call's direction from the price when it was logged.</p>
+    <div class="filters" id="filters"></div>
+    <div class="card tablecard"><table>
+      <thead><tr><th>Logged (UTC)</th><th>Call</th><th class="n">Entry</th><th class="n">1d</th><th class="n">3d</th><th class="n">7d</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+    <div class="more"><button class="btn" id="more" hidden>Show more</button></div>
+  </section>
+
+  <section class="rise" style="--i:7">
+    <h2>How it works</h2>
+    <div class="how">
+      <div class="card"><h3>Logged before the outcome</h3><p>A call is written down with the time and the price when the desk makes it, before anyone knows how it goes. It shows here after a delay; holders of the token see calls as they happen.</p></div>
+      <div class="card"><h3>Scored by the clock</h3><p>Each call is scored at exactly 1, 3 and 7 days from when it was logged, from Hyperliquid's price at that moment, not when someone looked. Tracked traders' positions also at 14 and 30.</p></div>
+      <div class="card"><h3>Nothing taken out</h3><p>A call is never edited or deleted. One that should not count is voided, with its reason, and stays on this page. Calls logged before the chain began are marked backfilled.</p></div>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap">
+  <span>Context, not advice. Past calls say nothing certain about the next one.</span>
+  <span><a href="/r/receipts.json">Data</a> · <a href="/r/ledger.json">Chain</a></span>
+</div></footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const nf = new Intl.NumberFormat("en-US");
+const pct = (x, d = 1) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d) + "%";
+const when = (t) => { const d = new Date(t * 1000);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) + ", " +
+    d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }); };
+const px = (x) => x == null ? "–" : x >= 1000 ? nf.format(Math.round(x)) : x >= 1 ? x.toFixed(2) : x.toPrecision(3);
+const LABEL = { "desk setup": "Desk setups", "smart-money alert": "Alerts", "convergence": "Convergences",
+  "tracked trader": "Tracked traders", "brief setup": "Brief setups" };
+
+let DATA = null, FILTER = "all", SHOWVOID = true, SHOWN = 30;
+
+function share(h) { return h ? Math.round(100 * h.right_way / h.n) + "%" : "–"; }
+function hcell(h) {
+  if (!h) return '<span class="muted">–</span>';
+  return `<span class="num">${share(h)}</span> <span class="med num">${pct(h.median_pct)}</span>`;
+}
+function ret(x) { return x == null ? '<span class="ret p" title="not reached yet"><span class="lg">pending</span><span class="sm">·</span></span>'
+  : `<span class="ret ${x > 0 ? "u" : x < 0 ? "d" : "p"}">${pct(100 * x)}</span>`; }
+
+function renderTop(d) {
+  const delay = d.delay_hours, all = d.summary.all, h7 = all.horizons["7d"], h1 = all.horizons["1d"];
+  $("#lede").textContent = `Outrider's desk logs each call before the outcome. It appears here ${delay >= 24 ? (delay / 24 === 1 ? "a day" : (delay / 24).toFixed(0) + " days") : delay + " hours"} later with how it went at 1, 3 and 7 days. Nothing is taken out: a voided call stays, with the reason.`;
+  const notyet = (el) => { el.innerHTML = '<span class="notyet">Not yet</span>'; };
+  if (!h7) notyet($("#k7"));
+  if (!h1) notyet($("#k1"));
+  if (h7) {
+    $("#k7").textContent = share(h7);
+    $("#k7s").innerHTML = `<span class="num">${nf.format(h7.right_way)}</span> of <span class="num">${nf.format(h7.n)}</span> calls moved their way. Median move their way <span class="num ${h7.median_pct >= 0 ? "up" : "down"}">${pct(h7.median_pct)}</span>.`;
+  }
+  if (h1) { $("#k1").textContent = share(h1);
+    $("#k1s").innerHTML = `<span class="num">${nf.format(h1.n)}</span> scored · median <span class="num ${h1.median_pct >= 0 ? "up" : "down"}">${pct(h1.median_pct)}</span>`; }
+  else { $("#k1s").textContent = "No call has reached a day yet."; }
+  $("#kn").textContent = nf.format(all.calls);
+  $("#kns").innerHTML = [all.void ? `<span class="num">${all.void}</span> voided, still listed` : "none voided",
+    d.withheld ? `<span class="num">${d.withheld}</span> more inside the ${d.delay_hours}h delay` : ""].filter(Boolean).join(" · ");
+  const scored = d.calls.filter((c) => !c.void && c.returns["7d"] != null).slice(0, 240).reverse();
+  $("#cells").className = "cells" + (scored.length && scored.length <= 90 ? " few" : "");
+  $("#cells").innerHTML = scored.map((c) => `<i class="${c.returns["7d"] > 0 ? "u" : "d"}" title="${esc(c.coin)} ${esc(c.side)} ${pct(100 * c.returns["7d"])}"></i>`).join("");
+  $("#legend").hidden = !scored.length;
+  $("#head").innerHTML = d.chain.length ? `head <span class="h" title="${esc(d.chain.head)}">${esc(d.chain.head.slice(0, 16))}…${esc(d.chain.head.slice(-8))}</span> · <span class="num">${nf.format(d.chain.length)}</span>&nbsp;links` : "";
+
+  const kinds = Object.keys(d.summary).filter((k) => k !== "all");
+  $("#bysrc").innerHTML = kinds.length ? kinds.map((k) => { const s = d.summary[k];
+    return `<tr><td>${esc(LABEL[k] || k)}</td><td class="n num">${nf.format(s.calls)}${s.void ? ` <span class="voidn">+${s.void} void</span>` : ""}</td>
+      <td class="n">${hcell(s.horizons["1d"])}</td><td class="n hide-sm">${hcell(s.horizons["3d"])}</td>
+      <td class="n">${hcell(s.horizons["7d"])}</td><td class="n hide-sm">${hcell(s.horizons["30d"])}</td></tr>`; }).join("")
+    : '<tr><td colspan="6" class="empty"><b>The record starts when the desk goes live.</b>Each call appears here after the delay, scored as its days pass.</td></tr>';
+
+  const counts = { all: d.calls.length };
+  d.calls.forEach((c) => { counts[c.source] = (counts[c.source] || 0) + 1; });
+  $("#filters").innerHTML = [["all", "All"], ...kinds.map((k) => [k, LABEL[k] || k])].map(([k, l]) =>
+    `<button data-f="${esc(k)}" class="${FILTER === k ? "on" : ""}">${esc(l)} <span class="num muted">${counts[k] || 0}</span></button>`).join("") +
+    `<label><input type="checkbox" id="showvoid" ${SHOWVOID ? "checked" : ""}> voided</label>`;
+  document.querySelectorAll("#filters button").forEach((b) => b.onclick = () => { FILTER = b.dataset.f; SHOWN = 30; renderTop(DATA); });
+  $("#showvoid").onchange = (e) => { SHOWVOID = e.target.checked; renderRows(); };
+  renderRows();
+}
+
+function renderRows() {
+  const d = DATA;
+  const rows = d.calls.filter((c) => (FILTER === "all" || c.source === FILTER) && (SHOWVOID || !c.void));
+  $("#rows").innerHTML = rows.length ? rows.slice(0, SHOWN).map((c) => `<tr class="${c.void ? "void" : ""}">
+      <td class="when num">${when(c.ts)}</td>
+      <td class="what"><span class="cs"><span class="coin">${esc(c.coin)}</span> <span class="side ${esc(c.side)}">${esc(c.side)}</span></span>${c.posted ? '<span class="tag">posted</span>' : ""}${c.backfilled ? '<span class="tag" style="color:var(--t3);background:var(--s2)">backfilled</span>' : ""}
+        <div class="src">${esc(LABEL[c.source] ? LABEL[c.source].replace(/s$/, "") : c.source)}${c.void ? ` · <span class="why">void: ${esc(c.void)}</span>` : ""}</div></td>
+      <td class="n num entry">${px(c.entry)}</td>
+      <td class="n r" data-h="1d">${ret(c.returns["1d"])}</td><td class="n r" data-h="3d">${ret(c.returns["3d"])}</td><td class="n r" data-h="7d">${ret(c.returns["7d"])}</td></tr>`).join("")
+    : '<tr><td colspan="6" class="empty"><b>No calls to show yet.</b>Calls appear here after the delay, newest first, misses included.</td></tr>';
+  $("#more").hidden = rows.length <= SHOWN;
+}
+$("#more").onclick = () => { SHOWN += 60; renderRows(); };
+
+// the chain, checked here: hash = sha256(prev + ":" + body_hash), body_hash = sha256(body) where the body is shown
+async function sha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function checkChain() {
+  const set = (cls, text) => { $("#check").className = "check " + cls; $("#checktext").textContent = text;
+    $("#chainmark").className = "chainmark " + cls; $("#chainmarktext").textContent = cls === "ok" ? "chain checked" : cls === "bad" ? "chain broken" : "chain"; };
+  if (!(window.crypto && crypto.subtle)) { set("", "Open this page over https to check the chain in your browser."); return; }
+  try {
+    const { entries } = await fetch("/r/ledger.json").then((r) => r.json());
+    let prev = "0".repeat(64), shown = 0;
+    for (const e of entries) {
+      if (e.prev !== prev) { set("bad", `Broken at link ${e.seq}: it does not follow the one before.`); return; }
+      if (e.body != null) { shown++; if ((await sha256(e.body)) !== e.body_hash) { set("bad", `Broken at link ${e.seq}: its content changed.`); return; } }
+      if ((await sha256(prev + ":" + e.body_hash)) !== e.hash) { set("bad", `Broken at link ${e.seq}.`); return; }
+      prev = e.hash;
+    }
+    if (!entries.length) { set("", "Nothing logged yet: the chain starts with the first call."); return; }
+    const held = entries.length - shown;
+    set("ok", `${nf.format(entries.length)} links checked in your browser: unbroken.` + (held ? ` ${nf.format(held)} still inside the delay, shown by hash only.` : ""));
+  } catch (e) { set("", "Could not check the chain right now."); }
+}
+
+fetch("/r/receipts.json").then((r) => r.json()).then((d) => { DATA = d; renderTop(d); })
+  .catch(() => { $("#rows").innerHTML = '<tr><td colspan="6" class="empty">The record could not be loaded. Try again in a minute.</td></tr>'; });
+checkChain();
+</script>
+</body>
+</html>

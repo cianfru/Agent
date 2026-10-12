@@ -179,18 +179,20 @@ gate = gate_mod.from_settings(settings)
 SESSION_COOKIE = "desk_session"
 
 
-def _dashboard_csp() -> str:
-    """The dashboard runs only its own inline script (by hash): text from a feed that reached the page as HTML
-    could not run code, or send the API key it keeps in the browser anywhere."""
-    html = (STATIC / "dashboard.html").read_text()
+def _page_csp(name: str) -> str:
+    """A page runs only its own inline script (by hash): text from a feed that reached the page as HTML could not
+    run code, or send the API key the dashboard keeps in the browser anywhere."""
+    html = (STATIC / name).read_text()
     scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
     hashes = " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(x.encode()).digest()).decode()}'" for x in scripts)
     return (f"default-src 'self'; script-src {hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
             "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 
-DASHBOARD_HEADERS = {"content-security-policy": _dashboard_csp(), "x-content-type-options": "nosniff",
+DASHBOARD_HEADERS = {"content-security-policy": _page_csp("dashboard.html"), "x-content-type-options": "nosniff",
                      "referrer-policy": "no-referrer"}
+RECEIPTS_HEADERS = {"content-security-policy": _page_csp("receipts.html"), "x-content-type-options": "nosniff",
+                    "referrer-policy": "strict-origin-when-cross-origin", "cache-control": "public, max-age=300"}
 
 
 @contextlib.asynccontextmanager
@@ -316,6 +318,12 @@ def _cached(key: str, build, ttl: float = 60) -> dict:
 
 
 PUBLIC_HEADERS = {"cache-control": "public, max-age=60", "access-control-allow-origin": "*"}
+
+
+@app.get("/r", include_in_schema=False)
+def receipts_page():
+    """The public record's page (no key): it reads /r/receipts.json and checks /r/ledger.json in the browser."""
+    return FileResponse(STATIC / "receipts.html", headers=RECEIPTS_HEADERS)
 
 
 @app.get("/r/receipts.json")

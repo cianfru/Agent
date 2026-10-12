@@ -253,6 +253,7 @@ brief, Follow). Bright, chart-first, dark and light, phone and desktop (`synth/s
 | `POST /posts/{id}/publish` | Approve a draft: publish it via Orbio |
 | `POST /cycle` | Run one poll now |
 | `GET /backup` | A consistent copy of the whole SQLite database, for keeping off the server |
+| `GET /r` | The public record's page (no key) |
 | `GET /r/receipts.json` | The public record: every call logged `RECEIPTS_DELAY_H`+ hours ago and how it went (no key) |
 | `GET /r/ledger.json` | The hash chain behind it, calls inside the delay withheld (no key) |
 
@@ -261,6 +262,8 @@ brief, Follow). Bright, chart-first, dark and light, phone and desktop (`synth/s
 ## The public record (receipts)
 
 Every call the agent logs (smart-money alerts, desk setups, convergences, tracked traders' new positions, brief setups) is public `RECEIPTS_DELAY_H` hours after it was logged (24 by default; holders see calls live on the desk): `GET /r/receipts.json`, no key. Each call shows when it was logged, the coin, side and entry, its results at 1/3/7 (and 14/30) days, whether and when it was posted, and its void reason if voided. Misses and voided calls stay in. The reasons behind a call (the thesis, and any wallet addresses) are not shown, but their hash is, so they can be shown later and checked.
+
+**The page** (`/r`, no key; `synth/static/receipts.html`): the record for people arriving from X, phone first, dark and light. It shows the share of calls that moved their way at 7 and 1 days, every call by kind, and every call newest first with its 1/3/7-day results, misses and voided calls included. The reader's own browser recomputes the whole chain and says whether it is unbroken.
 
 **Checkable by anyone.** Every change to a pick (logged, scored, voided, posted) is an entry in one hash chain (the `ledger` table): each entry's hash is `sha256(prev + ":" + sha256(body))`, and the first `prev` is 64 zeros. `GET /r/ledger.json` publishes the whole chain. Entries about calls still inside the delay keep their hashes but not their bodies. So anyone can recompute the chain, see that nothing was changed, dropped or added later, and, once a body is shown, check it is the one hashed back then. Picks logged before the chain existed joined it once, marked `backfilled`.
 

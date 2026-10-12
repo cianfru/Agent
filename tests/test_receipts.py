@@ -98,3 +98,7 @@ def test_public_routes_need_no_key(tmp_path, monkeypatch):
     r = c.get("/r/receipts.json")
     assert r.status_code == 200 and r.json()["calls"][0]["coin"] == "HYPE" and "max-age=60" in r.headers["cache-control"]
     assert check_like_an_outsider(c.get("/r/ledger.json").json()["entries"])
+    page = c.get("/r")
+    assert page.status_code == 200 and "Every call, scored." in page.text
+    csp = page.headers["content-security-policy"]
+    assert "script-src 'sha256-" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
