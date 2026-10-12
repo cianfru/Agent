@@ -53,7 +53,7 @@ class GroupTracker:
             if g["venue"] != "derive":
                 continue
             if not self.s.derive_groups or g["meta"].get("detector") != DERIVE_DETECTOR:
-                self.store.delete_group(g["id"])
+                self.store.delete_group(g["id"], "Derive group purged: groups off or from the old detector")
                 log.info("purged Derive group #%s", g["id"])
 
     # ------------------------------------------------------------------ step --

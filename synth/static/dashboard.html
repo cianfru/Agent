@@ -439,7 +439,7 @@ async function loadDesk() {
   $("#headline").innerHTML = c.share_long == null ? "Waiting for the first readings." :
     `Profitable traders are <span class="${cls(c.share_long)}">${c.share_long.toFixed(0)}% long</span>` +
     (bm.share_long != null ? (leanWord(bm.share_long) === "balanced" ? `; big money is <span>balanced</span>` : `; big money leans <span class="${cls(bm.share_long)}">${leanWord(bm.share_long)}</span>`) : "") +
-    (cy && cy.type ? `; market <span class="acc">risk-${cy.type}</span> for ${cy.age_days} days.` : ".");
+    (cy && cy.type ? `; market <span class="acc">risk-${esc(cy.type)}</span> for ${esc(cy.age_days)} days.` : ".");
   $("#subline").textContent = [
     c.change_24h != null ? `Crowd ${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} points in 24h.` : "",
     bm.share_long != null ? `Big money (accounts of $500K+ in profit all-time, one vote per owner): ${bm.share_long.toFixed(0)}% of their positions long, ${usd(bm.long_usd)} long against ${usd(bm.short_usd)} short.` : "",
@@ -450,7 +450,7 @@ async function loadDesk() {
     tile("Crowd long", c.share_long == null ? "-" : c.share_long.toFixed(1) + "%", c.change_24h == null ? "profitable traders" : `${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} pts 24h`, cls(c.share_long), spark(c.spark, cssv("--crowd"))) +
     tile("Big money long", bm.share_long == null ? "-" : bm.share_long.toFixed(0) + "%", bm.ts ? `${bm.owners ? bm.owners + " owners" : "owners"} · ${ago(bm.ts)} ago` : "first scan pending", cls(bm.share_long)) +
     tile("Tracked long", tr.share_long == null ? "-" : tr.share_long.toFixed(0) + "%", `${tr.traders} traders · ${tr.riding} riding`, cls(tr.share_long)) +
-    tile("Uptrend share", cy && cy.uptrend != null ? cy.uptrend.toFixed(0) + "%" : "-", cy && cy.type ? `risk-${cy.type} · day ${cy.age_days}` : "Reflex history pending", cy && cy.type === "on" ? "up" : cy && cy.type === "off" ? "down" : "") +
+    tile("Uptrend share", cy && cy.uptrend != null ? cy.uptrend.toFixed(0) + "%" : "-", cy && cy.type ? `risk-${esc(cy.type)} · day ${esc(cy.age_days)}` : "Reflex history pending", cy && cy.type === "on" ? "up" : cy && cy.type === "off" ? "down" : "") +
     tile("BTC", k.btc && k.btc.price ? px(k.btc.price) : "-", k.btc && k.btc.change_24h != null ? pct(k.btc.change_24h) + " 24h" : "", k.btc && k.btc.change_24h > 0 ? "up" : k.btc && k.btc.change_24h < 0 ? "down" : "") +
     tile("Alerts, 24h", k.alerts_24h, "build-ups, conviction, groups", k.alerts_24h ? "acc" : "");
   renderDirection(); renderCrowd(); renderMoving();
@@ -465,7 +465,7 @@ function alertCard(a) {
   let head = a.text, body = "", bm = "";
   const m = a.text.match(/^Building · (\S+) (long|short): (\d+) tracked traders added (\S+) in 3 days · ([^\n]*)/);
   if (m) {
-    head = `${m[1]} <span class="${m[2]}">${m[2]}</span>`;
+    head = `${esc(m[1])} <span class="${m[2]}">${m[2]}</span>`;
     body = `${m[3]} tracked traders added ${m[4]} in 3 days${/n\/a/.test(m[5]) ? "" : " · " + m[5].split(" · ")[0]}`;
     const b = a.text.match(/Big money \(daily\): ([^\n]*), (agrees|leans the other way|is split)/);
     if (b) bm = `<span class="${b[2] === "agrees" ? "up-t" : b[2] === "is split" ? "muted" : "down-t"}">big money ${b[2]}</span> <span class="muted">(${esc(b[1])})</span>`;
@@ -535,9 +535,9 @@ function renderResearch() {
   if (mc && mc.rows && mc.rows.length) {
     const cy = mc.cycle || {};
     $("#cycle").innerHTML = `<div class="kv"><span><b>Today</b>${mc.rows[mc.rows.length - 1][1].toFixed(0)}% of coins in an uptrend</span>
-      ${cy.type ? `<span><b>Run</b>risk-${cy.type} since ${esc(cy.start)}, day ${cy.age_days}</span>
-      <span><b>Past risk-${cy.type} runs</b>${cy.past_runs}, median ${Math.round(cy.median_days || 0)} days</span>
-      <span><b>Reached day ${cy.age_days}</b>${cy.reached_age}; ${cy.lasted_30_more} of them lasted 30 more</span>` : ""}
+      ${cy.type ? `<span><b>Run</b>risk-${esc(cy.type)} since ${esc(cy.start)}, day ${esc(cy.age_days)}</span>
+      <span><b>Past risk-${esc(cy.type)} runs</b>${esc(cy.past_runs)}, median ${Math.round(cy.median_days || 0)} days</span>
+      <span><b>Reached day ${esc(cy.age_days)}</b>${esc(cy.reached_age)}; ${esc(cy.lasted_30_more)} of them lasted 30 more</span>` : ""}
       ${mc.today && mc.today.percentile != null ? `<span><b>Percentile since 2019</b>${mc.today.percentile}</span>` : ""}</div><div class="chart" id="cyclechart"></div>`;
     const rows = mc.rows, xs = rows.map((x) => Date.parse(x[0]) / 1000);
     stackChart($("#cyclechart"), xs, [{ label: "Coins in an uptrend", vals: rows.map((x) => x[1]), color: cssv("--accent"), h: 170,
@@ -571,7 +571,7 @@ function renderResearch() {
     }
   });
   const f = r.forward || {}, fa = f.all || {}, fc = f.conviction || {};
-  const fm = (x, h) => x && x[h] && x[h].n ? `${pct(x[h].median_pct)} · ${x[h].positive_pct.toFixed(0)}% up · n ${x[h].n}` : "not scored yet";
+  const fm = (x, h) => x && x[h] && x[h].n ? `${pct(x[h].median_pct)} · ${x[h].positive_pct.toFixed(0)}% up · n ${x[h].n}${x[h].due > x[h].n ? ` of ${x[h].due} due` : ""}` : "not scored yet";
   $("#fwd").innerHTML = `<span><b>Logged</b>${fa.logged || 0} positions, ${fc.logged || 0} conviction</span><span><b>All, 14d</b>${fm(fa, "14d")}</span>
     <span><b>All, 30d</b>${fm(fa, "30d")}</span><span><b>Conviction, 30d</b>${fm(fc, "30d")}</span>`;
 }
@@ -637,7 +637,7 @@ function renderTraders() {
   $("#ptkept").innerHTML = rf && rf.pool ? `List kept current: <b>${rf.proven}</b> proven now · <span class="long">${rf.joined_7d} joined</span> · <span class="short">${rf.dropped_7d} dropped</span> this week · ${rf.checked} of ${rf.pool} candidates read${rf.waiting ? ` (${rf.waiting} waiting)` : ""}` : "";
   $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3's rule, rerun on every candidate: Reflex's roster rule, $500K+ accounts in profit, the listed; new names first, listed traders every 2 days, the rest weekly; one who stops qualifying drops after 30 days). Riding winners: $250K+ open profit with a real winner (found daily among $500K+ accounts), or any account holding a position 14+ days that is up 30%+ on price or 200%+ on margin with $10K+ of profit; in profit all-time. Every profitable account of $10K+ is read once a day; a big open winner sends the wallet to the front of the refresh, which reads how long it has been open.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
   const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
-  const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
+  const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}${r[h].due > r[h].n ? ` of ${r[h].due}` : ""}</span>` : "-";
   $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>
     <span><b>All, 14d / 30d</b>${fm(fa, "14d")} / ${fm(fa, "30d")}</span><span><b>Conviction, 14d / 30d</b>${fm(fc, "14d")} / ${fm(fc, "30d")}</span>`;
   const traders = d.traders.filter((t) => ptFilter === "all" || (ptFilter === "lev" ? t.moderate : t.tier === ptFilter));
@@ -738,7 +738,7 @@ async function loadBrief() {
     const b = await api("/brief");
     $("#briefinfo").textContent = `written ${ago(b.ts)} ago`;
     const sec = (title, rows) => rows && rows.length ? `<h2 style="margin-top:4px">${title}</h2>` +
-      rows.map((r) => `<div class="setup"><span class="${r.lean || r.side || r.direction || "none"}">${esc(r.text)}</span></div>`).join("") : "";
+      rows.map((r) => `<div class="setup"><span class="${esc(r.lean || r.side || r.direction || "none")}">${esc(r.text)}</span></div>`).join("") : "";
     $("#briefbody").innerHTML = sec("Derive smart wallets", b.derive) + sec("Hyperliquid today", b.hyperliquid) +
       ((b.groups || []).length ? sec("Open groups", b.groups) : '<h2>Open groups</h2><div class="empty">None open.</div>');
   } catch (e) { $("#briefbody").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
@@ -752,7 +752,7 @@ async function loadPosts() {
   $("#postmode").textContent = p.mode === "live" ? "Mode: live (publishes through Orbio)" : "Mode: draft (nothing posts until you publish)";
   $("#postlist").innerHTML = p.posts.length ? p.posts.map((x) => `<div class="post">
     <div class="kv"><span><b>#${x.id}</b>${esc(x.kind)}</span><span><b>status</b>${esc(x.status)}</span><span><b>${ago(x.ts)} ago</b></span>
-      <span><b>chars</b>${x.text.length}</span>${x.url ? `<span><a href="${esc(x.url)}" target="_blank" rel="noopener">open on X</a></span>` : ""}</div>
+      <span><b>chars</b>${x.text.length}</span>${x.url && /^https:\/\//.test(x.url) ? `<span><a href="${esc(x.url)}" target="_blank" rel="noopener">open on X</a></span>` : ""}</div>
     <pre>${esc(x.text)}</pre>${x.error ? `<div class="short" style="margin-top:6px">${esc(x.error)}</div>` : ""}
     ${["draft", "failed"].includes(x.status) ? `<div style="margin-top:8px"><button class="btn primary" data-pub="${x.id}">Publish to X</button></div>` : ""}
   </div>`).join("") : `<div class="empty">No posts yet.</div>`;
@@ -769,16 +769,17 @@ $("#mkscore").onclick = async () => { try { await api("/posts/scorecard", { meth
 // ---- picks
 async function loadPicks() {
   const { picks } = await api("/picks?limit=200");
-  const done = picks.filter((p) => p.ret_7d != null), wins = done.filter((p) => p.ret_7d > 0);
+  const valid = picks.filter((p) => !p.void_reason);   // voided picks are listed with their reason, never counted
+  const done = valid.filter((p) => p.ret_7d != null), wins = done.filter((p) => p.ret_7d > 0);
   const avg = done.length ? done.reduce((s, p) => s + p.ret_7d, 0) / done.length * 100 : null;
-  $("#score").innerHTML = `<span><b>Picks</b>${picks.length}</span><span><b>Scored 7d</b>${done.length}</span>
+  $("#score").innerHTML = `<span><b>Picks</b>${valid.length}${picks.length > valid.length ? ` (+${picks.length - valid.length} void)` : ""}</span><span><b>Scored 7d</b>${done.length}</span>
     <span><b>Right way</b>${done.length ? wins.length + "/" + done.length : "-"}</span><span><b>Avg 7d</b>${avg == null ? "-" : pct(avg)}</span>`;
   const r = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : "short"}">${pct(x * 100)}</span>`;
   $("#picktable tbody").innerHTML = picks.length ? picks.map((p) => `<tr>
     <td class="n">${p.id}</td><td class="n">${new Date(p.ts * 1000).toISOString().slice(5, 16).replace("T", " ")}</td>
     <td>${esc(p.origin)}</td><td><b>${esc(p.coin)}</b></td><td>${side(p.direction)}</td><td class="n">${px(p.entry_price)}</td>
     <td class="n">${r(p.ret_1d)}</td><td class="n">${r(p.ret_3d)}</td><td class="n">${r(p.ret_7d)}</td>
-    <td class="muted" style="min-width:240px">${esc(p.thesis)}</td></tr>`).join("")
+    <td class="muted" style="min-width:240px">${p.void_reason ? `<b>void:</b> ${esc(p.void_reason)} · ` : ""}${esc(p.thesis)}</td></tr>`).join("")
     : `<tr><td colspan="10" class="empty">No picks yet. Alerts with conviction 3+, brief setups and desk posts land here.</td></tr>`;
 }
 

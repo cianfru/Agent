@@ -87,7 +87,8 @@ def assemble(p: DeskPost, pick_no: int | None, day: dt.date) -> str:
 
 
 def scorecard(picks: list[dict], day: dt.date) -> str | None:
-    """Weekly public scorecard over published-post picks that have a 7-day result. Pure."""
+    """Weekly public scorecard over every logged desk setup that has a 7-day result: posted or not, so a setup left
+    unposted cannot drop out of the count (how many were not posted is said). Pure."""
     done = [p for p in picks if p.get("ret_7d") is not None]
     if not done:
         return None
@@ -106,6 +107,9 @@ def scorecard(picks: list[dict], day: dt.date) -> str | None:
         f"Average move their way: {avg * 100:+.1f}%",
         f"Best: {fmt(best)}",
         f"Worst: {fmt(worst)}",
-        "Every setup counted, misses included.",
     ]
+    unposted = sum(1 for p in done if not p.get("published_ts"))
+    if unposted:
+        lines.append(f"Logged but not posted: {unposted}")
+    lines.append("Every setup counted, misses included.")
     return "\n".join(lines)

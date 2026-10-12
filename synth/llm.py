@@ -12,6 +12,8 @@ from typing import Literal
 import anthropic
 from pydantic import BaseModel, Field
 
+LLM_TIMEOUT_S = 120.0   # per try; the SDK's default is 10 minutes
+
 SYSTEM = """You are a crypto market-structure analyst. You receive machine data from two in-house scanners:
 
 - Reflex (RCCE engine): per-coin regime (ACCUM, MARKUP, BLOWOFF, REACC, MARKDOWN, CAP, ...), z-score, heat (0-100, >80 is overheated), signals (STRONG_LONG, LIGHT_LONG, ACCUMULATE, WAIT, TRIM, RISK_OFF, ...), 4h/1d confluence, and Hyperliquid smart-wallet positioning.
@@ -59,7 +61,7 @@ class Synthesizer:
     def __init__(self, model: str, effort: str = "low", client: anthropic.Anthropic | None = None):
         self.model = model
         self.effort = effort
-        self.client = client or anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic(timeout=LLM_TIMEOUT_S, max_retries=2)
 
     def _parse(self, schema: type[BaseModel], task: str, payload: dict, max_tokens: int = 4000):
         response = self.client.messages.parse(
@@ -138,7 +140,7 @@ class PersonaWriter:
     def __init__(self, model: str, effort: str = "medium", client: anthropic.Anthropic | None = None):
         self.model = model
         self.effort = effort
-        self.client = client or anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic(timeout=LLM_TIMEOUT_S, max_retries=2)
 
     def write(self, system: str, task: str) -> tuple[str, dict]:
         params = {

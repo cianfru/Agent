@@ -292,10 +292,17 @@ def hyperliquid_stories(alerts: list[dict], builds: list[dict]) -> list[dict]:
     return out
 
 
-def open_winner_stories(winners: list[dict]) -> list[dict]:
-    """A Hyperliquid wallet sitting on a big winner for a month or more: held, up on price, on margin, open profit."""
+WINNER_FRESH_S = 6 * 3600   # "still open" is said only of a position read in the last 6 hours
+
+
+def open_winner_stories(winners: list[dict], now: float | None = None) -> list[dict]:
+    """A Hyperliquid wallet sitting on a big winner for a month or more: held, up on price, on margin, open profit.
+    Only from a recent read, since the story says it is still open."""
+    now = now or time.time()
     out = []
     for w in winners:
+        if not w.get("as_of") or now - w["as_of"] > WINNER_FRESH_S:
+            continue
         if (w.get("held_days") or 0) < 30 or (w.get("move") or 0) < 0.5 or w["upnl"] < 50_000:
             continue
         since = dt.date.fromisoformat(w["since"]).strftime("%-d %b") if w.get("since") else None
@@ -346,7 +353,7 @@ def find_stories(data: dict, alerts: list[dict], builds: list[dict], now: float,
     q, m = data.get("questions") or {}, data.get("markets") or {}
     return (settled_stories(q, data.get("histories") or {}, now) + lean_stories(q) + saloon_stories(q)
             + walls_stories(m) + wallet_stories(data.get("traders") or {}) + herd_story(m)
-            + hyperliquid_stories(alerts, builds) + open_winner_stories(winners or []))
+            + hyperliquid_stories(alerts, builds) + open_winner_stories(winners or [], now))
 
 
 def choose(stories: list[dict], recent: list[dict], now: float) -> dict | None:

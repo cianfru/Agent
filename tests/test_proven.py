@@ -233,3 +233,35 @@ def test_margin_alone_can_make_a_long_held_winner():
     assert r and r["best"]["move"] == 0.15 and r["best"]["roe"] == 6.74     # +15% on price, +674% on margin
     low = {"W": {**live["W"], "roe": 1.5}}
     assert P.rides_long_winner(P.live_summary(low, coins, 50_000, NOW), {}, NOW) is None
+
+
+def test_a_cut_loser_held_as_a_small_winning_remnant_is_still_a_loser():
+    # five longs, each cut 90% at -40%, the remnant up $100 now: -$3,500 each, not +$100
+    fs = []
+    for i in range(5):
+        t0 = NOW_MS - (60 - 10 * i) * DAY_MS
+        fs += [fill(f"C{i}", t0, 100, 100, "B", 0), fill(f"C{i}", t0 + DAY_MS, 60, 90, "A", 100)]
+    coins = {}
+    closed = P.fold(coins, P.compact(fs))
+    assert closed == [] and coins["C0"]["seg"]["pnl"] == -3600.0
+    live = {f"C{i}": {"side": "long", "size": 10.0, "entry_px": 100.0, "notional": 1100.0, "upnl": 100.0}
+            for i in range(5)}
+    summary, entry = P.evaluate(W, closed, coins, live, NOW_MS)
+    assert summary["swing_pnl"] == 5 * -3500 and not summary["proven"] and entry is None
+
+
+def test_a_flip_closes_the_old_side_at_its_own_size():
+    # long 1 @100, then sell 11 @110: the long closed was $110 at most, not the $1,100 short that follows
+    coins = {}
+    closed = P.fold(coins, P.compact([fill("X", 0, 100, 1, "B", 0), fill("X", 4 * DAY_MS, 110, 11, "A", 1)]))
+    assert closed == [["X", "long", 0, 4 * DAY_MS, 110.0, 10.0]]
+    assert coins["X"]["seg"] == {"side": "short", "t0": 4 * DAY_MS, "pnl": 0.0, "size": 1100.0}
+
+
+def test_a_flip_out_of_a_position_opened_before_the_read_starts_the_new_side():
+    # long 1 from before the first fill read (entry unknown), sells 11: the short that follows has a known entry
+    coins = {}
+    assert P.fold(coins, P.compact([fill("ETH", 0, 100, 11, "A", 1)])) == []
+    assert coins["ETH"]["seg"]["side"] == "short" and coins["ETH"]["pos"] == -10.0
+    closed = P.fold(coins, P.compact([fill("ETH", 5 * DAY_MS, 80, 10, "B", -10)]))
+    assert closed == [["ETH", "short", 0, 5 * DAY_MS, 1000.0, 200.0]]

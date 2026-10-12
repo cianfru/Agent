@@ -38,6 +38,9 @@ Each poll (every 5 minutes by default) runs four steps:
    The same event is not repeated within 12 hours. The first poll of a source only sets the baseline and sends no alerts.
 3. **Alert** (`synth/llm.py`, `synth/notify.py`). Events scoring at least `SYNTH_ALERT_MIN_SCORE` (default 60), at most 5 per poll, go to the model together with everything both products say about that coin. The model returns structured JSON: headline, direction, conviction 1-5, why it matters, and what confirms or contradicts it. That JSON is pushed to Telegram.
 4. **Journal.** Alerts with conviction 3 or higher, and every brief setup, are logged with their entry price. Their 1d, 3d and 7d returns are filled in automatically (`GET /picks`).
+   - Each horizon is scored at the horizon itself: from the live price in the first half hour after it, and later (the agent was down) from Hyperliquid's 15-minute candle at that moment, never from today's price. A coin with no Hyperliquid history stays unscored rather than scored at the wrong time.
+   - A result is written once and never overwritten.
+   - The journal is append-only: a pick is never deleted or edited. One that should not count (a draft rejected, a false group purged) is voided with its reason and still listed by `GET /picks`.
 
 **Cost.** With Claude Haiku 5.5 ($0.10/$0.50 per million tokens), an alert is about 3K tokens and a brief about 10-15K tokens, roughly $0.001 each. To have the daily brief written by a stronger model, set `SYNTH_BRIEF_MODEL=claude-opus-5-5`; alerts stay on Haiku.
 
@@ -74,7 +77,8 @@ Where it shows:
 
 Two groups, both read every poll from Hyperliquid's public API, one light request per trader (`synth/position_traders.py`):
 - **Proven** (study S3 with the owner's amendment; started from `synth/data/position_traders.json`, 100 on 10 October 2026): 5+
-  positions held 3+ days, **open ones counted at their unrealised PnL**, those positions at least half the size the
+  positions held 3+ days, **open ones counted at what was already taken off them plus their unrealised PnL** (a loser cut
+  to a small winning remnant still reads as a loser), those positions at least half the size the
   trader trades, in profit with a profit factor of 1.5+. Closed positions are not the only record: the trader who opened
   NEAR near the bottom and still holds it counts.
   **Kept current** (`synth/proven.py`): the rule is rerun in the background on a pool rebuilt daily from the leaderboard
@@ -96,8 +100,10 @@ Two groups, both read every poll from Hyperliquid's public API, one light reques
 - **Open winners** (desk, Traders tab): the biggest unrealised profits among everyone the agent reads (every profitable
   $10K+ account daily, the refresh pool at its last check, the tracked traders every poll), up 20%+ on price or 100%+
   on margin, $10K+, open a week or more: held since, entry,
-  up on price, return on margin and leverage as Hyperliquid shows them, open profit, share of the account. Outrider can
-  post the ones held a month or more (up 50%+ on price, $50K+).
+  up on price, return on margin and leverage as Hyperliquid shows them, open profit, share of the account. Only from a
+  read in the last 36 hours (an older one may describe a position long closed), held counted to that read; the daily
+  scan reads again every wallet it has a winner on file for, so a closed one drops off. Outrider can post the ones held a
+  month or more (up 50%+ on price, $50K+), read in the last 6 hours.
 
 Leverage is shown for every trader (low under 3x, moderate 3-5x, high over 5x), never used to leave anyone out.
 
@@ -123,7 +129,11 @@ What the agent does with them:
   out (owner, 10 October 2026): they read as direction and sentiment, shown on the desk; the alert looks for coins that
   can run.
 - **Conviction alert** (at most 5 a day): a new position at least 2x the trader's usual size within 4 hours of opening.
+  One that grows into a conviction bet after it opened is logged as its own pick at the mid when it did, never at the
+  smaller open's price.
 - **Forward record:** every new position of $10K+ is a pick at Hyperliquid's mid, scored at 14 and 30 days.
+- **A read after a gap** (more than 30 minutes since the trader's last one: the agent was down, or the trader left the
+  list and came back) is a fresh starting point: what changed meanwhile makes no pick, alert or flow.
 
 Where it shows: the dashboard's **Traders** tab (by coin; what they are adding; each trader with group, record,
 leverage and positions; filters for proven, riding and leverage 5x or less), `GET /position-traders`, and `/positions`
@@ -177,12 +187,15 @@ Rules, enforced in code (`synth/post.py`):
 - Every setup is logged as a numbered pick before the outcome.
 - A failing draft is retried once with the problems fed back, then rejected.
 
-On Mondays a scorecard built in code (no model) posts the 7-day results: hits, average move, best and worst, misses included.
+On Mondays a scorecard built in code (no model) posts the 7-day results: hits, average move, best and worst, misses included. Every logged setup counts, posted or not, and the scorecard says how many were logged but not posted. A setup keeps the time and price it was logged at and, once posted, the time and Hyperliquid mid it reached X at.
 
 - `SYNTH_POST_MODE=draft` (default): posts are stored and sent to your Telegram. `POST /posts/{id}/publish` approves and publishes one.
 - `SYNTH_POST_MODE=live`: posts publish through Orbio's gateway (`social.post`, about $0.019 per post).
   - Needs `ORBIO_API_KEY`, and the desk X account connected in Orbio's dashboard (only the owner can do that).
-  - A post is never sent twice.
+  - A post is never sent twice: it is claimed (`publishing`) before the call, so a double tap or Telegram and the
+    dashboard at once send it once. `running` posts are checked each poll with Orbio's free `social.post.status`.
+    `failed` (Orbio refused it before posting) can be tried again. `unknown` (Orbio's answer was lost, or it failed
+    after the request reached it) may already be on X, so it is never sent again without the owner checking X.
 
 The agent has no token. Launching one on Orbio waits until the posts show they are useful.
 
@@ -217,7 +230,7 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 
 | Route | |
 |---|---|
-| `GET /health` | Liveness and last poll stats (no auth) |
+| `GET /health` | Liveness, last poll stats and each stage's last error (no auth); 503 when no poll finished for 3 intervals (at least 15 minutes) |
 | `GET /` | Dashboard |
 | `GET /pulse?hours=1` | Last hours' events by coin, with the pulse text |
 | `GET /board` | Smart money board: where the layers agree per coin |
@@ -225,7 +238,7 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `GET /coin/{coin}` | Both products' current view of a coin, plus 7 days of its events |
 | `GET /brief` / `POST /brief?push=true` | Latest daily brief / write one now |
 | `POST /ask` `{"question": "..."}` | Question answered from current data and the last 7 days of events |
-| `GET /picks` | Pick journal with 1d/3d/7d returns |
+| `GET /picks` | Pick journal with 1d/3d/7d returns, voided picks with their reason |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
 | `GET /desk` | The desk's home: readings, BTC and ETH direction, crowd against price, money moving, three lenses, alerts |

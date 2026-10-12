@@ -175,6 +175,15 @@ class Store:
             for col in ("ret_14d", "ret_30d"):   # added with the position traders' 14/30-day scoring
                 if col not in cols:
                     self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} REAL")
+            # the journal is append-only: a pick is voided with its reason, never deleted; a desk setup keeps the
+            # time and price it was published at beside the time and price it was logged at
+            for col, typ in (("void_reason", "TEXT"), ("published_ts", "REAL"), ("published_px", "REAL")):
+                if col not in cols:
+                    self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} {typ}")
+            if "published_ts" not in cols:      # setups already posted before the column: their post's time
+                self._db.execute("UPDATE picks SET published_ts=(SELECT MIN(published_ts) FROM posts WHERE "
+                                 "posts.pick_id=picks.id AND posts.status IN ('published','running')) "
+                                 "WHERE origin='post' AND published_ts IS NULL")
             if "size" not in {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}:
                 self._db.execute("ALTER TABLE pt_positions ADD COLUMN size REAL")
             pt_cols = {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}
@@ -276,35 +285,56 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
-    def open_picks(self, now: float | None = None) -> list[dict]:
+    def open_picks(self, now: float | None = None, window_s: float = 60 * 86400) -> list[dict]:
+        """Valid picks logged within `window_s` with a horizon still unscored (the caller decides which are due)."""
         rows = self._db.execute(
             "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d, ret_14d, ret_30d FROM picks "
-            "WHERE entry_price IS NOT NULL AND (ret_7d IS NULL OR (origin='position' AND ret_30d IS NULL AND ts > ?))",
-            ((now or time.time()) - 32 * 86400,),
+            "WHERE entry_price IS NOT NULL AND void_reason IS NULL AND ts > ? AND (ret_1d IS NULL OR ret_3d IS NULL "
+            "OR ret_7d IS NULL OR (origin='position' AND (ret_14d IS NULL OR ret_30d IS NULL)))",
+            ((now or time.time()) - window_s,),
         ).fetchall()
         return [dict(r) for r in rows]
 
     def set_pick_return(self, pick_id: int, horizon: str, ret: float) -> None:
         assert horizon in ("1d", "3d", "7d", "14d", "30d")
         with self._lock:
-            self._db.execute(f"UPDATE picks SET ret_{horizon}=? WHERE id=?", (ret, pick_id))
+            # a horizon is written once: a result is never overwritten
+            self._db.execute(f"UPDATE picks SET ret_{horizon}=? WHERE id=? AND ret_{horizon} IS NULL", (ret, pick_id))
             self._db.commit()
 
-    def picks(self, limit: int = 100, origin: str | None = None, since: float = 0) -> list[dict]:
+    def picks(self, limit: int = 100, origin: str | None = None, since: float = 0,
+              include_void: bool = False) -> list[dict]:
         q = ("SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d, "
-             "ret_14d, ret_30d "
+             "ret_14d, ret_30d, void_reason, published_ts, published_px "
              "FROM picks WHERE ts>=?")
         args: list[Any] = [since]
         if origin:
             q += " AND origin=?"
             args.append(origin)
-        q += " ORDER BY ts DESC LIMIT ?"
+        if not include_void:
+            q += " AND void_reason IS NULL"
+        q += " ORDER BY ts DESC, id DESC LIMIT ?"
         args.append(limit)
         return [dict(r) for r in self._db.execute(q, args).fetchall()]
 
-    def set_pick_conviction(self, pick_id: int, conviction: int) -> None:
+    def pick(self, pick_id: int) -> dict | None:
+        row = self._db.execute("SELECT * FROM picks WHERE id=?", (pick_id,)).fetchone()
+        return dict(row) if row else None
+
+    def void_pick(self, pick_id: int, reason: str) -> None:
+        """Take a pick out of every count, kept with its reason (the journal is never deleted from or rewritten)."""
         with self._lock:
-            self._db.execute("UPDATE picks SET conviction=? WHERE id=?", (conviction, pick_id))
+            self._db.execute("UPDATE picks SET void_reason=? WHERE id=? AND void_reason IS NULL", (reason, pick_id))
+            self._db.commit()
+
+    def mark_pick_published(self, pick_id: int, ts: float | None, px: float | None) -> None:
+        """When (and at what price) a desk setup reached X; None clears it when Orbio later reports the post failed."""
+        with self._lock:
+            if ts is None:
+                self._db.execute("UPDATE picks SET published_ts=NULL, published_px=NULL WHERE id=?", (pick_id,))
+            else:
+                self._db.execute("UPDATE picks SET published_ts=?, published_px=? WHERE id=? AND published_ts IS NULL",
+                                 (ts, px, pick_id))
             self._db.commit()
 
     # proven position traders (synth/position_traders.py) ----------------------
@@ -433,6 +463,13 @@ class Store:
         return {r[0]: json.loads(r[1]) for r in self._db.execute(
             "SELECT address, live FROM pt_cand WHERE live IS NOT NULL").fetchall()}
 
+    def pt_cand_live_addresses(self) -> set[str]:
+        return {r[0] for r in self._db.execute("SELECT address FROM pt_cand WHERE live IS NOT NULL").fetchall()}
+
+    def pt_cand_live_of(self, address: str) -> dict | None:
+        r = self._db.execute("SELECT live FROM pt_cand WHERE address=?", (address,)).fetchone()
+        return json.loads(r[0]) if r and r[0] else None
+
     def pt_cand_subs(self) -> dict[str, list]:
         return {r[0]: json.loads(r[1]) for r in self._db.execute(
             "SELECT address, subs FROM pt_cand WHERE subs IS NOT NULL AND subs != '[]'").fetchall()}
@@ -445,11 +482,6 @@ class Store:
     def pt_mark_conviction(self, row_id: int) -> None:
         with self._lock:
             self._db.execute("UPDATE pt_positions SET conviction=1 WHERE id=?", (row_id,))
-            self._db.commit()
-
-    def delete_pick(self, pick_id: int) -> None:
-        with self._lock:
-            self._db.execute("DELETE FROM picks WHERE id=?", (pick_id,))
             self._db.commit()
 
     # public posts --------------------------------------------------------
@@ -473,6 +505,16 @@ class Store:
                 f"UPDATE posts SET {', '.join(f'{k}=?' for k in cols)} WHERE id=?", (*cols.values(), pid)
             )
             self._db.commit()
+
+    def claim_post(self, pid: int, from_status: tuple[str, ...], to_status: str, ts: float | None = None) -> bool:
+        """Move a post from one of `from_status` to `to_status` in one step (noting when, as its send time); False
+        when another caller got there first (two taps on Post, or Telegram and the dashboard at once)."""
+        marks = ",".join("?" for _ in from_status)
+        with self._lock:
+            cur = self._db.execute(f"UPDATE posts SET status=?, published_ts=COALESCE(?, published_ts) "
+                                   f"WHERE id=? AND status IN ({marks})", (to_status, ts, pid, *from_status))
+            self._db.commit()
+            return cur.rowcount == 1
 
     @staticmethod
     def _post_row(row) -> dict:
@@ -534,12 +576,13 @@ class Store:
                                  (*cols.values(), gid))
                 self._db.commit()
 
-    def delete_group(self, gid: int) -> None:
-        """Remove a group, its members and its scoring pick (used to purge false groups)."""
+    def delete_group(self, gid: int, reason: str = "group purged") -> None:
+        """Remove a group and its members (used to purge false groups); its scoring pick is voided, not deleted."""
         with self._lock:
             self._db.execute("DELETE FROM members WHERE group_id=?", (gid,))
             self._db.execute("DELETE FROM groups WHERE id=?", (gid,))
-            self._db.execute("DELETE FROM picks WHERE origin='group' AND thesis=?", (f"group #{gid}",))
+            self._db.execute("UPDATE picks SET void_reason=? WHERE origin='group' AND thesis=? AND void_reason IS NULL",
+                             (reason, f"group #{gid}"))
             self._db.commit()
 
     def add_member(self, gid: int, m: dict) -> int | None:

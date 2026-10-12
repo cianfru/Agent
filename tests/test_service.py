@@ -86,11 +86,12 @@ def test_first_cycle_seeds_then_convergence_alerts_once(tmp_path):
 def test_pick_scoring(tmp_path):
     agent = make(tmp_path, [])
     pid = agent.store.add_pick("brief", "HYPE", "short", 3, 40.0, "t", {})
-    agent.store._db.execute("UPDATE picks SET ts=ts-90000 WHERE id=?", (pid,))
+    agent.store._db.execute("UPDATE picks SET ts=ts-87000 WHERE id=?", (pid,))    # 1d horizon 10 minutes ago
     snaps = {"cowboy": {"coins": {"HYPE": {"price": 36.0}}}}
-    assert agent.score_picks(snaps) == 1
+    assert asyncio.run(agent.score_picks(snaps)) == 1
     p = agent.store.picks()[0]
     assert p["ret_1d"] == 0.1 and p["ret_3d"] is None
+    assert asyncio.run(agent.score_picks({"cowboy": {"coins": {"HYPE": {"price": 30.0}}}})) == 0   # written once
 
 
 def test_digest_trims_wallets():
@@ -126,3 +127,31 @@ def test_only_smart_money_kinds_alert_and_daily_cap(tmp_path):
         assert asyncio.run(agent.cycle())["alerts"] == 1       # daily cap of 3 reached
     finally:
         detectors.run_all = orig
+
+
+def test_an_existing_journal_is_migrated_in_place(tmp_path):
+    # a database from before the append-only journal: columns are added, posted desk setups keep their post time
+    import sqlite3
+    from synth.store import Store
+    path = str(tmp_path / "old.db")
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE picks (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, origin TEXT NOT NULL,
+            coin TEXT NOT NULL, direction TEXT NOT NULL, conviction INTEGER, entry_price REAL, thesis TEXT,
+            state TEXT NOT NULL, ret_1d REAL, ret_3d REAL, ret_7d REAL);
+        CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, kind TEXT NOT NULL,
+            text TEXT NOT NULL, status TEXT NOT NULL, pick_id INTEGER, orbio_post_id TEXT, url TEXT, error TEXT,
+            published_ts REAL);
+        INSERT INTO picks(ts, origin, coin, direction, entry_price, thesis, state) VALUES (100, 'post', 'HYPE', 'long', 40, 't', '{}');
+        INSERT INTO picks(ts, origin, coin, direction, entry_price, thesis, state) VALUES (200, 'post', 'BTC', 'long', 9, 't', '{}');
+        INSERT INTO posts(ts, kind, text, status, pick_id, published_ts) VALUES (101, 'daily', 'x', 'published', 1, 150);
+        INSERT INTO posts(ts, kind, text, status, pick_id) VALUES (201, 'daily', 'y', 'draft', 2);
+    """)
+    db.commit()
+    db.close()
+    store = Store(path)
+    got = {p["id"]: p for p in store.picks(limit=10)}
+    assert got[1]["published_ts"] == 150 and got[2]["published_ts"] is None
+    assert got[1]["void_reason"] is None and got[1]["ret_30d"] is None
+    store.void_pick(2, "test")
+    assert [p["id"] for p in store.picks(limit=10)] == [1] and len(store.picks(limit=10, include_void=True)) == 2

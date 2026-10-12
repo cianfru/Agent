@@ -68,14 +68,15 @@ def test_no_setup():
 
 def test_scorecard_counts_misses():
     picks = [
-        {"id": 1, "coin": "BTC", "direction": "long", "ret_7d": 0.05},
-        {"id": 2, "coin": "ETH", "direction": "short", "ret_7d": -0.02},
+        {"id": 1, "coin": "BTC", "direction": "long", "ret_7d": 0.05, "published_ts": 1.0},
+        {"id": 2, "coin": "ETH", "direction": "short", "ret_7d": -0.02, "published_ts": None},   # drafted, not posted
         {"id": 3, "coin": "SOL", "direction": "long", "ret_7d": None},
     ]
     text = post.scorecard(picks, DAY)
     assert "Setups scored at 7 days: 2" in text and "Right direction: 1/2" in text
-    assert "Worst: #2 $ETH short -2.0%" in text
+    assert "Worst: #2 $ETH short -2.0%" in text and "Logged but not posted: 1" in text
     assert post.lint(text) == []
+    assert "not posted" not in post.scorecard([{**picks[1], "published_ts": 2.0}], DAY)
     assert post.scorecard([picks[2]], DAY) is None
 
 
@@ -126,13 +127,15 @@ def test_draft_then_approve_publishes_once(tmp_path):
     assert sent.headers["authorization"] == "Bearer k" and b'"platforms":["x"]' in sent.content.replace(b" ", b"")
 
 
-def test_bad_draft_is_retried_then_rejected_and_pick_removed(tmp_path):
+def test_bad_draft_is_retried_then_rejected_and_pick_voided(tmp_path):
     bad = fields(setup_line="This will run higher.")
     a = agent_with(tmp_path, [bad, bad])
     out = asyncio.run(a.desk_post())
     assert out["status"] == "rejected" and 'forbidden word "will"' in out["problems"][0]
     assert a.synth.feedback[1].startswith('forbidden word "will"')
-    assert a.store.picks(origin="post") == []
+    assert a.store.picks(origin="post") == []                        # out of every count...
+    kept = a.store.picks(origin="post", include_void=True)            # ...but kept, with its reason
+    assert len(kept) == 1 and kept[0]["void_reason"].startswith('draft rejected: forbidden word "will"')
 
 
 def test_retry_fixes_draft(tmp_path):
@@ -156,3 +159,117 @@ def test_desk_setups_numbered_apart_from_alert_picks(tmp_path):
     first = asyncio.run(a.desk_post())
     second = asyncio.run(a.desk_post())
     assert "Setup #1: $HYPE" in first["text"] and "Setup #2: $BTC" in second["text"]
+
+
+ORBIO_POST = "https://api.orbio.so/api/v1/tools/social.post"
+ORBIO_STATUS = "https://api.orbio.so/api/v1/tools/social.post.status"
+PUBLISHED = {"result": {"post_id": "p1", "status": "published",
+                        "platforms": [{"platformPostUrl": "https://x.com/desk/status/1"}]}}
+
+
+def test_two_approvals_at_once_post_once(tmp_path):
+    # a double tap, or Telegram and the dashboard at the same moment
+    a = agent_with(tmp_path, [fields()])
+    a.tracker.last_mids = {"HYPE": 41.0}
+    out = asyncio.run(a.desk_post())
+
+    calls = []
+
+    async def slow_orbio(key, text, max_cost):              # Orbio takes a moment: the second tap lands meanwhile
+        calls.append(text)
+        await asyncio.sleep(0.05)
+        return {"status": "published", "post_id": "p1", "url": "https://x.com/desk/status/1", "error": None}
+
+    async def both():
+        return await asyncio.gather(a.publish_post(out["id"]), a.publish_post(out["id"]))
+
+    service.orbio.post_x, real = slow_orbio, service.orbio.post_x
+    try:
+        first, second = asyncio.run(both())
+    finally:
+        service.orbio.post_x = real
+    assert len(calls) == 1
+    assert first["status"] == "published" and second["status"] == "publishing"
+    pick = a.store.picks(origin="post")[0]
+    assert pick["published_ts"] and pick["published_px"] == 41.0 and pick["entry_price"] == 40.0   # both kept
+
+
+def test_a_lost_answer_is_never_sent_again(tmp_path):
+    import httpx
+    for i, fail in enumerate((httpx.ReadTimeout("slow"), 504)):
+        (tmp_path / str(i)).mkdir()
+        a = agent_with(tmp_path / str(i), [fields()])
+        out = asyncio.run(a.desk_post())
+        with respx.mock:
+            route = respx.post(ORBIO_POST)
+            if isinstance(fail, int):
+                route.respond(fail, json={})
+            else:
+                route.side_effect = fail
+            res = asyncio.run(a.publish_post(out["id"]))
+            again = asyncio.run(a.publish_post(out["id"]))
+        assert res["status"] == "unknown" and again["status"] == "unknown" and route.call_count == 1
+        assert "check X" in res["error"] or "504" in res["error"]
+
+
+def test_orbio_saying_failed_is_failed_and_can_be_tried_again(tmp_path):
+    a = agent_with(tmp_path, [fields()])
+    out = asyncio.run(a.desk_post())
+    with respx.mock:
+        respx.post(ORBIO_POST).respond(200, json={"result": {"post_id": "p1", "status": "failed",
+                                                             "platforms": [{"errorMessage": "duplicate"}]}})
+        res = asyncio.run(a.publish_post(out["id"]))
+    assert res["status"] == "failed" and res["error"] == "duplicate"
+    assert a.store.picks(origin="post")[0]["published_ts"] is None
+    with respx.mock:
+        respx.post(ORBIO_POST).respond(200, json=PUBLISHED)
+        assert asyncio.run(a.publish_post(out["id"]))["status"] == "published"
+
+
+def test_a_running_post_is_settled_by_its_status_not_resent(tmp_path):
+    a = agent_with(tmp_path, [fields()])
+    out = asyncio.run(a.desk_post())
+    with respx.mock:
+        sent = respx.post(ORBIO_POST).respond(202, json={"status": "running", "result": {"post_id": "p9"}})
+        status = respx.post(ORBIO_STATUS).respond(200, json={"result": {"post_id": "p9", "status": "pending"}})
+        assert asyncio.run(a.publish_post(out["id"]))["status"] == "running"
+        assert asyncio.run(a.settle_posts()) == 0                                  # still on its way
+        status.respond(200, json={"result": {"post_id": "p9", "status": "published",
+                                             "platforms": [{"platformPostUrl": "https://x.com/desk/status/9"}]}})
+        assert asyncio.run(a.settle_posts()) == 1
+        asyncio.run(a.publish_post(out["id"]))
+    p = a.store.get_post(out["id"])
+    assert p["status"] == "published" and p["url"].endswith("/9") and sent.call_count == 1
+    assert b'"post_id":"p9"' in status.calls[0].request.content.replace(b" ", b"")
+
+
+def test_a_post_never_confirmed_is_left_for_the_owner(tmp_path):
+    import time
+    a = agent_with(tmp_path, [fields()])
+    out = asyncio.run(a.desk_post())
+    with respx.mock:
+        respx.post(ORBIO_POST).respond(202, json={"status": "running"})            # no post id to check
+        asyncio.run(a.publish_post(out["id"]))
+    assert a.store.get_post(out["id"])["status"] == "unknown"
+    (tmp_path / "b").mkdir()
+    b = agent_with(tmp_path / "b", [fields()])
+    out = asyncio.run(b.desk_post())
+    with respx.mock:
+        respx.post(ORBIO_POST).respond(202, json={"status": "running", "result": {"post_id": "p2"}})
+        asyncio.run(b.publish_post(out["id"]))
+    assert asyncio.run(b.settle_posts(now=time.time() + 2 * 86400)) == 1
+    assert b.store.get_post(out["id"])["status"] == "unknown"
+
+
+def test_a_post_left_publishing_by_a_crash_is_left_for_the_owner(tmp_path):
+    import time
+    a = agent_with(tmp_path, [fields()])
+    out = asyncio.run(a.desk_post())
+    assert a.store.claim_post(out["id"], ("draft",), "publishing", ts=time.time())     # then the process died
+    assert asyncio.run(a.settle_posts()) == 0                                         # within the hour: left alone
+    assert asyncio.run(a.settle_posts(now=time.time() + 7200)) == 1
+    assert a.store.get_post(out["id"])["status"] == "unknown"
+    with respx.mock:
+        route = respx.post(ORBIO_POST).respond(200, json=PUBLISHED)
+        asyncio.run(a.publish_post(out["id"]))
+    assert route.call_count == 0

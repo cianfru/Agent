@@ -57,6 +57,14 @@ LEADERBOARD_URL = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
 CONVICTION_X = 2.0                 # times the trader's usual (median) position size
 CONVICTION_WINDOW_S = 4 * 3600     # judged within 4 hours of the open, as a follower would see it
 MIN_NEW_USD = 10_000               # smaller opens are not logged
+# A read more than this after the trader's previous one (the agent was down, a read failed for a while, or the trader
+# left the list and came back) is a fresh starting point: what changed in the gap is not known to have happened now,
+# so it makes no pick, alert or flow (the same 30 minutes the live flow leaves out, synth/flow.py).
+STALE_READ_S = 30 * 60
+# Picks' conviction: 1 an ordinary new position; 2 a position that was a conviction bet when first seen (its one
+# pick counts in both arms); 3 a position that became one later (within 4 hours), logged as its own pick at the mid
+# when it did, so the conviction arm is never entered at the earlier, smaller open's price.
+CONV_PLAIN, CONV_AT_OPEN, CONV_LATER = 1, 2, 3
 MAX_ALERTS_PER_DAY = 5             # conviction alerts
 MODERATE_LEVERAGE = 5.0
 
@@ -64,6 +72,7 @@ RIDE_MIN_OPEN_PNL = 250_000
 RIDE_WINNER_SHARE = 0.2
 RIDE_WINNER_MIN = 50_000
 RIDE_GRACE_S = 14 * 86400
+OPEN_WINNER_MAX_AGE_S = 36 * 3600  # open winners shown only from a read this recent (the daily scan's day, and some)
 DISCOVER_MIN_AV = 500_000
 WIDE_MIN_AV = 10_000               # the daily scan reads every profitable account of $10K+ for big open winners
 DISCOVER_EVERY_S = 86400
@@ -344,7 +353,11 @@ class PositionTraders:
     async def _update(self, t: dict, st: dict, now: float) -> dict:
         a = t["address"].lower()
         res = {"new": 0, "closed": 0, "conviction": 0}
-        first_look = self.store.pt_trader(a) is None
+        prev = self.store.pt_trader(a)
+        # first look, or a read after a gap: the positions held are the starting point (see STALE_READ_S; a slow
+        # poll interval stretches it to three polls, so a normal read is never taken for a gap)
+        gap = max(STALE_READ_S, 3 * (self.s.poll_seconds or 0))
+        first_look = prev is None or now - (prev.get("last_seen") or 0) > gap
         gross = sum(p["notional"] for p in st["positions"].values())
         self.store.pt_set_trader(a, st["equity"], gross, now)
         lev = gross / st["equity"] if st["equity"] else None
@@ -354,45 +367,54 @@ class PositionTraders:
             row = held.pop(coin, None)
             px = self._px(coin, p)
             if row and row["side"] != p["side"]:            # flipped: one closes, another opens
-                self._close(row, now)
+                self._close(row, now, flow=not first_look)
                 res["closed"] += 1
                 row = None
             if row:
-                if row.get("size") is not None:
+                if row.get("size") is not None and not first_look:
                     delta = p["size"] - row["size"]
                     if abs(delta) * px >= 1:
                         self.store.pt_add_flow(now, a, coin, p["side"], delta * px, px)
                 self.store.pt_touch(row["id"], p["notional"], p["entry_px"], p["upnl"], now, p["size"],
                                     p.get("roe"), p.get("lev"))
                 young = now - row["opened_ts"] <= CONVICTION_WINDOW_S if row["known_open"] else False
-                if young and not row["conviction"] and not row["baseline"] and self._is_conviction(t, p["notional"]):
-                    res["conviction"] += await self._conviction(t, row["id"], row.get("pick_id"),
-                                                                {**p, "coin": coin, "value": p["notional"]}, lev)
+                if (young and not first_look and not row["conviction"] and not row["baseline"]
+                        and self._is_conviction(t, p["notional"])):
+                    pick_id = None
+                    if p["notional"] >= MIN_NEW_USD:        # its own pick, entered now (see CONV_LATER)
+                        pick_id = self.store.add_pick("position", coin, p["side"], CONV_LATER, px or None,
+                                                      f"pt {a} {coin} {p['side']} conviction",
+                                                      {"wallet": a, "size_usd": round(p["notional"]),
+                                                       "opened_ts": row["opened_ts"], "first_pick": row.get("pick_id")})
+                    res["conviction"] += await self._conviction(t, row["id"], {**p, "coin": coin,
+                                                                               "value": p["notional"]}, lev)
                 continue
             since = seed_since.get(f"{coin}:{p['side'].upper()}")
             baseline = first_look
             opened = since if (baseline and since) else now
             pick_id = None
+            conviction = not baseline and p["notional"] >= MIN_NEW_USD and self._is_conviction(t, p["notional"])
             if not baseline:
                 self.store.pt_add_flow(now, a, coin, p["side"], p["notional"], px)
                 if p["notional"] >= MIN_NEW_USD:
-                    pick_id = self.store.add_pick("position", coin, p["side"], 1, self._mids.get(coin) or p["entry_px"] or None,
+                    pick_id = self.store.add_pick("position", coin, p["side"],
+                                                  CONV_AT_OPEN if conviction else CONV_PLAIN,
+                                                  self._mids.get(coin) or p["entry_px"] or None,
                                                   f"pt {a} {coin} {p['side']}", {"wallet": a, "size_usd": round(p["notional"])})
             rid = self.store.pt_open_position(a, coin, p["side"], opened, int(not baseline or bool(since)), now,
                                               p["notional"], p["entry_px"], p["upnl"], int(baseline), pick_id, p["size"],
                                               p.get("roe"), p.get("lev"))
             if not baseline:
                 res["new"] += 1
-                if p["notional"] >= MIN_NEW_USD and self._is_conviction(t, p["notional"]):
-                    res["conviction"] += await self._conviction(t, rid, pick_id, {**p, "coin": coin,
-                                                                                   "value": p["notional"]}, lev)
+                if conviction:
+                    res["conviction"] += await self._conviction(t, rid, {**p, "coin": coin, "value": p["notional"]}, lev)
         for row in held.values():                            # gone: closed
-            self._close(row, now)
+            self._close(row, now, flow=not first_look)
             res["closed"] += 1
         return res
 
-    def _close(self, row: dict, now: float) -> None:
-        if row.get("value"):
+    def _close(self, row: dict, now: float, flow: bool = True) -> None:
+        if row.get("value") and flow:
             self.store.pt_add_flow(now, row["address"], row["coin"], row["side"], -row["value"],
                                    self._mids.get(row["coin"]) or 0.0)
         self.store.pt_close(row["id"], now)
@@ -400,10 +422,8 @@ class PositionTraders:
     def _is_conviction(self, t: dict, value: float) -> bool:
         return bool(t.get("median_size")) and value >= CONVICTION_X * t["median_size"]
 
-    async def _conviction(self, t: dict, row_id: int, pick_id: int | None, p: dict, lev: float | None) -> int:
+    async def _conviction(self, t: dict, row_id: int, p: dict, lev: float | None) -> int:
         self.store.pt_mark_conviction(row_id)
-        if pick_id:
-            self.store.set_pick_conviction(pick_id, 2)
         if self.store.count_briefs("pt_alert", time.time() - 86400) >= MAX_ALERTS_PER_DAY:
             return 1
         await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, conviction_text(t, p, lev))
@@ -522,6 +542,7 @@ class PositionTraders:
         found, addrs = 0, list(cands)
         held: dict[str, dict] = {}
         flagged: dict[str, dict] = {}
+        on_file = self.store.pt_cand_live_addresses()
         for i in range(0, len(addrs), 4):
             chunk = addrs[i:i + 4]
             states = await asyncio.gather(*(hl.account(a) for a in chunk), return_exceptions=True)
@@ -531,6 +552,8 @@ class PositionTraders:
                 if any(big_open_winner(p) for p in (st.get("positions") or {}).values()):
                     flagged[a] = cands[a]
                     self.refresh.note_live(a, st["positions"], st.get("equity") or 0, now)
+                elif a in on_file:                           # a winner read earlier and closed since: read it again
+                    self.refresh.note_live(a, st.get("positions") or {}, st.get("equity") or 0, now)
                 if cands[a].get("av", 0) < DISCOVER_MIN_AV:
                     continue                                    # big money and $250K riders: $500K+ accounts
                 if st.get("positions"):
@@ -599,24 +622,31 @@ class PositionTraders:
                 "big_money_ts": (self.store.latest_brief("pt_bigmoney") or {}).get("ts")}
 
     def forward(self) -> dict:
-        """The forward record of positions opened since tracking began (S3's confirmation)."""
+        """The forward record of positions opened since tracking began (S3's confirmation). "all" has one pick per
+        position (at its open); "conviction" has each conviction bet entered when it became one (CONV_*). "due" counts
+        picks whose horizon has passed, so a result not scored yet shows as missing rather than vanishing."""
         picks = self.store.picks(limit=100_000, origin="position")
+        now = time.time()
         out = {}
-        for name, sel in (("all", picks), ("conviction", [p for p in picks if (p.get("conviction") or 0) >= 2])):
+        for name, sel in (("all", [p for p in picks if (p.get("conviction") or CONV_PLAIN) != CONV_LATER]),
+                          ("conviction", [p for p in picks if (p.get("conviction") or 0) >= CONV_AT_OPEN])):
             row: dict[str, Any] = {"logged": len(sel)}
-            for h in ("14d", "30d"):
+            for h, days in (("14d", 14), ("30d", 30)):
                 v = [p[f"ret_{h}"] for p in sel if p.get(f"ret_{h}") is not None]
-                row[h] = {"n": len(v), "median_pct": round(100 * statistics.median(v), 2) if v else None,
+                row[h] = {"n": len(v), "due": sum(1 for p in sel if now - p["ts"] >= days * 86400),
+                          "median_pct": round(100 * statistics.median(v), 2) if v else None,
                           "positive_pct": round(100 * sum(x > 0 for x in v) / len(v), 1) if v else None}
             out[name] = row
         return out
 
     def open_winners(self, now: float | None = None, limit: int = 40, min_move: float = 0.20, min_roe: float = 1.0,
-                     min_usd: float = 10_000, min_days: float = 7) -> list[dict]:
+                     min_usd: float = 10_000, min_days: float = 7,
+                     max_age_s: float = OPEN_WINNER_MAX_AGE_S) -> list[dict]:
         """The biggest open winners among everyone the agent reads: each wallet's positions at its last read (the
         refresh pool at least weekly, and every profitable account of $10K+ the daily scan saw holding a big winner)
         and the tracked traders' (every poll). Up 20%+ on price or 100%+ on margin, $10K+ in profit, open a week or
-        more (or for an unknown time, until the wallet's fills are read)."""
+        more (or for an unknown time, until the wallet's fills are read). Only reads from the last `max_age_s`: an
+        older one may describe a position long closed. How long it has been held is counted to that read."""
         now = now or time.time()
         rows: dict[tuple[str, str], dict] = {}
         for a, lv in self.store.pt_cand_live().items():
@@ -636,9 +666,11 @@ class PositionTraders:
                                         "as_of": r["last_seen"]}
         out = []
         for r in rows.values():
+            if not r.get("as_of") or now - r["as_of"] > max_age_s:
+                continue
             if ((r.get("move") or 0) < min_move and (r.get("roe") or 0) < min_roe) or (r.get("upnl") or 0) < min_usd:
                 continue
-            held = (now - r["since"]) / 86400 if r.get("since") else None
+            held = (r["as_of"] - r["since"]) / 86400 if r.get("since") else None
             if held is not None and held < min_days:
                 continue
             t = listed.get(r["address"])

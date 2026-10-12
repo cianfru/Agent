@@ -154,9 +154,17 @@ async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> Non
     else:
         try:
             res = await agent.publish_post(pid)
-            done = res.get("status") in ("published", "running")
-            text = (f"Posted #{pid}" + (f": {res['url']}" if res.get("url") else ".")) if done else \
-                f"Not posted: {res.get('error')}"
+            st = res.get("status")
+            # buttons stay only when it can be tried again (failed); unknown may already be on X
+            done = st in ("published", "running", "unknown", "publishing")
+            if st in ("published", "running"):
+                text = f"Posted #{pid}" + (f": {res['url']}" if res.get("url") else ".")
+            elif st == "unknown":
+                text = f"Sent #{pid}, but Orbio's answer was lost: check X before posting it again ({res.get('error')})."
+            elif st == "publishing":
+                text = f"#{pid} is already being posted."
+            else:
+                text = f"Not posted: {res.get('error')}"
         except ValueError as e:
             done, text = False, f"Not posted: {e}"
     await notify.tg(s.telegram_token, "answerCallbackQuery", callback_query_id=cq["id"], text=text[:190])

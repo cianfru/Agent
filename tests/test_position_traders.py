@@ -66,22 +66,45 @@ def test_first_look_is_the_starting_point_then_adds_new_positions_and_conviction
 
     # it grows past 2x their usual size within 4 hours: one conviction alert
     hl.books[A]["ZEC"] = pos("short", 1_200_000, 4_000, entry=300.0)
-    out = asyncio.run(pt.step(now=1_790_003_600.0, mids={"ZEC": 300.0, "LIT": 2.6}))
+    out = asyncio.run(pt.step(now=1_790_001_800.0, mids={"ZEC": 300.0, "LIT": 2.6}))
     assert out["pt_conviction"] == 1 and len(sent) == 1
     assert sent[0].startswith("Conviction · ZEC short $1.2M (2.4x their usual size)")
-    assert store.picks(origin="position")[0]["conviction"] == 2
-    asyncio.run(pt.step(now=1_790_007_200.0, mids={"ZEC": 300.0, "LIT": 2.6}))
-    assert len(sent) == 1                                   # not twice
+    # the conviction bet is its own pick, entered at the mid when it became one; the open's pick is left as logged
+    first, conv = sorted(store.picks(origin="position"), key=lambda p: p["id"])
+    assert (first["conviction"], first["entry_price"]) == (1, 301.0)
+    assert (conv["coin"], conv["direction"], conv["conviction"], conv["entry_price"]) == ("ZEC", "short", 3, 300.0)
+    asyncio.run(pt.step(now=1_790_003_000.0, mids={"ZEC": 300.0, "LIT": 2.6}))
+    assert len(sent) == 1 and len(store.picks(origin="position")) == 2     # not twice
+    fwd = pt.forward()
+    assert (fwd["all"]["logged"], fwd["conviction"]["logged"]) == (1, 1)   # one pick per position in "all"
 
     # a flip closes one and opens another; a coin gone is closed (cuts recorded)
     hl.books[A]["ZEC"] = pos("long", 50_000, 166, entry=290.0)
     del hl.books[A]["LIT"]
-    out = asyncio.run(pt.step(now=1_790_100_000.0, mids={"ZEC": 300.0, "LIT": 2.6}))
+    out = asyncio.run(pt.step(now=1_790_004_200.0, mids={"ZEC": 300.0, "LIT": 2.6}))
     assert out["pt_closed"] == 2 and out["pt_new"] == 1
     assert [p["coin"] + " " + p["side"] for p in pt.board()["traders"][0]["positions"]] == ["ZEC long"]
-    adding = {(r["coin"], r["side"]): r for r in pt.adding(48, now=1_790_100_000.0)}
+    adding = {(r["coin"], r["side"]): r for r in pt.adding(48, now=1_790_004_200.0)}
     assert adding[("LIT", "long")]["cut_usd"] == 2_600_000   # net per trader: +520K then -3.12M and adding[("ZEC", "long")]["added_usd"] == 50_000
     assert "ZEC 1 long $50K / 0 short $0" in pt.coins_text()
+
+
+def test_a_read_after_a_gap_is_a_new_starting_point(tmp_path, monkeypatch):
+    # the agent was down (or the trader left the list) for a day: what changed meanwhile is no new pick, alert or flow
+    pt, store, hl, sent = setup(tmp_path, monkeypatch)
+    now = 1_790_000_000.0
+    asyncio.run(pt.step(now=now, mids={"LIT": 2.6}))
+    hl.books[A]["SOL"] = pos("long", 1_500_000, 10_000, entry=150.0)             # 3x their usual size, opened meanwhile
+    hl.books[A]["LIT"] = pos("long", 5_200_000, 2_000_000, 1_500_000)            # doubled meanwhile
+    out = asyncio.run(pt.step(now=now + 86400, mids={"LIT": 2.6, "SOL": 160.0}))
+    assert (out["pt_new"], out["pt_conviction"]) == (0, 0) and not sent
+    assert not store.picks(origin="position") and not store.pt_flow_since(0)
+    sol = next(p for p in pt.board(now + 86400)["traders"][0]["positions"] if p["coin"] == "SOL")
+    assert not sol["new"] and sol["held_days"] is None and sol["held_note"] == "unknown"
+    # reads every poll after that count again
+    hl.books[A]["ZEC"] = pos("short", 200_000, 666, entry=300.0)
+    out = asyncio.run(pt.step(now=now + 86400 + 300, mids={"ZEC": 301.0, "LIT": 2.6, "SOL": 160.0}))
+    assert out["pt_new"] == 1 and [p["coin"] for p in store.picks(origin="position")] == ["ZEC"]
 
 
 def test_build_up_alert_when_three_traders_add_to_one_coin_and_price_is_flat(tmp_path, monkeypatch):
@@ -184,22 +207,44 @@ def test_texts_and_bot_command(tmp_path, monkeypatch):
     assert sent[-1].splitlines()[1].startswith("LIT 1 long $2.6M / 0 short $0")
 
 
-def test_position_picks_score_at_14_and_30_days_never_late(tmp_path):
+class CandleHL:
+    """Hyperliquid's 15-minute candles: closes at 105 for every coin it lists."""
+
+    def __init__(self):
+        self.reads = []
+
+    async def candles(self, coin, interval, start_ms, end_ms):
+        self.reads.append((coin, interval, start_ms))
+        return [[start_ms, 100.0, 106.0, 99.0, 105.0]] if coin == "ZEC" else []
+
+
+def test_late_horizons_are_scored_at_the_horizon_not_today(tmp_path):
+    # the agent was down when these horizons passed: each is scored from Hyperliquid's candle at the horizon (105),
+    # never from today's price (110); on time, from the live price
     s = Settings(db_path=str(tmp_path / "t.db"))
     store = Store(s.db_path)
     a = service.Agent(s, store)
-    a.tracker.last_mids = {"ZEC": 110.0}
+    a.tracker.last_mids = {"ZEC": 110.0, "XAUT": 3000.0}
+    now = time.time()
     pid = store.add_pick("position", "ZEC", "long", 1, 100.0, "pt", {})
     late = store.add_pick("position", "ZEC", "long", 1, 100.0, "pt", {})
+    gone = store.add_pick("alert", "NOPE", "long", 3, 100.0, "t", {})      # not on Hyperliquid
     with store._lock:
-        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (time.time() - 30 * 86400 - 3600, pid))
-        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (time.time() - 30 * 86400 - 2 * 86400, late))
+        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (now - 30 * 86400 - 600, pid))
+        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (now - 30 * 86400 - 2 * 86400, late))
+        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (now - 2 * 86400, gone))
         store._db.commit()
-    a.score_picks({})
-    got = {p["id"]: p for p in store.picks(origin="position")}
-    assert got[pid]["ret_30d"] == 0.1 and got[pid]["ret_14d"] is None   # 14d was due long ago: left empty
-    assert got[late]["ret_30d"] is None                                 # missed its day: never scored late
-    assert got[pid]["ret_7d"] == 0.1                                    # older horizons as before
+    hl = CandleHL()
+    asyncio.run(a.score_picks({}, now=now, hl=hl))
+    got = {p["id"]: p for p in store.picks(limit=10, include_void=True)}
+    assert got[pid]["ret_30d"] == 0.1                                      # on time: the live price
+    assert (got[pid]["ret_14d"], got[pid]["ret_7d"], got[pid]["ret_1d"]) == (0.05, 0.05, 0.05)
+    assert got[late]["ret_30d"] == 0.05 and got[late]["ret_14d"] == 0.05   # late: the candle, not today's 110
+    assert got[gone]["ret_1d"] is None                                     # no history to read: left unscored
+    t30 = int((now - 2 * 86400) // 900 * 900) * 1000
+    assert ("ZEC", "15m", t30) in hl.reads and all(c == "ZEC" for c, _, _ in hl.reads)
+    fwd = a.positions.forward()
+    assert fwd["all"]["30d"]["n"] == 2 and fwd["all"]["30d"]["due"] == 2
 
 
 def test_big_money_counts_owners_not_dollars():
@@ -261,3 +306,38 @@ def test_daily_scan_flags_open_winners_in_small_accounts(tmp_path, monkeypatch):
     assert "winner" in cand["src"] and cand["live"]["positions"]["W"]["move"] == 2.0
     assert pt.refresh._due(1_790_000_000.0)[0] == S                 # read first by the refresh
     assert [w["coin"] for w in pt.open_winners(1_790_000_000.0)] == ["W"]
+
+
+def test_open_winners_only_from_a_recent_read(tmp_path, monkeypatch):
+    # a winner read 25 days ago may be long closed: it is not shown, and a winner shown counts its days to the read
+    pt, store, hl, sent = setup(tmp_path, monkeypatch, books={})
+    now = 1_790_000_000.0
+    win = {"side": "long", "value": 150_000, "upnl": 90_000, "move": 1.5, "since": now - 60 * 86400}
+    store.pt_cand_save("0x" + "a" * 40, live={"equity": 1e6, "ts": now - 25 * 86400, "positions": {"W": dict(win)}})
+    store.pt_cand_save("0x" + "b" * 40, live={"equity": 1e6, "ts": now - 86400, "positions": {"X": dict(win)}})
+    w = pt.open_winners(now)
+    assert [r["coin"] for r in w] == ["X"] and w[0]["held_days"] == 59.0
+
+
+def test_daily_scan_reads_again_a_winner_that_closed(tmp_path, monkeypatch):
+    S = "0x" + "e" * 40
+    pt, store, hl, sent = setup(tmp_path, monkeypatch, books={S: {}})          # the winner has been sold
+    now = 1_790_000_000.0
+    store.pt_cand_save(S, live={"equity": 1e6, "ts": now - 86400, "positions": {
+        "W": {"side": "long", "value": 150_000, "upnl": 90_000, "move": 1.5, "since": now - 60 * 86400}}})
+    assert [r["coin"] for r in pt.open_winners(now)] == ["W"]
+    row = {"ethAddress": S, "accountValue": "60000", "windowPerformances": [
+        ["month", {"pnl": "1", "vlm": "1000", "roi": "0"}], ["allTime", {"pnl": "5000", "vlm": "1"}]]}
+    asyncio.run(pt.discover(now=now, rows=[row], hl=hl))
+    assert pt.open_winners(now) == [] and store.pt_cand_get(S)["live"]["positions"] == {}
+
+
+
+def test_a_slow_poll_interval_is_not_taken_for_a_gap(tmp_path, monkeypatch):
+    pt, store, hl, sent = setup(tmp_path, monkeypatch)
+    pt.s = Settings(db_path=pt.s.db_path, telegram_token="t", telegram_chat_id="1", poll_seconds=3600)
+    now = 1_790_000_000.0
+    asyncio.run(pt.step(now=now, mids={"LIT": 2.6}))
+    hl.books[A]["ZEC"] = pos("short", 200_000, 666, entry=300.0)
+    out = asyncio.run(pt.step(now=now + 3600, mids={"ZEC": 301.0, "LIT": 2.6}))
+    assert out["pt_new"] == 1 and len(store.picks(origin="position")) == 1

@@ -45,14 +45,39 @@ async def post_x(api_key: str, text: str, max_cost: float = 0.03,
         raise OrbioError("connect", "X account not connected in the Orbio dashboard (409)")
     if r.status_code == 202:
         return {"status": "running", "post_id": (body.get("result") or body).get("post_id"), "url": None}
+    if r.status_code >= 500:
+        # the gateway failed after we sent: the post may or may not be out, so it is never sent again blindly
+        raise OrbioError("server", f"social.post -> HTTP {r.status_code}: {str(body)[:200]}")
     if r.status_code >= 400:
         raise OrbioError("http", f"social.post -> HTTP {r.status_code}: {str(body)[:200]}")
-    result = body.get("result") or body
+    return {**outcome(body.get("result") or body), "credit": (body.get("cost") or {}).get("credit")}
+
+
+def outcome(result: dict) -> dict:
+    """A social.post (or social.post.status) result -> {status, post_id, url, error}."""
     p = (result.get("platforms") or [{}])[0]
-    return {
-        "status": result.get("status"),
-        "post_id": result.get("post_id"),
-        "url": p.get("platformPostUrl"),
-        "error": p.get("errorMessage"),
-        "credit": (body.get("cost") or {}).get("credit"),
-    }
+    return {"status": result.get("status"), "post_id": result.get("post_id"), "url": p.get("platformPostUrl"),
+            "error": p.get("errorMessage")}
+
+
+async def post_status(api_key: str, post_id: str, client: httpx.AsyncClient | None = None,
+                      base: str = ORBIO_API) -> dict:
+    """Where a post sent earlier stands (the free `social.post.status` tool): {status, post_id, url, error}."""
+    if not api_key:
+        raise OrbioError("nokey", "ORBIO_API_KEY is not set")
+    own = client is None
+    client = client or httpx.AsyncClient(timeout=30)
+    try:
+        r = await client.post(f"{base}/api/v1/tools/social.post.status",
+                              headers={"authorization": f"Bearer {api_key}"},
+                              json={"post_id": post_id, "max_cost": "0.000000"})
+    finally:
+        if own:
+            await client.aclose()
+    if r.status_code >= 400:
+        raise OrbioError("http", f"social.post.status -> HTTP {r.status_code}")
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    return outcome(body.get("result") or body)

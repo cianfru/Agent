@@ -15,7 +15,10 @@ If SYNTH_API_KEY is set, every route except /health needs header `X-API-Key`.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import hmac
+import re
 import os
 import contextlib
 import datetime as dt
@@ -25,8 +28,8 @@ import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
 
 from . import board, bot, config, desk, notify, study
 from . import groups as G
@@ -35,19 +38,26 @@ from .service import Agent, build_digest, coin_context, make_agent
 log = logging.getLogger(__name__)
 
 
+_background: set[asyncio.Task] = set()   # a reference to each background task, so none is collected mid-run
+LOOP_ERRORS: dict[str, dict] = {}        # the last failure of each stage, for /health
+
+
 async def _loop(agent: Agent) -> None:
+    stages = (("cycle", agent.cycle), ("brief", lambda: _maybe_daily_brief(agent)),
+              ("desk posts", lambda: _maybe_desk_posts(agent)), ("persona", lambda: _maybe_persona(agent)),
+              ("pulse", lambda: _maybe_pulse(agent)), ("reflex history", lambda: _maybe_reflex_history(agent)))
     while True:
-        try:
-            await agent.cycle()
-            await _maybe_daily_brief(agent)
-            await _maybe_desk_posts(agent)
-            await _maybe_persona(agent)
-            await _maybe_pulse(agent)
-            await _maybe_reflex_history(agent)
-            if agent.positions.enabled and agent.positions.discover_due():
-                asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
-        except Exception:  # noqa: BLE001 - keep the loop alive
-            log.exception("cycle failed")
+        for name, stage in stages:       # one failing stage does not skip the others
+            try:
+                await stage()
+                LOOP_ERRORS.pop(name, None)
+            except Exception as e:  # noqa: BLE001 - keep the loop alive
+                log.exception("%s failed", name)
+                LOOP_ERRORS[name] = {"ts": time.time(), "error": f"{type(e).__name__}: {e}"[:300]}
+        if agent.positions.enabled and agent.positions.discover_due():
+            t = asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
+            _background.add(t)
+            t.add_done_callback(_background.discard)
         await asyncio.sleep(agent.s.poll_seconds)
 
 
@@ -153,6 +163,21 @@ def _snaps() -> dict:
 STATIC = Path(__file__).parent / "static"
 settings = config.load()
 agent = make_agent(settings)
+STARTED = time.time()
+
+
+def _dashboard_csp() -> str:
+    """The dashboard runs only its own inline script (by hash): text from a feed that reached the page as HTML
+    could not run code, or send the API key it keeps in the browser anywhere."""
+    html = (STATIC / "dashboard.html").read_text()
+    scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+    hashes = " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(x.encode()).digest()).decode()}'" for x in scripts)
+    return (f"default-src 'self'; script-src {hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+DASHBOARD_HEADERS = {"content-security-policy": _dashboard_csp(), "x-content-type-options": "nosniff",
+                     "referrer-policy": "no-referrer"}
 
 
 @contextlib.asynccontextmanager
@@ -166,7 +191,8 @@ async def lifespan(_: FastAPI):
         t.cancel()
 
 
-app = FastAPI(title="Market synthesizer", lifespan=lifespan)
+# no /docs, /redoc or /openapi.json: they would list every route without a key
+app = FastAPI(title="Market synthesizer", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 
 def auth(x_api_key: str | None = Header(default=None)) -> None:
@@ -175,13 +201,13 @@ def auth(x_api_key: str | None = Header(default=None)) -> None:
         if os.environ.get("SYNTH_ALLOW_OPEN") == "1":
             return
         raise HTTPException(503, "set SYNTH_API_KEY (or SYNTH_ALLOW_OPEN=1 for local use)")
-    if not hmac.compare_digest(x_api_key or "", settings.api_key):
+    if not hmac.compare_digest((x_api_key or "").encode(), settings.api_key.encode()):   # bytes: any header
         raise HTTPException(401, "bad or missing X-API-Key")
 
 
 @app.get("/", include_in_schema=False)
 def dashboard():
-    return FileResponse(STATIC / "dashboard.html")
+    return FileResponse(STATIC / "dashboard.html", headers=DASHBOARD_HEADERS)
 
 
 @app.get("/board", dependencies=[Depends(auth)])
@@ -204,7 +230,13 @@ def pulse(hours: float = 4, min_score: float = 0):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "llm": bool(agent.synth), "reflex": bool(agent.reflex), "last_cycle": agent.last_cycle}
+    """503 when the poller has not finished a cycle for three intervals (or 15 minutes, whichever is longer)."""
+    now = time.time()
+    last = (agent.last_cycle or {}).get("ts") or STARTED
+    stale = settings.poll_seconds > 0 and now - last > max(3 * settings.poll_seconds, 900)
+    body = {"ok": not stale, "llm": bool(agent.synth), "reflex": bool(agent.reflex), "last_cycle": agent.last_cycle,
+            "since_last_cycle_s": round(now - last), "errors": LOOP_ERRORS}
+    return JSONResponse(body, status_code=503 if stale else 200)
 
 
 @app.get("/events", dependencies=[Depends(auth)])
@@ -239,7 +271,7 @@ async def make_brief(push: bool = False):
 
 
 class Question(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=500)
 
 
 @app.post("/ask", dependencies=[Depends(auth)])
@@ -254,7 +286,8 @@ def ask(q: Question):
 
 @app.get("/picks", dependencies=[Depends(auth)])
 def picks(limit: int = 100):
-    return {"picks": agent.store.picks(limit)}
+    # every pick, voided ones with their reason: the journal is shown whole
+    return {"picks": agent.store.picks(min(max(limit, 1), 1000), include_void=True)}
 
 
 @app.get("/posts", dependencies=[Depends(auth)])

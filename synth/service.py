@@ -14,6 +14,7 @@ import httpx
 from . import brief as brief_mod
 from . import chart, detectors, flow, notify, orbio, persona, post, stories
 from .config import Settings
+from .hyperliquid import HL
 from .llm import PersonaWriter, Synthesizer
 from .sources import block0, cowboy, reflex
 from .store import Store
@@ -27,6 +28,9 @@ MAX_ALERTS_PER_CYCLE = 2  # bounds noise and model spend if a feed glitch fires 
 HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
 LONG_HORIZONS = {"14d": 14 * 86400, "30d": 30 * 86400}  # position traders' picks (study S3)
 SERIES_KEEP_S = 8 * 86400  # per-poll positioning rows for the live flow
+ON_TIME_S = 1800  # within half an hour of a horizon the live price is that horizon's price; later, the candle's
+MAX_CANDLE_READS = 20  # per poll: after a long outage the missed horizons are caught up over a few polls
+RUNNING_CHECK_S = 86400  # a post Orbio still calls running after a day is left for the owner to check on X
 
 
 class Agent:
@@ -123,7 +127,11 @@ class Agent:
             log.warning("toxic flow check failed: %s", e)
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
-        scored = self.score_picks(snaps)
+        scored = await self.score_picks(snaps)
+        try:
+            tracked["posts_settled"] = await self.settle_posts()
+        except Exception as e:  # noqa: BLE001 - a status check must not stop the poll
+            log.warning("post status check failed: %s", e)
 
         self.last_cycle = {
             "ts": started,
@@ -142,7 +150,7 @@ class Agent:
         body: dict
         if self.synth and self.s.llm_alerts:
             try:
-                alert, usage = self.synth.alert(_public(ev), context)
+                alert, usage = await asyncio.to_thread(self.synth.alert, _public(ev), context)
                 body = alert.model_dump()
                 self.store.add_brief("alert", {"event_id": ev["id"], **body}, usage)
             except Exception as e:  # noqa: BLE001 - fall back to the plain event
@@ -266,7 +274,7 @@ class Agent:
         today = dt.datetime.now(dt.timezone.utc).date()
         feedback, text, problems, pick_id = "", "", ["not generated"], None
         for _ in range(2):  # one retry with the lint problems fed back
-            fields, usage = self.synth.desk_post(digest, feedback)
+            fields, usage = await asyncio.to_thread(self.synth.desk_post, digest, feedback)
             self.store.add_brief("desk_post", fields.model_dump(), usage)
             has_setup = bool(fields.setup_coin) and fields.setup_direction in ("long", "short")
             if has_setup and pick_id is None:
@@ -277,7 +285,7 @@ class Agent:
                     {"post": fields.model_dump(), "coin": coin_context(coin, snaps)},
                 )
             elif not has_setup and pick_id is not None:
-                self.store.delete_pick(pick_id)
+                self.store.void_pick(pick_id, "the rewritten draft dropped the setup")
                 pick_id = None
             text = post.assemble(fields, self._public_no(pick_id), today)
             problems = post.lint(text)
@@ -287,7 +295,7 @@ class Agent:
 
         if problems:
             if pick_id is not None:
-                self.store.delete_pick(pick_id)
+                self.store.void_pick(pick_id, "draft rejected: " + "; ".join(problems))
             pid = self.store.add_post("daily", text, "rejected", None, "; ".join(problems))
             return {"id": pid, "status": "rejected", "text": text, "problems": problems}
 
@@ -391,10 +399,15 @@ class Agent:
         return self._public_numbers().get(pick_id) if pick_id else None
 
     async def publish_post(self, post_id: int) -> dict:
+        """Publish a draft through Orbio, once. The post is claimed before the call, so two taps (or Telegram and
+        the dashboard at once) send it once. Statuses: published; running (Orbio is still posting it: checked each
+        poll); failed (Orbio refused it before posting: it can be tried again); unknown (Orbio's answer was lost or
+        it failed after the request reached it: the post may be out, so it is never sent again without the owner
+        checking X)."""
         p = self.store.get_post(post_id)
         if not p:
             raise KeyError(post_id)
-        if p["status"] in ("published", "running"):
+        if p["status"] in ("published", "running", "publishing", "unknown"):
             return p  # never post twice
         if p["kind"] == "persona":
             story = p.get("story") or {}
@@ -403,42 +416,142 @@ class Agent:
             problems = post.lint(p["text"])
         if problems:
             raise ValueError("; ".join(problems))
+        sent = time.time()
+        if not self.store.claim_post(post_id, ("draft", "failed", "rejected"), "publishing", ts=sent):
+            return self.store.get_post(post_id)  # another call is publishing it
         try:
             res = await orbio.post_x(self.s.orbio_api_key, p["text"], self.s.orbio_max_cost)
         except orbio.OrbioError as e:
-            self.store.update_post(post_id, status="failed", error=str(e))
-            return {**p, "status": "failed", "error": str(e)}
-        status = "running" if res.get("status") == "running" else "published"
+            status = "unknown" if e.code == "server" else "failed"
+            self.store.update_post(post_id, status=status, error=str(e), published_ts=None if status == "failed" else sent)
+            return {**p, "status": status, "error": str(e)}
+        except (httpx.HTTPError, ValueError) as e:
+            err = f"no clear answer from Orbio ({type(e).__name__}); check X before posting it again"
+            self.store.update_post(post_id, status="unknown", error=err)
+            return {**p, "status": "unknown", "error": err}
+        status = post_state(res)
         self.store.update_post(post_id, status=status, orbio_post_id=res.get("post_id"), url=res.get("url"),
-                               error=res.get("error"), published_ts=time.time())
+                               error=res.get("error"), published_ts=sent if status != "failed" else None)
+        pk = self.store.pick(p["pick_id"]) if p.get("pick_id") else None
+        if pk and status in ("published", "running"):
+            # when the setup reached X, at Hyperliquid's mid from the last poll, beside when it was logged
+            self.store.mark_pick_published(pk["id"], sent, self.tracker.last_mids.get(pk["coin"]))
         return self.store.get_post(post_id)
 
-    # ------------------------------------------------------------- journal --
-    def score_picks(self, snaps: dict[str, dict]) -> int:
-        """Fill 1d/3d/7d returns for logged picks once each horizon has passed (and 14d/30d for position traders')."""
-        now, n = time.time(), 0
-        for p in self.store.open_picks():
-            hl_px = self.tracker.last_mids.get(p["coin"].upper())
-            # group picks were entered at Hyperliquid's mid, so they are scored on it too
-            hl_entry = p.get("origin") in ("group", "position")
-            px = (hl_px or price_of(p["coin"], snaps)) if hl_entry else (price_of(p["coin"], snaps) or hl_px)
-            if not px or not p["entry_price"]:
+    async def settle_posts(self, now: float | None = None) -> int:
+        """Ask Orbio where each running post stands (free); after a day without an answer the owner checks X. A
+        post left `publishing` for an hour (the agent stopped mid-call) is `unknown` too."""
+        now = now or time.time()
+        recent = self.store.posts(limit=200, since=now - 7 * 86400)
+        n = 0
+        for p in recent:
+            if p["status"] == "publishing" and now - (p.get("published_ts") or now) > 3600:
+                self.store.update_post(p["id"], status="unknown",
+                                       error="the agent stopped while posting this; check X before posting it again")
+                n += 1
+        running = [p for p in recent if p["status"] == "running"]
+        for p in running:
+            if not p.get("orbio_post_id") or now - (p.get("published_ts") or p["ts"]) > RUNNING_CHECK_S:
+                self.store.update_post(p["id"], status="unknown",
+                                       error="Orbio never confirmed this post; check X before posting it again")
+                n += 1
                 continue
-            horizons = dict(HORIZONS)
-            if p.get("origin") == "position":
-                # scored within a day of the horizon, never late (a late price is not the 14- or 30-day price)
-                horizons.update({h: s for h, s in LONG_HORIZONS.items() if now - p["ts"] < s + 86400})
-            for h, secs in horizons.items():
-                if p[f"ret_{h}"] is None and now - p["ts"] >= secs:
+            try:
+                res = await orbio.post_status(self.s.orbio_api_key, p["orbio_post_id"])
+            except (orbio.OrbioError, httpx.HTTPError) as e:
+                log.warning("post #%s status: %s", p["id"], e)
+                continue
+            status = post_state(res)
+            if status == "running":
+                continue
+            self.store.update_post(p["id"], status=status, url=res.get("url") or p.get("url"),
+                                   error=res.get("error"))
+            if p.get("pick_id") and status == "failed":
+                self.store.mark_pick_published(p["pick_id"], None, None)
+            n += 1
+        return n
+
+    # ------------------------------------------------------------- journal --
+    async def score_picks(self, snaps: dict[str, dict], now: float | None = None, hl: HL | None = None) -> int:
+        """Fill each logged pick's return once its horizon has passed (1d/3d/7d, and 14d/30d for position traders').
+        In the first half hour after the horizon, from the live price; later (the agent was down), from Hyperliquid's
+        candle at the horizon itself, so a late result is still that horizon's price and never today's. A coin with
+        no Hyperliquid history stays unscored rather than scored at the wrong time."""
+        now = now or time.time()
+        n, reads, cache, own = 0, 0, {}, None
+        try:
+            for p in self.store.open_picks(now):
+                coin = p["coin"].upper()
+                if not p["entry_price"]:
+                    continue
+                hl_px = self.tracker.last_mids.get(coin)
+                # group and position picks were entered at Hyperliquid's mid, so they are scored on it too
+                hl_entry = p.get("origin") in ("group", "position")
+                live = (hl_px or price_of(coin, snaps)) if hl_entry else (price_of(coin, snaps) or hl_px)
+                horizons = dict(HORIZONS)
+                if p.get("origin") == "position":
+                    horizons.update(LONG_HORIZONS)
+                for h, secs in horizons.items():
+                    target = p["ts"] + secs
+                    if p[f"ret_{h}"] is not None or now < target:
+                        continue
+                    if now - target <= ON_TIME_S:
+                        px = live
+                    else:
+                        key = (coin, int(target // 900))
+                        if key not in cache:
+                            if reads >= MAX_CANDLE_READS or coin not in self.tracker.last_mids:
+                                continue
+                            if hl is None:
+                                own = httpx.AsyncClient(timeout=20)
+                                hl = HL(own)
+                                try:
+                                    await hl.mids()          # Hyperliquid's own coin names (kPEPE)
+                                except Exception:  # noqa: BLE001
+                                    pass
+                            reads += 1
+                            cache[key] = await price_at(hl, coin, target, now)
+                        px = cache[key]
+                    if not px:
+                        continue
                     ret = px / p["entry_price"] - 1
                     if p["direction"] == "short":
                         ret = -ret
                     self.store.set_pick_return(p["id"], h, round(ret, 5))
                     n += 1
+        finally:
+            if own is not None:
+                await own.aclose()
         return n
 
 
 # ------------------------------------------------------------------ helpers --
+
+
+def post_state(res: dict) -> str:
+    """Orbio's answer about a post -> published, running or failed (anything else is still on its way)."""
+    st = str(res.get("status") or "").lower()
+    if st == "failed":
+        return "failed"
+    if st == "published" or (not st and res.get("url")):
+        return "published"
+    return "running" if res.get("post_id") else "unknown"
+
+
+async def price_at(hl: HL, coin: str, ts: float, now: float) -> float | None:
+    """Hyperliquid's close of the 15-minute candle holding `ts` (its hourly candle past 50 days, beyond what the
+    15-minute history reaches): the price at most 15 minutes (an hour) after that moment."""
+    interval, step = ("15m", 900) if now - ts < 50 * 86400 else ("1h", 3600)
+    start = int(ts // step * step)
+    try:
+        candles = await hl.candles(coin, interval, start * 1000, (start + step) * 1000 - 1)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+        log.warning("candle %s %s at %s: %s", coin, interval, start, e)
+        return None
+    for t, _o, _h, _l, c in candles:
+        if int(t) == start * 1000:
+            return c
+    return None
 
 
 def make_agent(settings: Settings) -> Agent:

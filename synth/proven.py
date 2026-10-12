@@ -15,8 +15,9 @@ of fills (regular and TWAP slices, which Hyperliquid serves apart); later checks
 positions are rebuilt as a running fold, so nothing is read twice.
 
 The rule (S3 with the amendment): positions from flat back to flat, by average cost; a swing position is held 3+
-days; open positions held 3+ days count at their unrealised PnL; proven = 5+ swing positions, swing positions at
-least half the size traded, swing PnL above zero with a profit factor of 1.5+. Bot-like wallets (S1 amendment 2) and
+days; open positions held 3+ days count at what was already taken off them plus their unrealised PnL; proven = 5+
+swing positions, swing positions at least half the size traded, swing PnL above zero with a profit factor of 1.5+.
+Bot-like wallets (S1 amendment 2) and
 wallets too active to read (over 20,000 order fills in 30 days, 600+ a day) are left out. Fills are read merged
 per order (one big order fills in many pieces: a count of pieces says nothing about the trader), and pages are
 joined on the boundary millisecond with duplicates dropped (joining one millisecond later loses the rest of an
@@ -140,13 +141,15 @@ def fold(coins: dict, fills: list[list]) -> list[list]:
                 st["avg"] = (st["avg"] * abs(pos) + px * abs(delta)) / (abs(pos) + abs(delta))
             else:
                 seg["pnl"] += (px - st["avg"]) * min(abs(delta), abs(pos)) * (1 if pos > 0 else -1)
-        if seg is not None:
-            seg["size"] = max(seg["size"], abs(new) * px, abs(pos) * px)
         flipped = pos != 0.0 and new != 0.0 and (pos > 0) != (new > 0)
-        if seg is not None and pos != 0.0 and (new == 0.0 or flipped):
-            closed.append([coin, seg["side"], seg["t0"], t, round(seg["size"], 2), round(seg["pnl"], 2)])
+        if seg is not None:
+            # a flip's new side is the next position's size, not this one's
+            seg["size"] = max(seg["size"], abs(pos) * px, 0.0 if flipped else abs(new) * px)
+        if pos != 0.0 and (new == 0.0 or flipped):
+            if seg is not None:
+                closed.append([coin, seg["side"], seg["t0"], t, round(seg["size"], 2), round(seg["pnl"], 2)])
             seg = None
-            if flipped:
+            if flipped:                     # the new side's entry is known even when the old side's was not
                 seg = {"side": "long" if new > 0 else "short", "t0": t, "pnl": 0.0, "size": abs(new) * px}
                 st["avg"] = px
         st["seg"], st["pos"] = seg, new
@@ -228,8 +231,9 @@ def _day(ms: float) -> str:
 
 def evaluate(address: str, closed: list[list], coins: dict, live: dict, now_ms: int,
              info: dict | None = None) -> tuple[dict, dict | None]:
-    """A wallet's record from its closed positions and its open ones now (held 3+ days: at their unrealised PnL).
-    Returns (summary, list entry if proven, else None). Pure."""
+    """A wallet's record from its closed positions and its open ones now (held 3+ days: at what was already taken
+    off them plus their unrealised PnL, so a loser cut to a small winning remnant still reads as a loser; sized at
+    their largest value while open, as closed ones are). Returns (summary, list entry if proven, else None). Pure."""
     ps = [{"coin": c, "side": s, "t0": t0, "t1": t1, "size": size, "pnl": pnl, "hold_d": (t1 - t0) / DAY_MS,
            "swing": (t1 - t0) / DAY_MS >= 3} for c, s, t0, t1, size, pnl in closed]
     open_since = {}
@@ -238,8 +242,9 @@ def evaluate(address: str, closed: list[list], coins: dict, live: dict, now_ms: 
         t0 = seg["t0"] if seg and seg["side"] == p["side"] else None
         open_since[f"{coin}:{p['side']}"] = t0 / 1000 if t0 else None
         if t0 and (now_ms - t0) / DAY_MS >= 3:
-            ps.append({"coin": coin, "side": p["side"], "t0": t0, "t1": now_ms, "size": p["notional"],
-                       "pnl": p["upnl"], "hold_d": (now_ms - t0) / DAY_MS, "swing": True, "open": True,
+            ps.append({"coin": coin, "side": p["side"], "t0": t0, "t1": now_ms,
+                       "size": max(p["notional"], seg.get("size") or 0.0),
+                       "pnl": (seg.get("pnl") or 0.0) + p["upnl"], "hold_d": (now_ms - t0) / DAY_MS, "swing": True, "open": True,
                        "move": move(p["side"], p.get("entry_px"), p.get("size"), p["upnl"]), "roe": p.get("roe")})
     r = record(ps)
     pf = None if r["pf"] == math.inf else round(r["pf"], 2)
@@ -486,7 +491,7 @@ class Refresher:
     def note_live(self, address: str, positions: dict, equity: float, now: float) -> None:
         """A position read from the daily scan (no fills): kept as the wallet's latest open positions, keeping how
         long each has been open from an earlier full read when the side is the same."""
-        prev = ((self.store.pt_cand_get(address) or {}).get("live") or {}).get("positions") or {}
+        prev = (self.store.pt_cand_live_of(address) or {}).get("positions") or {}
         summary = live_summary(positions, {}, equity, now)
         for c, p in summary["positions"].items():
             old = prev.get(c) or {}

@@ -17,6 +17,8 @@ import time
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    for noisy in ("httpx", "httpcore"):     # they log each request URL, and Telegram's carries the bot token
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     cmd = argv[1] if len(argv) > 1 else "cycle"
     if cmd == "serve":
         import os
