@@ -625,7 +625,7 @@ function renderOpenWinners() {
       <td class="n">${r.held_days == null ? '<span class="muted">before reads</span>' : Math.round(r.held_days) + "d"}</td>
       <td class="n">${px(r.entry)}</td><td class="n">${pctOrDash(r.move)}</td>
       <td class="n">${pctOrDash(r.roe)}${r.lev ? ` <span class="muted">${Math.round(r.lev)}x</span>` : ""}</td>
-      <td class="n long">${usdSigned(r.upnl)}</td><td class="n">${r.share_of_account == null ? "-" : Math.round(100 * r.share_of_account) + "%"}</td></tr>`).join("")
+      <td class="n long">${usdSigned(r.upnl)}</td><td class="n" title="Open profit on this position over the account's value now (over 100% when other positions are losing)">${r.share_of_account == null ? "-" : r.share_of_account > 1 ? "100%+" : Math.round(100 * r.share_of_account) + "%"}</td></tr>`).join("")
     : '<tr><td colspan="8" class="empty">Fills as the refresh reads the candidates (a day or two after deploy).</td></tr>';
 }
 async function loadTraders() { ptData = await api("/position-traders"); renderTraders(); }
