@@ -236,7 +236,7 @@ the public record and Sign out.
 - **Groups:** convergence groups trader by trader, with Follow.
 - **Research** (`GET /research`): the market cycle from Reflex's market history (fetched once a day: share of coins in
   an uptrend, the current risk-on or risk-off run against past runs), and every study as a chart with its finding and
-  verdict (S1 to S4, where the money came from), plus the forward record.
+  verdict (S1 to S5, where the money came from), plus the forward record.
 - **Record:** picks (scored at 1, 3 and 7 days, voided ones listed with their reason), the brief, and desk posts (owner).
 - **Ask:** a question answered from current data (uses the model).
 

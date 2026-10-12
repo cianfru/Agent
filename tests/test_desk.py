@@ -49,4 +49,4 @@ def test_home_and_research_on_a_fresh_store(tmp_path):
     assert xpl["leans"] == {"crowd": "long", "big_money": "split"} and xpl["agree"] == "mixed"
     assert len(h["crowd_series"]) == 2 and h["crowd_series"][-1][2] == 81000.0
     r = desk.research(a)
-    assert [x["id"] for x in r["studies"]] == ["S1", "S2", "S3", "S4"] and r["market_cycle"]["cycle"]["type"] == "on"
+    assert [x["id"] for x in r["studies"]] == ["S1", "S2", "S3", "S4", "S5"] and r["market_cycle"]["cycle"]["type"] == "on"

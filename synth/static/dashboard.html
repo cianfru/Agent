@@ -726,16 +726,17 @@ function divergeBars(el, rows, opts = {}) {
 
 // Plain horizontal bars: bars [{label, value, note?, color?}]
 function hBars(el, bars, opts = {}) {
-  const W = width(el), LBL = Math.min(190, W * 0.38), rowH = 30, H = bars.length * rowH + 4;
+  const W = width(el), narrow = W < 560;          // phones: each label on its own line above its bar
+  const LBL = narrow ? 0 : Math.min(190, W * 0.38), rowH = narrow ? 46 : 30, off = narrow ? 19 : 0, H = bars.length * rowH + 4;
   const vals = bars.map((b) => b.value), max = Math.max(0, ...vals), min = Math.min(0, ...vals), span = max - min || 1;
-  const area = W - LBL - (bars.some((b) => b.note) ? 170 : 80), Z = LBL + area * -min / span;
+  const area = W - LBL - (bars.some((b) => b.note) ? (narrow ? 150 : 170) : 80), Z = LBL + area * -min / span;
   let svg = min < 0 ? `<line x1="${Z}" x2="${Z}" y1="0" y2="${H}" stroke="${cssv("--stroke-2")}"/>` : "";
   bars.forEach((b, i) => {
     const y = i * rowH + 4, len = area * Math.abs(b.value) / span, pos = b.value >= 0;
     const col = b.color || (opts.signed ? (pos ? cssv("--up") : cssv("--down")) : cssv("--accent"));
     svg += `<text x="0" y="${y + 15}" font-size="12.5" fill="${cssv("--t2")}">${esc(b.label)}</text>` +
-      `<rect x="${pos ? Z : Z - len}" y="${y + 4}" width="${Math.max(2, len)}" height="14" rx="4" fill="${col}"/>` +
-      `<text x="${(pos ? Z + len : Z) + 6}" y="${y + 15}" font-size="12" font-family="${cssv("--mono")}" fill="${cssv("--t1")}">${esc(opts.fmt ? opts.fmt(b.value) : b.value)}${b.note ? ` <tspan fill="${cssv("--t3")}">${esc(b.note)}</tspan>` : ""}</text>`;
+      `<rect x="${pos ? Z : Z - len}" y="${y + 4 + off}" width="${Math.max(2, len)}" height="14" rx="4" fill="${col}"/>` +
+      `<text x="${(pos ? Z + len : Z) + 6}" y="${y + 15 + off}" font-size="12" font-family="${cssv("--mono")}" fill="${cssv("--t1")}">${esc(opts.fmt ? opts.fmt(b.value) : b.value)}${b.note ? ` <tspan fill="${cssv("--t3")}">${esc(b.note)}</tspan>` : ""}</text>`;
   });
   el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria || "bars")}">${svg}</svg>`;
 }
@@ -1007,7 +1008,7 @@ function renderResearch() {
   }
   const all = r.studies.concat(r.anatomy ? [{ ...r.anatomy, id: "Anatomy" }] : []);
   $("#studies").innerHTML = all.map((s, i) => `<div class="glass card">
-      <h3>${esc(s.id)} · ${esc(s.title)}${s.verdict ? `<span class="verdict ${esc(s.verdict)}">${s.verdict === "context" ? "Context, not a signal" : esc(s.verdict.charAt(0).toUpperCase() + s.verdict.slice(1))}</span>` : ""}${s.unit ? info(s.unit) : ""}</h3>
+      <h3><span>${esc(s.id)} · ${esc(s.title)}${s.unit ? info(s.unit) : ""}</span>${s.verdict ? `<span class="verdict ${esc(s.verdict)}">${s.verdict === "context" ? "Context, not a signal" : esc(s.verdict.charAt(0).toUpperCase() + s.verdict.slice(1))}</span>` : ""}</h3>
       <p class="finding">${esc(s.finding)}</p><div class="chart" id="study${i}"></div>
       ${s.facts ? `<div class="facts">${s.facts.map((f) => `<span>${esc(f[0])}<b>${esc(f[1])}</b></span>`).join("")}</div>` : ""}</div>`).join("");
   all.forEach((s, i) => {
