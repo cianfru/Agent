@@ -149,8 +149,14 @@ def test_discover_adds_riders_and_prunes(tmp_path, monkeypatch):
 
 
 def test_texts_and_bot_command(tmp_path, monkeypatch):
-    assert record_line(PROVEN) == ("proven: 28 trades held 3+ days, 15 won, +$2.0M ($536K of it still open), "
-                                   "wins $2.2 per $1 lost, usually holds ~50 days")
+    assert record_line(PROVEN) == ("proven: 28 trades held 3+ days (15 won), +$1.5M on closed ones; +$536K on open ones; "
+                                   "wins $2.2 per $1 lost; usually holds ~50 days")
+    # open profit alone is not a proven record: it reads "riding a winner", with the trade that carries it
+    rider = {**PROVEN, "realized_swing_pnl": -43_365, "open_swing_pnl": 378_653, "swing_pnl": 335_288,
+             "closed_swing": 10, "closed_won": 1, "open_swing": 3,
+             "best": {"coin": "ENA", "side": "long", "pnl": 318_862, "opened": "2026-07-15", "closed": None}}
+    assert record_line(rider) == ("riding a winner: closed trades held 3+ days -$43K, 1 of 10 won; +$379K on 3 still "
+                                  "open, most of it one ENA long (+$319K since 15 Jul); usually holds ~50 days")
     assert "hardly any losses" in record_line({**PROVEN, "profit_factor": 208.73})
     assert "no losing trade" in record_line({**PROVEN, "profit_factor": None, "win_rate": 1})
     assert [leverage_band(x) for x in (None, 0.2, 3, 5, 7.5)] == [None, "low", "moderate", "moderate", "high"]

@@ -158,20 +158,53 @@ def win_per_loss(pf: float | None, win_rate: float | None) -> str | None:
     return "hardly any losses" if pf >= PF_HARDLY_ANY_LOSSES else f"wins ${pf:.1f} per $1 lost"
 
 
+def _day_month(iso: str | None) -> str | None:
+    try:
+        return dt.date.fromisoformat(iso).strftime("%-d %b") if iso else None
+    except ValueError:
+        return None
+
+
+def shown_tier(t: dict) -> str:
+    """"proven" only when the closed trades made money; a list place earned on open profit reads "riding"."""
+    if t.get("tier") == "riding":
+        return "riding"
+    closed = t.get("realized_swing_pnl")
+    if closed is None:
+        closed = (t.get("swing_pnl") or 0) - (t.get("open_swing_pnl") or 0)
+    return "proven" if closed > 0 else "riding"
+
+
 def record_line(t: dict, open_now: float | None = None) -> str:
-    """A trader's record in plain words (no ratios to decode)."""
+    """A trader's record in plain words: closed trades and open ones apart, the trade that carries it when one does,
+    and "proven" only when the closed trades made money (open profit alone reads "riding a winner")."""
     if t.get("tier") == "riding":
         tail = f", {signed_usd(t['alltime_pnl'])} all-time" if t.get("alltime_pnl") is not None else ""
         op = open_now if open_now is not None else (t.get("open_pnl") or 0)
         return f"riding a winner: {signed_usd(op)} profit in open trades{tail}"
-    n = t["swing_positions"]
-    won = round(t["win_rate"] * n)
-    paper = t.get("open_swing_pnl")
-    parts = [f"proven: {n} trades held 3+ days, {won} won",
-             f"{signed_usd(t['swing_pnl'])}" + (f" ({usd(paper)} of it still open)" if paper else ""),
-             win_per_loss(t.get("profit_factor"), t.get("win_rate")),
-             f"usually holds ~{t['median_hold_days']:.0f} days"]
-    return ", ".join(p for p in parts if p)
+    opened = t.get("open_swing_pnl") or 0
+    closed = t.get("realized_swing_pnl")
+    if closed is None:
+        closed = (t.get("swing_pnl") or 0) - opened
+    word = "proven" if shown_tier(t) == "proven" else "riding a winner"
+    if t.get("closed_swing") is not None:        # refreshed records count closed and open trades apart
+        parts = [f"{word}: closed trades held 3+ days {signed_usd(closed)}, {t['closed_won']} of {t['closed_swing']} won"]
+        open_part = f"{signed_usd(opened)} on {t.get('open_swing', 0)} still open"
+    else:
+        n = t["swing_positions"]
+        parts = [f"{word}: {n} trades held 3+ days ({round(t['win_rate'] * n)} won), {signed_usd(closed)} on closed ones"]
+        open_part = f"{signed_usd(opened)} on open ones"
+    if opened:
+        best = t.get("best") or {}
+        if best.get("pnl") and not best.get("closed") and best["pnl"] >= 0.5 * opened > 0:
+            since = _day_month(best.get("opened"))
+            open_part += (f", most of it one {best['coin']} {best['side']} "
+                          f"({signed_usd(best['pnl'])}{' since ' + since if since else ''})")
+        parts.append(open_part)
+    if closed > 0:
+        parts.append(win_per_loss(t.get("profit_factor"), t.get("win_rate")))
+    parts.append(f"usually holds ~{t['median_hold_days']:.0f} days")
+    return "; ".join(p for p in parts if p)
 
 
 def conviction_text(t: dict, p: dict, lev: float | None) -> str:
@@ -505,7 +538,7 @@ class PositionTraders:
                         if f"{r['coin']}:{r['side'].upper()}" in seed_keys else "unknown"),
                     "conviction": bool(r["conviction"]), "new": not r["baseline"]} for r in rows]
             open_pnl = sum(p["upnl"] for p in pos)
-            traders.append({"address": a, "tier": t.get("tier", "proven"), "record": {k: t.get(k) for k in (
+            traders.append({"address": a, "tier": shown_tier(t), "record": {k: t.get(k) for k in (
                 "swing_positions", "swing_pnl", "realized_swing_pnl", "open_swing_pnl", "profit_factor", "win_rate",
                 "median_hold_days", "median_size", "long_share", "best", "open_pnl", "alltime_pnl")},
                 "record_text": record_line(t, open_pnl if t.get("tier") == "riding" else None), "equity": round(eq),
@@ -526,7 +559,9 @@ class PositionTraders:
             c["big_money"] = bm.get(c["coin"])
             coin_rows.append(c)
         coin_rows.sort(key=lambda c: -(c["long_usd"] + c["short_usd"]))
-        traders.sort(key=lambda t: -((t["record"].get("swing_pnl") or 0) + (t["open_pnl_now"] if t["tier"] == "riding" else 0)))
+        # a swing record already holds its open profit; a rider found daily has only its open profit now
+        traders.sort(key=lambda t: -(t["record"]["swing_pnl"] if t["record"].get("swing_pnl") is not None
+                                     else t["open_pnl_now"]))
         return {"as_of": self.seed.get("as_of"), "rule": self.seed.get("rule"), "traders": traders,
                 "coins": coin_rows, "adding_24h": self.adding(24, now)[:15], "adding_7d": self.adding(168, now)[:15],
                 "forward": self.forward(), "discover": self.store.latest_brief("pt_discover"),
