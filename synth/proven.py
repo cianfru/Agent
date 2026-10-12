@@ -68,7 +68,16 @@ ROSTER_SIZE = 600
 # all-time. Price, not return on margin, so leverage cannot make a small move look large; both are shown.
 RIDE_HELD_DAYS = 14
 RIDE_MOVE = 0.30
+RIDE_ROE = 2.0                       # or 200%+ on margin (owner: "up 674%" is how traders see it)
 RIDE_MOVE_MIN_USD = 10_000
+
+
+def big_open_winner(p: dict) -> bool:
+    """A position up 30%+ on price or 200%+ on margin, $10K+ in profit (how long it has been open aside)."""
+    m = p.get("move")
+    if m is None:
+        m = move(p["side"], p.get("entry_px", p.get("entry")), p.get("size"), p["upnl"])
+    return p["upnl"] >= RIDE_MOVE_MIN_USD and ((m or 0) >= RIDE_MOVE or (p.get("roe") or 0) >= RIDE_ROE)
 
 
 # ------------------------------------------------------------------ the pool --
@@ -277,7 +286,7 @@ def rides_long_winner(summary: dict, info: dict, now: float) -> dict | None:
         return None
     ps = summary.get("positions") or {}
     winners = [(c, p) for c, p in ps.items() if p.get("since") and now - p["since"] >= RIDE_HELD_DAYS * DAY
-               and (p.get("move") or 0) >= RIDE_MOVE and p["upnl"] >= RIDE_MOVE_MIN_USD]
+               and big_open_winner(p)]
     if not winners:
         return None
     coin, best = max(winners, key=lambda kv: kv[1]["upnl"])
@@ -340,14 +349,19 @@ class Refresher:
         self.running = False
 
     # pool --------------------------------------------------------------------
-    def update_pool(self, roster: dict[str, dict], big: dict[str, dict], now: float) -> int:
-        """Daily, from the leaderboard: who to check. Listed traders and the seed always stay in the pool."""
+    def update_pool(self, roster: dict[str, dict], big: dict[str, dict], now: float,
+                    winners: dict[str, dict] | None = None) -> int:
+        """Daily, from the leaderboard: who to check. Wallets the daily scan saw holding a big open winner come
+        first in the queue; listed traders and the seed always stay in the pool."""
         pool: dict[str, tuple[list[str], dict]] = {}
         for a, i in roster.items():
             pool[a] = (["roster"], i)
         for a, i in big.items():
             src, _ = pool.get(a, ([], i))
             pool[a] = (src + ["big"], i)
+        for a, i in (winners or {}).items():
+            src, _ = pool.get(a, ([], i))
+            pool[a] = (src + ["winner"], i)
         for a in set(self.store.pt_list()) | set(self.seed_traders):
             src, i = pool.get(a, ([], {}))
             pool[a] = (src + ["listed"], i)
@@ -360,7 +374,7 @@ class Refresher:
         listed = set(self.store.pt_list()) | set(self.seed_traders)
         rows = self.store.pt_cand_rows()
         fresh = [r for r in rows if r["checked_ts"] is None]
-        prio = {"listed": 3, "roster": 2, "big": 1}
+        prio = {"winner": 4, "listed": 3, "roster": 2, "big": 1}
         fresh.sort(key=lambda r: (-max(prio.get(s, 0) for s in (r["src"] or ["big"])), -(r["info"] or {}).get("av", 0)))
         wait = {"bot": RECHECK_SKIPPED_S, "busy": RECHECK_SKIPPED_S, "error": RECHECK_ERROR_S}
         due = [r for r in rows if r["checked_ts"] is not None and now - r["checked_ts"] >= wait.get(
@@ -468,6 +482,17 @@ class Refresher:
         elif seeded and address not in self.store.pt_list():
             self.store.pt_list_upsert(address, self.seed_traders[address], now, added_ts=self.seed_ts,
                                       qualified_ts=self.seed_ts)
+
+    def note_live(self, address: str, positions: dict, equity: float, now: float) -> None:
+        """A position read from the daily scan (no fills): kept as the wallet's latest open positions, keeping how
+        long each has been open from an earlier full read when the side is the same."""
+        prev = ((self.store.pt_cand_get(address) or {}).get("live") or {}).get("positions") or {}
+        summary = live_summary(positions, {}, equity, now)
+        for c, p in summary["positions"].items():
+            old = prev.get(c) or {}
+            if old.get("side") == p["side"] and old.get("since"):
+                p["since"] = old["since"]
+        self.store.pt_cand_save(address, live=summary)
 
     # owner links -----------------------------------------------------------------
     def owner_pairs(self) -> list[list[str]]:

@@ -137,7 +137,8 @@ def test_discover_adds_riders_and_prunes(tmp_path, monkeypatch):
     rows = [{"ethAddress": R, "accountValue": "4200000", "windowPerformances": [
         ["month", {"pnl": "1800000", "vlm": "4700000"}], ["allTime", {"pnl": "4400000", "vlm": "1"}]]}]
     out = asyncio.run(pt.discover(now=1_790_000_000.0, rows=rows, hl=hl))
-    assert out == {"candidates": 1, "riding": 1, "dropped": 0, "pool": 2} and R in pt.traders and A in pt.traders
+    assert out == {"candidates": 1, "riding": 1, "dropped": 0, "pool": 2, "open_winners": 1}
+    assert R in pt.traders and A in pt.traders
     assert pt.big_money() == {"NEAR": {"long_n": 1, "short_n": 0, "long_usd": 3_800_000, "short_usd": 0}}
     assert not pt.discover_due(now=1_790_000_000.0 + 3600)
     asyncio.run(pt.step(now=1_790_000_100.0))
@@ -242,3 +243,21 @@ def test_open_winners_from_every_read(tmp_path, monkeypatch):
     assert lit["move"] == 1.5 and lit["held_days"] == round((now - 1_780_000_000.0) / 86400, 1)
     assert wr["codename"] and wr["roe"] == 1.5 and wr["share_of_account"] == 0.25 and wr["since"]
     assert pt.board(now)["traders"][0]["positions"][0]["move"] == 1.5
+
+
+def test_daily_scan_flags_open_winners_in_small_accounts(tmp_path, monkeypatch):
+    S, Q = "0x" + "e" * 40, "0x" + "f" * 40
+    small_winner = {"side": "long", "size": 1000.0, "entry_px": 10.0, "notional": 14_000, "upnl": 4_000, "roe": 6.74}
+    pt, store, hl, sent = setup(tmp_path, monkeypatch, books={
+        S: {"W": {**small_winner, "notional": 30_000, "upnl": 20_000}},       # $10K cost, +$20K: +200% on price
+        Q: {"X": small_winner}})                                              # +674% on margin but only $4K
+    def row(a, av):
+        return {"ethAddress": a, "accountValue": str(av), "windowPerformances": [
+            ["month", {"pnl": "1", "vlm": "1000", "roi": "0"}], ["allTime", {"pnl": "5000", "vlm": "1"}]]}
+    out = asyncio.run(pt.discover(now=1_790_000_000.0, rows=[row(S, 60_000), row(Q, 40_000)], hl=hl))
+    assert out["open_winners"] == 1 and out["candidates"] == 2
+    assert pt.big_money() == {}                                    # big money stays $500K+ accounts
+    cand = store.pt_cand_get(S)
+    assert "winner" in cand["src"] and cand["live"]["positions"]["W"]["move"] == 2.0
+    assert pt.refresh._due(1_790_000_000.0)[0] == S                 # read first by the refresh
+    assert [w["coin"] for w in pt.open_winners(1_790_000_000.0)] == ["W"]

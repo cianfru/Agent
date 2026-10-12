@@ -208,7 +208,7 @@
     </div>
     <div class="panel" style="margin-bottom:16px">
       <h2>Open winners</h2>
-      <p class="hint">The biggest unrealised profits among everyone the agent reads: Reflex's roster rule and $500K+ accounts (read at least weekly) and the tracked traders (every poll). Up 20%+ on price, $10K+, open a week or more. "On margin" is the return Hyperliquid shows the trader (leverage included).</p>
+      <p class="hint">The biggest unrealised profits among everyone the agent reads: every profitable account of $10K+ (once a day), the refresh pool (at least weekly) and the tracked traders (every poll). Up 20%+ on price or 100%+ on margin, $10K+, open a week or more. "On margin" is the return Hyperliquid shows the trader (leverage included).</p>
       <div class="seg" id="owsort"><button data-s="usd" class="on">Biggest profit</button><button data-s="move">Biggest move</button><button data-s="held">Held longest</button></div>
       <div class="scroll"><table id="owtable"><thead><tr><th>Trader</th><th>Coin</th><th>Held</th><th>Entry</th><th>Up on price</th><th>On margin</th><th>Open profit</th><th>Of account</th></tr></thead><tbody></tbody></table></div>
     </div>
@@ -622,7 +622,7 @@ function renderOpenWinners() {
   $("#owtable tbody").innerHTML = rows.length ? rows.map((r) => `<tr>
       <td><a href="https://hypurrscan.io/address/${esc(r.address)}" target="_blank" rel="noopener" style="color:inherit"><b>${esc(r.codename)}</b></a> <span class="muted">${esc(short(r.address))}</span>${r.listed ? ` <span class="agree ${r.listed === "proven" ? "al" : "dis"}">${esc(r.listed)}</span>` : ""}</td>
       <td><b>${esc(r.coin)}</b> <span class="${r.side}">${r.side}</span></td>
-      <td class="n">${r.held_days == null ? '<span class="muted">before reads</span>' : Math.round(r.held_days) + "d"}</td>
+      <td class="n">${r.held_days == null ? '<span class="muted" title="Comes with the first full read of the wallet\'s trades, or the position is older than a year">not yet known</span>' : Math.round(r.held_days) + "d"}</td>
       <td class="n">${px(r.entry)}</td><td class="n">${pctOrDash(r.move)}</td>
       <td class="n">${pctOrDash(r.roe)}${r.lev ? ` <span class="muted">${Math.round(r.lev)}x</span>` : ""}</td>
       <td class="n long">${usdSigned(r.upnl)}</td><td class="n" title="Open profit on this position over the account's value now (over 100% when other positions are losing)">${r.share_of_account == null ? "-" : r.share_of_account > 1 ? "100%+" : Math.round(100 * r.share_of_account) + "%"}</td></tr>`).join("")
@@ -631,11 +631,11 @@ function renderOpenWinners() {
 async function loadTraders() { ptData = await api("/position-traders"); renderTraders(); }
 function renderTraders() {
   const d = ptData; if (!d) return;
-  const disc = d.discover ? ` Riders last scanned ${ago(d.discover.ts)} ago: ${d.discover.riding} of ${d.discover.candidates} big accounts.` : " Riders: first scan pending.";
+  const disc = d.discover ? ` Daily scan ${ago(d.discover.ts)} ago: ${(d.discover.candidates || 0).toLocaleString()} profitable accounts of $10K+ read, ${d.discover.open_winners ?? "-"} holding a big open winner.` : " Daily scan: first run pending.";
   const rf = d.refresh;
   renderOpenWinners();
   $("#ptkept").innerHTML = rf && rf.pool ? `List kept current: <b>${rf.proven}</b> proven now · <span class="long">${rf.joined_7d} joined</span> · <span class="short">${rf.dropped_7d} dropped</span> this week · ${rf.checked} of ${rf.pool} candidates read${rf.waiting ? ` (${rf.waiting} waiting)` : ""}` : "";
-  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3's rule, rerun on every candidate: Reflex's roster rule, $500K+ accounts in profit, the listed; new names first, listed traders every 2 days, the rest weekly; one who stops qualifying drops after 30 days). Riding winners: $250K+ open profit with a real winner (found daily among $500K+ accounts), or any account holding a position 14+ days that is up 30%+ on price and $10K+ (read with the refresh); in profit all-time.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
+  $("#ptrule").textContent = `Proven: 5+ positions held 3+ days (open ones count at their unrealised PnL), in profit with profit factor 1.5+ (study S3's rule, rerun on every candidate: Reflex's roster rule, $500K+ accounts in profit, the listed; new names first, listed traders every 2 days, the rest weekly; one who stops qualifying drops after 30 days). Riding winners: $250K+ open profit with a real winner (found daily among $500K+ accounts), or any account holding a position 14+ days that is up 30%+ on price or 200%+ on margin with $10K+ of profit; in profit all-time. Every profitable account of $10K+ is read once a day; a big open winner sends the wallet to the front of the refresh, which reads how long it has been open.${disc} Big money: every account of $500K+ in profit all-time from the daily scan, one vote per owner (a position of $25K+, wallets of one owner netted), dollars beside; the biggest of them never make Reflex's monthly-return list. Conviction: a new position at least 2x the trader's usual size within 4 hours. Context, not a signal.`;
   const f = d.forward || {}, fa = f.all || {}, fc = f.conviction || {};
   const fm = (r, h) => r && r[h] && r[h].n ? `${pct(r[h].median_pct)} <span class="muted">${r[h].positive_pct.toFixed(0)}% · ${r[h].n}</span>` : "-";
   $("#ptfwd").innerHTML = `<span><b>New positions logged</b>${fa.logged || 0}</span><span><b>Conviction</b>${fc.logged || 0}</span>
