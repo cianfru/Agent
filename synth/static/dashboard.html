@@ -87,6 +87,13 @@
   .grid-a > .blk, .grid2 > .blk { margin-top: 0; }
   .stat { position: relative; overflow: hidden; }
   .stat .sp { position: absolute; right: 14px; top: 16px; opacity: .9; }
+  .title .segs { margin-left: auto; display: flex; align-items: center; gap: 10px 26px; flex-wrap: wrap; }
+  .title .segs .seg { margin-left: 0; }
+  .title .segs .pricegrp { display: inline-flex; align-items: center; }
+  .title .segs #crowdwin { padding-left: 26px; border-left: 1px solid var(--stroke-2); }
+  /* the crowd tile: its two-line sparkline runs under the number, full width */
+  .stat.crowd .sp { position: static; margin-top: 12px; opacity: 1; }
+  .stat.crowd .sp svg { display: block; width: 100%; height: 36px; }
   .stat .v.up, .stat .v.down { } .stat .v.acc { color: var(--accent); }
   .fill-up { background: linear-gradient(180deg, var(--up-soft), transparent 75%), var(--glass); }
   .fill-down { background: linear-gradient(180deg, var(--down-soft), transparent 75%), var(--glass); }
@@ -191,7 +198,10 @@
     .title { flex-wrap: wrap; }
     .sm-only { display: block; font: 12px var(--mono); color: var(--t3); margin-top: 2px; }
   }
-  @media (max-width: 520px) { .stats { grid-template-columns: 1fr 1fr; gap: 10px; } .stat { padding: 14px; } .stat .v { font-size: 22px; } .stat .sp { display: none; } }
+  @media (max-width: 520px) { .stats { grid-template-columns: 1fr 1fr; gap: 10px; } .stat { padding: 14px; } .stat .v { font-size: 22px; } .stat .sp { display: none; }
+    .stat.crowd { grid-column: span 2; } .stat.crowd .sp { display: block; }
+    .title .segs { margin-left: 0; width: 100%; margin-top: 10px; gap: 10px 20px; }
+    .title .segs #crowdwin { padding-left: 0; border-left: 0; } }
 </style>
 </head>
 <body>
@@ -229,8 +239,9 @@
 
       <div class="blk grid-a">
         <div class="blk">
-          <div class="title">Crowd against price<button type="button" class="i" aria-label="What this means" aria-expanded="false" data-tip="BTC above; below, the share of profitable traders' positions that are long. They tend to lean against the move: fewer longs after a rally, more after a drop (study S2).">i</button>
-            <div class="seg" id="crowdwin"><button data-v="24">24h</button><button data-v="72">3d</button><button data-v="168" class="on">7d</button></div></div>
+          <div class="title">Crowd against price<button type="button" class="i" aria-label="What this means" aria-expanded="false" data-tip="Price above; below, the share of profitable traders' positions that are long. They tend to lean against the move: fewer longs after a rally, more after a drop (study S2).">i</button>
+            <div class="segs"><span class="pricegrp"><span class="seg" id="pricewin"><button data-v="btc" class="on">BTC</button><button data-v="basket" id="basketbtn" hidden>Alerted coins</button></span><span id="basket-i"></span></span>
+              <div class="seg" id="crowdwin"><button data-v="24">24h</button><button data-v="72">3d</button><button data-v="168" class="on">7d</button></div></div></div>
           <div class="glass card"><div class="chart" id="crowdchart"></div></div>
         </div>
         <div class="blk">
@@ -633,6 +644,18 @@ async function refreshStatus() {
 }
 
 // ------------------------------------------------------------------ charts
+// Two lines on their own scales: the share long (accent) and a price (quiet), so their shapes can be compared.
+function spark2(share, price, w = 300, h = 36) {
+  const line = (vals, color, width, dash) => {
+    const pts = vals.map((v, i) => [i, v]).filter(([, v]) => v != null);
+    if (pts.length < 2) return "";
+    const ys = pts.map(([, v]) => v), lo = Math.min(...ys), hi = Math.max(...ys), r = hi - lo || 1, n = vals.length - 1 || 1;
+    const p = pts.map(([i, v]) => `${(1 + i * (w - 2) / n).toFixed(1)},${(h - 3 - (v - lo) / r * (h - 6)).toFixed(1)}`).join(" ");
+    return `<polyline points="${p}" fill="none" stroke="${color}" stroke-width="${width}"${dash ? ' stroke-dasharray="3 3"' : ""} vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>`;
+  };
+  const a = line(price || [], cssv("--t2"), 1.5, true), b = line(share || [], cssv("--crowd"), 2);
+  return a || b ? `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${a}${b}</svg>` : "";
+}
 function spark(vals, color, w = 84, h = 28) {
   if (!vals || vals.length < 2) return "";
   const lo = Math.min(...vals), hi = Math.max(...vals), r = hi - lo || 1;
@@ -764,12 +787,26 @@ function lensCell(x) {
     <div class="lbl"><span class="long">${x.long_n != null ? x.long_n + " · " : ""}${usd(x.long_usd)}</span><span class="short">${x.short_n != null ? x.short_n + " · " : ""}${usd(x.short_usd)}</span></div></div>`;
 }
 const AGREE = { "all long": ["al", "All long"], "all short": ["as", "All short"], disagree: ["dis", "Disagree"], mixed: ["mx", "Mixed"], "one lens": ["mx", "One lens"] };
-const stat = (label, tip, v, d, cls = "", sp = "") => `<div class="glass stat ${cls === "up" ? "fill-up" : cls === "down" ? "fill-down" : ""}">
+const stat = (label, tip, v, d, cls = "", sp = "", extra = "") => `<div class="glass stat ${extra} ${cls === "up" ? "fill-up" : cls === "down" ? "fill-down" : ""}">
   <div class="label">${label}${tip ? info(tip) : ""}</div><div class="v ${cls}">${v}</div>${d ? `<div class="d">${d}</div>` : ""}${sp ? `<div class="sp">${sp}</div>` : ""}</div>`;
 
 // ------------------------------------------------------------------ market
 let deskData = null, crowdHours = 168, moveMode = "t24";
+let PRICE = "btc"; try { PRICE = localStorage.getItem("desk-price") === "basket" ? "basket" : "btc"; } catch {}
 seg("crowdwin", (v) => { crowdHours = +v; renderCrowd(); });
+seg("pricewin", (v) => { PRICE = v; try { localStorage.setItem("desk-price", v); } catch {} renderCrowd(); renderCrowdSpark(); });
+const hasBasket = () => !!(deskData && deskData.basket && deskData.basket.coins.length);
+const priceRef = () => (PRICE === "basket" && hasBasket() ? "basket" : "btc");
+function renderPriceSwitch() {
+  const b = deskData && deskData.basket, on = hasBasket();
+  $("#basketbtn").hidden = !on;
+  $("#basket-i").innerHTML = on ? info(`An equal-weight index of the ${b.coins.length} coin${b.coins.length === 1 ? "" : "s"} the agent alerted on in the last ${b.window_days} days: ${b.coins.join(", ")}. It starts at 100 on the chart's first point.`) : "";
+  document.querySelectorAll("#pricewin button").forEach((x) => { const sel = x.dataset.v === priceRef(); x.classList.toggle("on", sel); x.setAttribute("aria-pressed", sel); });
+}
+function renderCrowdSpark() {
+  const el = $("#crowdspark"), c = deskData && deskData.kpi.crowd; if (!el || !c) return;
+  el.innerHTML = spark2(c.spark, priceRef() === "basket" ? c.spark_basket : c.spark_btc);
+}
 seg("movewin", (v) => { moveMode = v; renderMoving(); });
 
 async function loadMarket() {
@@ -789,8 +826,8 @@ async function loadMarket() {
     cy && cy.median_days ? `Past risk-${cy.type} runs lasted ${Math.round(cy.median_days)} days on the median; ${cy.lasted_30_more} of ${cy.reached_age} that reached day ${cy.age_days} lasted 30 more.` : ""].filter(Boolean).join(" ");
   $("#hero-i").innerHTML = more ? info(more) : "";
   $("#kpis").innerHTML =
-    stat("Crowd long", "Share of positions long among Reflex's profitable traders (30%+ a month).", c.share_long == null ? "—" : c.share_long.toFixed(1) + "%",
-      c.change_24h == null ? "" : `${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} pts · 24h`, cls(c.share_long), spark(c.spark, cssv("--crowd"))) +
+    stat("Crowd long", "Share of positions long among Reflex's profitable traders (30%+ a month). The small chart: blue is that share, the dashed line is BTC or the alerted coins (switch on the chart below), each on its own scale.", c.share_long == null ? "—" : c.share_long.toFixed(1) + "%",
+      c.change_24h == null ? "" : `${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} pts · 24h`, cls(c.share_long), '<span id="crowdspark"></span>', "crowd") +
     stat("Big money long", "Accounts of $500K+ in profit all-time, one vote per owner. Read once a day.", bm.share_long == null ? "—" : bm.share_long.toFixed(0) + "%",
       bm.ts ? `${bm.owners ? bm.owners + " owners · " : ""}${ago(bm.ts)} ago` : "", cls(bm.share_long)) +
     stat("Tracked long", "Traders the agent follows: proven records and riders of big winners.", tr.share_long == null ? "—" : tr.share_long.toFixed(0) + "%",
@@ -800,7 +837,7 @@ async function loadMarket() {
     stat("BTC", "", k.btc && k.btc.price ? px(k.btc.price) : "—", k.btc && k.btc.change_24h != null ? pct(k.btc.change_24h) + " · 24h" : "",
       k.btc && k.btc.change_24h > 0 ? "up" : k.btc && k.btc.change_24h < 0 ? "down" : "") +
     stat("Alerts", "Build-ups, conviction bets and convergences in the last 24 hours.", k.alerts_24h ?? "—", "last 24h", k.alerts_24h ? "acc" : "");
-  renderDirection(); renderCrowd(); renderMoving();
+  renderPriceSwitch(); renderCrowdSpark(); renderDirection(); renderCrowd(); renderMoving();
   $("#alerts").innerHTML = d.alerts.length ? d.alerts.slice(0, 30).map(alertRow).join("") : '<div class="empty">No alerts in the last 3 days.</div>';
   $("#lenses").classList.toggle("noprice", !d.lenses.some((r) => r.price != null));
   $("#lenses tbody").innerHTML = d.lenses.length ? d.lenses.map((r) => { const a = AGREE[r.agree] || ["mx", r.agree];
@@ -846,10 +883,14 @@ function renderDirection() {
 function renderCrowd() {
   const d = deskData; if (!d) return;
   const cut = Date.now() / 1000 - crowdHours * 3600, pts = d.crowd_series.filter((p) => p[0] >= cut);
+  const basket = priceRef() === "basket";
+  let price = pts.map((p) => (basket ? p[3] : p[2]) ?? null);
+  if (basket) { const base = price.find((v) => v != null); price = price.map((v) => (v == null || !base ? null : 100 * v / base)); }
   stackChart($("#crowdchart"), pts.map((p) => p[0]), [
-    { label: "BTC", vals: pts.map((p) => p[2]), color: cssv("--t1"), h: 150, fmt: (v) => px(v) },
+    basket ? { label: "Alerted coins", vals: price, color: cssv("--t1"), h: 150, fmt: (v) => v.toFixed(1), ref: 100 }
+      : { label: "BTC", vals: price, color: cssv("--t1"), h: 150, fmt: (v) => px(v) },
     { label: "Crowd long", vals: pts.map((p) => p[1]), color: cssv("--crowd"), h: 120, fmt: (v) => v.toFixed(1) + "%", area: true },
-  ], { aria: "BTC and the share of profitable traders long", empty: "The line fills as the agent reads." });
+  ], { aria: `${basket ? "The alerted coins" : "BTC"} and the share of profitable traders long`, empty: "The line fills as the agent reads." });
 }
 function renderMoving() {
   const d = deskData; if (!d) return;

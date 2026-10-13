@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import statistics
 import time
 from pathlib import Path
@@ -78,7 +79,34 @@ def agreement(leans: list[str | None]) -> str:
     return "mixed"
 
 
-def _crowd_points(rows: list[tuple[float, dict]], every: int = 1) -> list[list]:
+def basket_index(rows: list[tuple[float, dict]], coins: list[str]) -> tuple[list[float | None], list[str]]:
+    """An equal-weight price index of `coins` at every row (geometric mean of each coin's price over its first one,
+    x100), and the coins it used. A coin missing from a row keeps its last price (its first one before it appears),
+    so the basket never changes make-up mid-window and any point can be rebased by division. Coins never priced in
+    the window are left out."""
+    prices: dict[str, list[float | None]] = {}
+    for coin in coins:
+        col = [((r.get("c") or {}).get(coin) or [None] * 5)[4] for _, r in rows]
+        col = [p if isinstance(p, (int, float)) and p > 0 else None for p in col]
+        first = next((p for p in col if p), None)
+        if first is None:
+            continue
+        last, filled = first, []
+        for p in col:
+            last = p or last
+            filled.append(last)
+        prices[coin] = filled
+    used = list(prices)
+    if not used:
+        return [None] * len(rows), []
+    base = {c: prices[c][0] for c in used}
+    out = [round(100 * math.exp(sum(math.log(prices[c][i] / base[c]) for c in used) / len(used)), 3)
+           for i in range(len(rows))]
+    return out, used
+
+
+def _crowd_points(rows: list[tuple[float, dict]], every: int = 1, basket: list | None = None) -> list[list]:
+    """[ts, share of positions long, BTC, the alerted coins' index] per kept row."""
     out = []
     for i, (ts, r) in enumerate(rows):
         if i % every and i != len(rows) - 1:
@@ -88,7 +116,7 @@ def _crowd_points(rows: list[tuple[float, dict]], every: int = 1) -> list[list]:
         sn = sum(v[2] for v in c.values())
         btc = (c.get("BTC") or [None] * 5)[4]
         if ln + sn:
-            out.append([round(ts), round(100 * ln / (ln + sn), 2), btc])
+            out.append([round(ts), round(100 * ln / (ln + sn), 2), btc, basket[i] if basket else None])
     return out
 
 
@@ -125,9 +153,6 @@ def home(agent, now: float | None = None) -> dict:
     now = now or time.time()
     store, pt = agent.store, agent.positions
     rows = store.series("reflex", now - 7 * DAY_S - 1800)
-    pts = _crowd_points(rows, every=max(1, len(rows) // 400))
-    day_ago = next((p for p in pts if p[0] >= now - DAY_S), None)
-    crowd_now = pts[-1] if pts else None
     snap = store.get_snapshot("reflex") or {}
     positions = snap.get("positions") or {}
 
@@ -164,26 +189,35 @@ def home(agent, now: float | None = None) -> dict:
     for kind, label in (("pt_build", "build-up"), ("pt_alert", "conviction"), ("alert_sent", "smart money")):
         for b in store.briefs_since(kind, now - 3 * DAY_S):
             body = b["body"]
-            text = body.get("text")
+            text, coin = body.get("text"), body.get("coin")
             if kind == "alert_sent":
                 ev = store.event(body.get("event_id"))
-                text = ev["title"] if ev else None
+                text, coin = (ev["title"], ev.get("coin")) if ev else (None, None)
             elif kind == "pt_alert":
                 text = f"{body.get('coin')} {body.get('side')} by {body.get('address', '')[:8]}"
             if text:
-                alerts.append({"ts": b["ts"], "kind": label, "text": text})
+                alerts.append({"ts": b["ts"], "kind": label, "text": text, "coin": coin})
     for g in store.groups(limit=10):
         if now - g["ts"] <= 3 * DAY_S:
-            alerts.append({"ts": g["ts"], "kind": "convergence", "text": f"#{g['id']} {g['coin']} {g['side']} · "
-                           f"{(g['meta'] or {}).get('n') or ''} profitable traders"})
+            alerts.append({"ts": g["ts"], "kind": "convergence", "coin": g["coin"],
+                           "text": f"#{g['id']} {g['coin']} {g['side']} · {(g['meta'] or {}).get('n') or ''} profitable traders"})
     alerts.sort(key=lambda a: -a["ts"])
+
+    # price beside the crowd's share long: BTC, or the coins the agent alerted on in the last 3 days (desk only)
+    alert_coins = list(dict.fromkeys(str(a["coin"]).upper() for a in alerts if a.get("coin")))
+    basket, basket_coins = basket_index(rows, alert_coins)
+    pts = _crowd_points(rows, every=max(1, len(rows) // 400), basket=basket)
+    day_ago = next((p for p in pts if p[0] >= now - DAY_S), None)
+    crowd_now = pts[-1] if pts else None
 
     return {
         "ts": now,
         "kpi": {
             "crowd": {"share_long": crowd_now[1] if crowd_now else None,
                       "change_24h": round(crowd_now[1] - day_ago[1], 1) if crowd_now and day_ago else None,
-                      "spark": [p[1] for p in pts[-96:]]},
+                      "spark": [p[1] for p in pts[-96:]],
+                      "spark_btc": [p[2] for p in pts[-96:]],
+                      "spark_basket": [p[3] for p in pts[-96:]] if basket_coins else []},
             "big_money": {"share_long": _share(bm_ln, bm_sn), "long_n": bm_ln, "short_n": bm_sn,
                           "long_usd": round(bm_long), "short_usd": round(bm_short),
                           "owners": (store.latest_brief("pt_bigmoney") or {}).get("owners"),
@@ -199,6 +233,7 @@ def home(agent, now: float | None = None) -> dict:
                     if crowd_now and day_ago and day_ago[2] and crowd_now[2] else None},
         },
         "crowd_series": pts,
+        "basket": {"coins": basket_coins, "window_days": 3},
         "direction": directions,
         "moving": {"tracked_24h": [r for r in adding_24h if r["coin"] not in MAJORS][:15],
                    "tracked_7d": [r for r in pt.adding(168, now) if r["coin"] not in MAJORS][:15],

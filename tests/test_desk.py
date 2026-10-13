@@ -50,3 +50,31 @@ def test_home_and_research_on_a_fresh_store(tmp_path):
     assert len(h["crowd_series"]) == 2 and h["crowd_series"][-1][2] == 81000.0
     r = desk.research(a)
     assert [x["id"] for x in r["studies"]] == ["S1", "S2", "S3", "S4", "S5"] and r["market_cycle"]["cycle"]["type"] == "on"
+
+
+def test_basket_index_is_an_equal_weight_index_of_the_alerted_coins():
+    rows = [(0, {"c": {"AAA": [1, 1, 0, 0, 10.0], "BBB": [1, 1, 0, 0, 2.0]}}),
+            (1, {"c": {"AAA": [1, 1, 0, 0, 20.0]}}),                                  # BBB missing: keeps its last price
+            (2, {"c": {"AAA": [1, 1, 0, 0, 20.0], "BBB": [1, 1, 0, 0, 8.0], "CCC": [1, 1, 0, 0, 5.0]}})]
+    idx, used = desk.basket_index(rows, ["AAA", "BBB", "ZZZ"])
+    assert used == ["AAA", "BBB"]                                                     # never priced: left out
+    assert idx == [100.0, round(100 * (2 * 1) ** 0.5, 3), round(100 * (2 * 4) ** 0.5, 3)]
+    late, used = desk.basket_index(rows, ["CCC"])                                     # appears late: flat before
+    assert used == ["CCC"] and late == [100.0, 100.0, 100.0]
+    assert desk.basket_index(rows, []) == ([None, None, None], [])
+
+
+def test_home_puts_the_alerted_coins_beside_the_crowd(tmp_path):
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    store = Store(s.db_path)
+    a = service.Agent(s, store)
+    a.positions.enabled = False
+    store.add_series("reflex", {"w": 1, "stale": False, "c": {"BTC": [3, 3e6, 1, 1e6, 80000.0], "XPL": [2, 2e5, 1, 9e5, 0.087]}}, ts=1_000.0)
+    store.add_series("reflex", {"w": 1, "stale": False, "c": {"BTC": [4, 4e6, 1, 1e6, 81000.0], "XPL": [2, 2e5, 1, 9e5, 0.090]}}, ts=1_300.0)
+    store.add_brief("pt_build", {"key": "k", "text": "Building · XPL long", "coin": "XPL", "side": "long"})
+    h = desk.home(a, now=1_400.0)
+    assert h["basket"] == {"coins": ["XPL"], "window_days": 3}
+    assert h["alerts"][0]["coin"] == "XPL"
+    assert [p[3] for p in h["crowd_series"]] == [100.0, round(100 * 0.090 / 0.087, 3)]
+    assert h["kpi"]["crowd"]["spark_btc"] == [80000.0, 81000.0]
+    assert h["kpi"]["crowd"]["spark_basket"] == [100.0, round(100 * 0.090 / 0.087, 3)]
