@@ -403,6 +403,13 @@ body.riding #tour { z-index: 850; }
 .unlock .box b { font: 600 22px var(--display); }
 .unlock .box p { margin: 0; color: var(--ink-2); }
 
+.cchip { display: inline-grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; vertical-align: middle;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); }
+.cchip img { width: 100%; height: 100%; object-fit: contain; display: block; image-rendering: auto; }
+.tb .t.plain { font: 700 14px var(--body); display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.hero.coinname { font: 700 38px/1 var(--body); letter-spacing: -0.01em; }
+#mb-btc { align-items: center; }
+.camp { align-items: center; gap: 5px; }
 .ctile { display: inline-grid; place-items: center; flex: none; border-radius: 8px; font-family: var(--body); font-weight: 700;
   color: #fff; background: hsl(var(--h) 42% 36%); letter-spacing: .02em; line-height: 1; }
 :root[data-look="vga"] .ctile { border-radius: 0; }

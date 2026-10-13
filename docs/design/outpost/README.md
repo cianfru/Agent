@@ -14,7 +14,11 @@ JavaScript, like `synth/static`.
 - `gen.py` builds `sample.json` around those prices: every position, trader, group, open interest history and
   record entry in it is made up, shaped like the agent's own data (`synth/desk.py`). Study verdicts are real
   (`synth/data/research.json`).
-- `build.py` inlines `style.css`, `art.js`, `chart.js`, `shell.js`, `apps.js`, `world.js`, `tour.js` and `sample.json` into
+- `coins/` holds each coin's logo, copied from Reflex's cache of Hyperliquid's own artwork
+  (`RCCE_Scanner/frontend/public/token-logos`, mapped in `frontend/src/data/tokenLogos.json`). `chips.js` measures each
+  logo and writes `chips.json`: no chip for logos that fill their circle, a dark chip for light artwork (XPL, HYPE), a
+  light one for dark artwork (ETH, NEAR, XRP), so every logo reads on both themes.
+- `build.py` inlines `style.css`, `art.js`, `chart.js`, `shell.js`, `apps.js`, `world.js`, `tour.js`, `sample.json` and the logos into
   `page.html` and writes `outpost.html` (an Artifact page body; not committed).
 
 Wiring it to the desk means replacing `window.OUTPOST_DATA` with `/desk/home` (and the trader and record

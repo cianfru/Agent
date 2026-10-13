@@ -176,7 +176,7 @@ const Menubar = {
     const h = Herd.now(), d = h - Herd.at(D.asof - 86400);
     $("#mb-herd").innerHTML = App.view === "visitor" ? `<small>Herd</small><b>locked</b>` : `<small>Herd</small><b>${h.toFixed(0)}% long</b><small>${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(0)}</small>`;
     const b = D.prices.BTC, n = b.length - 1, c = (b[n] / b[n - 24] - 1) * 100;
-    $("#mb-btc").innerHTML = `<small>BTC</small><b>${fmtPx(b[n])}</b><small>${pct(c)}</small>`;
+    $("#mb-btc").innerHTML = `${coinIcon("BTC", 16)}<b>${fmtPx(b[n])}</b><small>${pct(c)}</small>`;
     $("#mb-scout").innerHTML = `<img src="${Art.face()}" alt=""><small>Outrider checked ${hhmm(D.asof)} UTC</small>`;
     $("#mb-wallet").textContent = App.view === "visitor" ? "Connect wallet" : "0x28fb…4341";
     const top = WM.top(); $("#mb-app").textContent = top ? APPS[top.app].name : "Outpost";
@@ -267,7 +267,12 @@ const WM = {
     Dock.bounce(spec.dockAs || app); Dock.refresh();
     return win;
   },
-  setTitle(win, t) { win.title = t; $(".t", win.el).textContent = t; },
+  setTitle(win, t) {
+    win.title = t;
+    const ic = APPS[win.app].titleIcon && APPS[win.app].titleIcon(win.arg), el = $(".t", win.el);
+    el.classList.toggle("plain", !!ic);
+    el.innerHTML = (ic ? `<span class="cchip" style="width:16px;height:16px;background:${ic.chip}"><img src="${ic.src}" alt=""></span>` : "") + esc(t);
+  },
   render(win) {
     win.charts.forEach((c) => { c.destroy(); Charts.live.delete(c); }); win.charts = [];
     const spec = APPS[win.app], body = $(".wb", win.el);

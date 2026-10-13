@@ -344,7 +344,7 @@ const World = (() => {
   const UI = {
     build() {
       const ui = $("#world-ui");
-      ui.innerHTML = COINS.map((c) => `<button type="button" class="camp" data-coin="${c}"><b>${c}</b><span class="cl"></span></button>`).join("")
+      ui.innerHTML = COINS.map((c) => `<button type="button" class="camp" data-coin="${c}">${coinIcon(c, 16)}<b>${c}</b><span class="cl"></span></button>`).join("")
         + `<div class="plaque" data-at="ne">Everyone long</div><div class="plaque" data-at="nw">Pros long, crowd lighter</div>`
         + `<div class="plaque" data-at="se">Pros short, crowd long</div><div class="plaque" data-at="sw">Pros short, crowd lighter</div>`
         + `<div class="plaque river" data-at="river">The divide: north, the pros lean long</div><div class="plaque herd" data-at="herd"></div><div class="plaque fort" data-at="fort">The Outpost</div>`;

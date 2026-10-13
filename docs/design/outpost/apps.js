@@ -25,7 +25,13 @@ const day = (t, wd = true) => new Date(t * 1000).toLocaleDateString("en-GB", { .
 const wday = (t) => new Date(t * 1000).toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
 const sideWord = (s) => (s === "long" ? "Long" : "Short");
 const arrow = (s) => (s === "long" ? "▲" : "▼");
+const ICON = window.OUTPOST_ICONS || {};
+function coinIcon(coin, size = 30) {
+  const ic = ICON[coin];
+  return ic ? `<span class="cchip" style="width:${size}px;height:${size}px;background:${ic.chip}"><img src="${ic.src}" alt=""></span>` : "";
+}
 function coinTile(coin, size = 30) {
+  if (ICON[coin]) return coinIcon(coin, size);
   let h = 0; for (const c of coin) h = (h * 31 + c.charCodeAt(0)) % 360;
   const fs = coin.length > 4 ? size * 0.26 : coin.length > 3 ? size * 0.3 : size * 0.36;
   return `<span class="tile ctile" style="--h:${h};width:${size}px;height:${size}px;font-size:${fs}px">${esc(coin.length > 5 ? coin.slice(0, 4) : coin)}</span>`;
@@ -342,7 +348,7 @@ const APPS = {
         const boxes = [], hits = (bx) => boxes.some((o) => bx.x < o.x + o.w && bx.x + bx.w > o.x && bx.y < o.y + o.h && bx.y + bx.h > o.y)
           || B.some((o) => { const cx = Math.max(bx.x, Math.min(o.x, bx.x + bx.w)), cy = Math.max(bx.y, Math.min(o.y, bx.y + bx.h)); return Math.hypot(o.x - cx, o.y - cy) < o.rad + 1; });
         for (const q of B) {
-          if (q.rad >= 20) continue;
+          if (q.rad >= 20 && !ICON[q.r.coin]) continue;
           const w = q.r.coin.length * 8.6 + 4, h = 15;
           const cands = [[q.x + q.rad + 5, q.y - 7.5], [q.x - q.rad - 5 - w, q.y - 7.5], [q.x - w / 2, q.y - q.rad - 4 - h], [q.x - w / 2, q.y + q.rad + 4]];
           const pick = cands.map(([x0, y0]) => ({ x: x0, y: y0, w, h })).find((bx) => !hits(bx) && bx.x > m.l && bx.x + bx.w < W - 2 && bx.y > m.t - 14 && bx.y + bx.h < Hh - m.b) || { x: cands[0][0], y: cands[0][1], w, h };
@@ -354,8 +360,8 @@ const APPS = {
         }
         for (const q of B) {
           const { r, rad, x, y } = q, col = r.py >= 60 ? "var(--long)" : r.py <= 40 ? "var(--short)" : "var(--ink-3)";
-          const cv = getComputedStyle(document.documentElement).getPropertyValue(col.slice(4, -1)).trim(), inside = rad >= 20, label = inside ? `<text x="${x}" y="${y + 4.5}" text-anchor="middle" style="fill:${TimeChart.onColor(cv)}">${r.coin}</text>` : `<text x="${q.lab.x + 2}" y="${q.lab.y + 11.5}">${r.coin}</text>`;
-          svg += `<g class="bub" data-coin="${r.coin}" tabindex="0" role="button" aria-label="${r.coin}: crowd ${r.cx.toFixed(0)}% long, proven traders ${r.L.proven.long_n} long ${r.L.proven.short_n} short"><circle cx="${x}" cy="${y}" r="${rad + 10}" fill="transparent"/><circle cx="${x}" cy="${y}" r="${rad + 2}" fill="var(--win)"/><circle class="fill" cx="${x}" cy="${y}" r="${rad}" fill="${col}" fill-opacity=".9"/>${label}</g>`;
+          const cv = getComputedStyle(document.documentElement).getPropertyValue(col.slice(4, -1)).trim(), inside = rad >= 20 && !ICON[r.coin], label = inside ? `<text x="${x}" y="${y + 4.5}" text-anchor="middle" style="fill:${TimeChart.onColor(cv)}">${r.coin}</text>` : `<text x="${q.lab.x + 2}" y="${q.lab.y + 11.5}">${r.coin}</text>`;
+          svg += `<g class="bub" data-coin="${r.coin}" tabindex="0" role="button" aria-label="${r.coin}: crowd ${r.cx.toFixed(0)}% long, proven traders ${r.L.proven.long_n} long ${r.L.proven.short_n} short"><circle cx="${x}" cy="${y}" r="${rad + 10}" fill="transparent"/><circle cx="${x}" cy="${y}" r="${rad + 2}" fill="var(--win)"/><circle class="fill" cx="${x}" cy="${y}" r="${rad}" fill="${col}" fill-opacity=".9"/>${ICON[r.coin] ? (() => { const ri = Math.max(5, rad - Math.max(3, rad * 0.22)), id = "cl" + r.coin; return `<clipPath id="${id}"><circle cx="${x}" cy="${y}" r="${ri}"/></clipPath><circle cx="${x}" cy="${y}" r="${ri}" fill="${ICON[r.coin].chip === "transparent" ? "var(--win)" : ICON[r.coin].chip}"/><image href="${ICON[r.coin].src}" x="${x - ri}" y="${y - ri}" width="${ri * 2}" height="${ri * 2}" clip-path="url(#${id})" preserveAspectRatio="xMidYMid meet"/>`; })() : ""}${label}</g>`;
         }
         host.innerHTML = svg + "</svg>";
         $$(".bub", host).forEach((g) => {
@@ -374,7 +380,7 @@ const APPS = {
 
   coin: {
     name: "Coin", icon: "map", dockAs: "map", w: 780, h: 780, dx: 60, dy: 30, locked: "Price with every proven trader's entry, the three lenses and who's in.",
-    title: (c) => c, pin: (c) => ({ type: "coin", coin: c, id: "c-" + c }),
+    title: (c) => c, titleIcon: (c) => ICON[c], pin: (c) => ({ type: "coin", coin: c, id: "c-" + c }),
     html(coin) {
       const L = D.lenses[coin], pos = onCoin(coin), ch = (P(coin) / P(coin, NOW - DAY) - 1) * 100;
       const crowd = 100 * L.crowd.long_n / (L.crowd.long_n + L.crowd.short_n);
@@ -383,7 +389,7 @@ const APPS = {
       const say = pos.length
         ? `${L.proven.long_n} proven trader${L.proven.long_n === 1 ? " is" : "s are"} long ${coin} and ${L.proven.short_n} short, holding ${usd(L.proven.long_usd + L.proven.short_usd)} between them. The crowd is ${crowd.toFixed(0)}% long.${p ? " " + (p.added ? `${p.added.traders > 1 ? p.added.traders + " of them" : "One"} added ${usd(p.added.usd)} in the last 24 hours.` : "") : ""}`
         : `No proven trader holds ${coin} now. The crowd is ${crowd.toFixed(0)}% long.`;
-      return `<div class="row">${coinTile(coin, 48)}<div><div class="hero" style="font-size:40px">${esc(coin)}</div><div class="sub"><span class="num" style="color:var(--ink)">${fmtPx(P(coin))}</span> · <span class="num">${pct(ch)}</span> in 24h · funding ${L.funding_apr.toFixed(0)}% a year</div></div></div>
+      return `<div class="row">${coinTile(coin, 48)}<div><div class="hero coinname">${esc(coin)}</div><div class="sub"><span class="num" style="color:var(--ink)">${fmtPx(P(coin))}</span> · <span class="num">${pct(ch)}</span> in 24h · funding ${L.funding_apr.toFixed(0)}% a year</div></div></div>
         <p class="say">${say}</p>
         <div class="row" style="justify-content:space-between">${rangeTabs([["3d", "3 days"], ["7d", "7 days"], ["14d", "14 days"]], "7d")}</div>
         <div class="chart" style="height:340px"></div>

@@ -1,0 +1,82 @@
+{
+ "AAVE": {
+  "cover": 1,
+  "lum": 0.56,
+  "chip": "transparent"
+ },
+ "BTC": {
+  "cover": 1,
+  "lum": 0.7,
+  "chip": "transparent"
+ },
+ "DOGE": {
+  "cover": 1,
+  "lum": 0.73,
+  "chip": "transparent"
+ },
+ "ENA": {
+  "cover": 1,
+  "lum": 0.24,
+  "chip": "transparent"
+ },
+ "ETH": {
+  "cover": 0.21,
+  "lum": 0.25,
+  "chip": "#f4f2fb"
+ },
+ "FARTCOIN": {
+  "cover": 1,
+  "lum": 0.09,
+  "chip": "transparent"
+ },
+ "HYPE": {
+  "cover": 0.55,
+  "lum": 0.9,
+  "chip": "#1d1f3f"
+ },
+ "LINK": {
+  "cover": 1,
+  "lum": 0.53,
+  "chip": "transparent"
+ },
+ "NEAR": {
+  "cover": 0.22,
+  "lum": 0,
+  "chip": "#f4f2fb"
+ },
+ "PUMP": {
+  "cover": 1,
+  "lum": 0.88,
+  "chip": "transparent"
+ },
+ "SOL": {
+  "cover": 1,
+  "lum": 0.12,
+  "chip": "transparent"
+ },
+ "SUI": {
+  "cover": 1,
+  "lum": 0.66,
+  "chip": "transparent"
+ },
+ "TAO": {
+  "cover": 1,
+  "lum": 0.87,
+  "chip": "transparent"
+ },
+ "XPL": {
+  "cover": 0.25,
+  "lum": 1,
+  "chip": "#1d1f3f"
+ },
+ "XRP": {
+  "cover": 0.24,
+  "lum": 0.16,
+  "chip": "#f4f2fb"
+ },
+ "ZEC": {
+  "cover": 1,
+  "lum": 0.31,
+  "chip": "transparent"
+ }
+}
