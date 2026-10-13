@@ -4,12 +4,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
 <style>/*CSS*/</style>
 <div id="os">
+  <canvas id="world" aria-label="The Territory: every camp is a coin; drag to move, scroll to zoom"></canvas>
+  <div id="world-ui"></div>
   <canvas id="wall" aria-hidden="true"></canvas>
   <button type="button" id="rider-hit" aria-label="Outrider: open the dispatch"></button>
   <header id="menubar"></header>
   <main id="desk" aria-label="Desktop"></main>
   <div id="wins"></div>
+  <div id="trail" aria-label="Timeline"></div>
   <nav id="dock" aria-label="Dock"></nav>
+  <div id="tour" role="dialog" aria-label="Outrider" hidden></div>
 </div>
 <div id="tip" role="tooltip"></div>
 <div id="toast" role="status" aria-live="polite"></div>

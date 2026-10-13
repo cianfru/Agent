@@ -43,7 +43,7 @@ const Look = {
     if (v === "auto") document.documentElement.removeAttribute("data-look"); else document.documentElement.setAttribute("data-look", v);
     Look.changed();
   },
-  changed() { Wall.render(); Charts.redraw(); Menubar.refresh(); },
+  changed() { World.restyle(); Charts.redraw(); Menubar.refresh(); if (!$("#wall").hidden) Wall.render(); },
 };
 const Charts = { live: new Set(), add(c) { this.live.add(c); return c; }, redraw() { this.live.forEach((c) => c.draw()); } };
 
@@ -63,10 +63,26 @@ const Wall = {
     const k = Math.max(w * dpr / W, h * dpr / H), dw = W * k, dh = H * k;
     const ox = (w * dpr - dw) / 2, oy = h * dpr - dh;
     g.drawImage(off, ox, oy, dw, dh);
+    this.off = off; this.dx = ox; this.dy = oy; this.dw = dw; this.dh = dh;
     const hit = $("#rider-hit"), sc = k / dpr;
     hit.style.left = (ox / dpr + (rx - 2) * sc) + "px"; hit.style.top = (oy / dpr + (ry - 2) * sc) + "px";
     hit.style.width = (24 * sc) + "px"; hit.style.height = (Art.RIDER_H + 4) * sc + "px";
     this.k = sc; this.ox = ox / dpr; this.oy = oy / dpr; this.rx = rx; this.ry = ry;
+  },
+  dissolve(done) {
+    const cv = $("#wall");
+    if (reduced() || !this.off) { cv.hidden = true; done(); return; }
+    const W = this.off.width, H = this.off.height, src = this.off.getContext("2d").getImageData(0, 0, W, H);
+    const b8 = (() => { let m = [[0]]; for (let n = 1; n < 8; n *= 2) m = [...m.map((r) => [...r.map((v) => 4 * v), ...r.map((v) => 4 * v + 2)]), ...m.map((r) => [...r.map((v) => 4 * v + 3), ...r.map((v) => 4 * v + 1)])]; return m.map((r) => r.map((v) => (v + 0.5) / 64)); })();
+    const [tmp, tg] = Art.mk(W, H), g = cv.getContext("2d"), t0 = performance.now(), dur = 900;
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / dur), img = new ImageData(new Uint8ClampedArray(src.data), W, H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (b8[y & 7][x & 7] < p) img.data[(y * W + x) * 4 + 3] = 0;
+      tg.putImageData(img, 0, 0); g.imageSmoothingEnabled = false;
+      g.clearRect(0, 0, cv.width, cv.height); g.drawImage(tmp, this.dx, this.dy, this.dw, this.dh);
+      if (p < 1) requestAnimationFrame(step); else { cv.hidden = true; done(); }
+    };
+    requestAnimationFrame(step);
   },
   riderRect() { const h = $("#rider-hit").getBoundingClientRect(); return h; },
   rideIn(done) {
@@ -132,6 +148,7 @@ const Menubar = {
       <button type="button" class="mb-btn mb-wallet" id="mb-wallet"></button>
       <span class="mb-stat mono" id="mb-clock"></span>`;
     $("#mb-logo").onclick = (e) => Menu.show(e.currentTarget, [
+      { label: "Ride along with Outrider", run: () => Tour.start() },
       { label: "About Outpost", run: () => WM.open("about") }, "-",
       { head: "Look" },
       ...[["auto", "Match my system"], ["night", "Night ride"], ["dawn", "Dawn"], ["vga", "Mode 13h"]].map(([v, l]) => ({ label: l, radio: true, on: Look.state === v, run: () => Look.set(v) })), "-",
@@ -387,17 +404,16 @@ function draggable(el, payload, onClick) {
 const Desk = {
   items: [],
   load() { this.items = Store.get("desk:" + App.view, null) || this.defaults(); },
-  save() { Store.set("desk:" + App.view, this.items); },
+  save() { Store.set("desk:" + App.view, this.items); World.syncFollow(); },
   defaults() {
     const A = $("#desk").getBoundingClientRect(), x = Math.max(16, A.width - 252);
     if (App.view === "visitor") return [
-      { type: "note", id: "n-v", x: 36, y: Math.max(20, A.height - 300), text: "Holders see where Hyperliquid's best traders are positioned, live, and which three coins I'd look at first." },
-      { type: "widget", id: "w-record", what: "record", x, y: 24 },
+      { type: "widget", id: "w-record", what: "record", x, y: 20 },
+      { type: "note", id: "n-v", x: x + 10, y: 190, text: "Holders see where Hyperliquid's best traders are camped, live, and which three coins I'd look at first." },
     ];
     return [
       ...Picks.list().map((p, i) => ({ type: "coin", id: "c-" + p.coin, coin: p.coin, x, y: 20 + i * 142 })),
       { type: "widget", id: "w-herd", what: "herd", x, y: 20 + 3 * 142 + 6 },
-      { type: "note", id: "n-flush", x: 30, y: Math.max(20, A.height - 300), text: Voice.note() },
     ];
   },
   tidy() {

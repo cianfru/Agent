@@ -208,6 +208,7 @@ const APPS = {
       return `<div class="dispatch">
         <div class="dsp-head"><img class="face" src="${Art.face()}" alt=""><div><div class="who">Outrider</div><div class="when">${visitor ? "Yesterday's dispatch" : "Dispatch"} · ${day(visitor ? NOW - DAY : NOW)}, ${hhmm(NOW)} UTC</div></div>
           <div class="voice">${rangeTabs([["char", "In character"], ["plain", "Plain"]], App.voice)}</div></div>
+        <div class="row" style="margin-top:14px"><button type="button" class="btn primary" data-ride>Ride along on the map</button><span class="sub">Outrider takes you through it, about a minute.</span></div>
         <ul class="lines">${lines.map(([ic, txt]) => `<li><img class="mk" src="${Art.icon(ic)}" alt=""><p>${txt}</p></li>`).join("")}</ul>
         <div class="sect"><h3><img src="${Art.icon("traders")}" width="22" height="22" style="image-rendering:pixelated" alt="">${Voice.three()} ${info("Ranked by how many proven traders hold the same side (minus those holding the other side), plus fresh adding in the last 24 hours, plus proven traders standing against a crowd that leans the other way. A record of where they are, not a call.")}</h3>
           <div class="three">${pickCards}</div>
@@ -227,6 +228,7 @@ const APPS = {
           if (g === "flush") { const w = WM.open("leverage", null, r); w?.api?.flush(); } else WM.open(g, null, r);
         }
         if (e.target.closest("[data-unlock]")) WM.open("unlock");
+        if (e.target.closest("[data-ride]")) Tour.start();
       });
     },
   },
@@ -498,8 +500,8 @@ const APPS = {
     name: "About Outpost", icon: "dispatch", w: 520, h: 520, public: true, dx: 120, dy: 60,
     html() {
       return `<div class="row"><img src="${Art.face()}" width="72" height="72" style="image-rendering:pixelated;border-radius:12px" alt=""><div><div class="hero" style="font-size:34px">Outpost</div><div class="sub">Outrider's desktop · prototype</div></div></div>
-        <p class="say">Outrider rides ahead of the herd and reports what he sees. This is where he leaves it: the dispatch first, the evidence one click behind every number, and whatever you choose to keep pinned to your desktop.</p>
-        <p class="say">The sky follows the herd. It runs warmer as more positions lean long, cooler as they lean short.</p>
+        <p class="say">Outrider rides ahead of the herd and reports what he sees. The desktop is the territory he scouts: every camp a coin, every rider a proven trader's position, the cattle the crowd, the dust the leverage. Ride along with him, or drag the timeline back and ride the last two weeks yourself.</p>
+        <p class="say">The light follows the herd. It runs warmer as more positions lean long, cooler as they lean short.</p>
         <p class="sub">In this prototype, prices and funding are real Hyperliquid data from 13 October 2026. Positions, traders, groups, open interest history and the record are sample data shaped like the agent's. The token name (RIDE) and threshold are placeholders.</p>`;
     },
   },
@@ -524,29 +526,28 @@ const APPS = {
 const App = {
   voice: Store.get("voice", "char"),
   view: Store.get("view", "holder"),
-  setVoice(v) { this.voice = v; Store.set("voice", v); WM.rerenderAll(); Desk.items.forEach((it) => { if (it.id === "n-flush") it.text = Voice.note(); }); Desk.save(); Desk.render(); },
+  setVoice(v) { this.voice = v; Store.set("voice", v); WM.rerenderAll(); if (!Tour.card().hidden && !Tour.on) Tour.greet(); },
   setView(v) {
     this.view = v; Store.set("view", v);
-    Desk.load(); Desk.render(); WM.rerenderAll(); Dock.refresh(); Menubar.refresh();
+    Desk.load(); Desk.render(); World.syncFollow(); World.viewChanged(); WM.rerenderAll(); Dock.refresh(); Menubar.refresh();
+    if (!Tour.on) Tour.greet();
   },
   start() {
     Tip.el = $("#tip");
     if (Look.state !== "auto") document.documentElement.setAttribute("data-look", Look.state);
     matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => Look.changed());
     new MutationObserver(() => Look.changed()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    Menubar.build(); Dock.build(); Desk.load();
-    const hit = $("#rider-hit");
-    hit.dataset.label = "Outrider · open the dispatch";
-    hit.onclick = () => WM.open("dispatch", null, hit.getBoundingClientRect());
-    let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { Wall.render(); Desk.render(); }, 120); });
+    Menubar.build(); Dock.build(); Desk.load(); World.start();
+    const hit = $("#rider-hit"); hit.hidden = true;
+    let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => Desk.render(), 120); });
     document.fonts?.ready.then(() => Charts.redraw());
-    const first = !sessionStorage.getItem("outpost-booted") && !reduced();
-    try { sessionStorage.setItem("outpost-booted", "1"); } catch { /* ignore */ }
+    let first = false;
+    try { first = !sessionStorage.getItem("outpost-booted") && !reduced(); sessionStorage.setItem("outpost-booted", "1"); } catch { /* ignore */ }
     const boot = $("#boot");
-    const go = () => { Desk.render(); WM.open("dispatch", null, Wall.riderRect()); };
-    if (!first) { boot.remove(); Wall.render(); go(); return; }
+    const go = () => { Desk.render(); Tour.greet(); };
+    if (!first) { boot.remove(); $("#wall").hidden = true; go(); return; }
     Wall.render(1.2);
-    setTimeout(() => { boot.classList.add("off"); setTimeout(() => boot.remove(), 500); Wall.rideIn(() => go()); }, 900);
+    setTimeout(() => { boot.classList.add("off"); setTimeout(() => boot.remove(), 500); Wall.rideIn(() => setTimeout(() => Wall.dissolve(go), 350)); }, 900);
     boot.addEventListener("click", () => { boot.classList.add("off"); });
   },
 };

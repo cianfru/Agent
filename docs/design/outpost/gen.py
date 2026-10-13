@@ -173,10 +173,38 @@ while t < NOW - 6 * H:
     t += R.randint(5, 16) * H
 record.reverse()
 
+# ---- replay: each coin's crowd share over time, and positions traders closed in the window (sample)
+coin_crowd = {}
+for coin, rows in C.items():
+    p = [v for _, v in rows]
+    h = sum(map(ord, coin)) % 7
+    ser = []
+    for i, t in enumerate(T):
+        r24 = p[i] / p[max(0, i - 24)] - 1
+        v = 72 - 95 * r24 + 2.2 * math.sin(i / 13 + h) + R.gauss(0, 0.6)
+        if t > FLUSH[0]:
+            v += 5.5 * math.exp(-((t - FLUSH[1] - 4 * H) / (16 * H)) ** 2)
+        ser.append(v)
+    shift = crowd_share[coin] - ser[-1]
+    coin_crowd[coin] = [round(min(93, max(52, v + shift * (0.35 + 0.65 * k / (len(ser) - 1)))), 1) for k, v in enumerate(ser)]
+    coin_crowd[coin][-1] = float(crowd_share[coin])
+closed = []
+for t in traders:
+    for _ in range(R.randint(2, 4)):
+        coin = R.choice(coins); side = R.choice(["long", "long", "short"])
+        a = R.randint(T[0], NOW - 2 * 86400) // 300 * 300
+        b = min(a + R.randint(8, 120) * H, NOW - 6 * H) // 300 * 300
+        clash = [p for p in t["positions"] if p["coin"] == coin and b > p["entry_ts"] - H] + \
+                [c for c in closed if c["address"] == t["address"] and c["coin"] == coin and not (b < c["entry_ts"] or a > c["exit_ts"])]
+        if clash or b - a < 6 * H:
+            continue
+        closed.append({"address": t["address"], "coin": coin, "side": side, "entry_ts": a, "exit_ts": b,
+                       "entry": round(px(coin, a), 6), "exit": round(px(coin, b), 6), "usd": R.randint(80, 800) * 1000})
+
 out = {"asof": NOW, "flush": FLUSH, "times": T, "crowd": crowd, "oi": oi,
        "prices": {c: [p for _, p in rows] for c, rows in C.items()},
        "funding": {c: [[a, round(r * 24 * 365 * 100, 2)] for a, r in rows] for c, rows in hl["funding"].items()},
-       "lenses": lenses, "traders": traders, "groups": G, "record": record,
+       "lenses": lenses, "traders": traders, "coin_crowd": coin_crowd, "closed": closed, "groups": G, "record": record,
        "studies": json.load(open(ROOT / "synth/data/research.json"))["studies"]}
 for s in out["studies"]:
     s.pop("doc", None)
