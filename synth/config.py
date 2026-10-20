@@ -38,6 +38,10 @@ class Settings:
     # The daily brief can use a stronger model (e.g. claude-opus-5-5); defaults to SYNTH_MODEL.
     brief_model: str = field(default_factory=lambda: _env("SYNTH_BRIEF_MODEL"))
     effort: str = field(default_factory=lambda: _env("SYNTH_EFFORT", "low"))
+    # Talking to Outrider (synth/chat.py): the model, its effort, and the most it may spend a day in dollars.
+    chat_model: str = field(default_factory=lambda: _env("SYNTH_CHAT_MODEL", "claude-opus-5-5"))
+    chat_effort: str = field(default_factory=lambda: _env("SYNTH_CHAT_EFFORT", "medium"))
+    chat_daily_usd: float = field(default_factory=lambda: _float("SYNTH_CHAT_DAILY_USD", 2.0))
     # Outrider's posts on X (synth/persona.py): the model that writes them, the UTC hours a draft is made (empty
     # disables), and "draft" (to your Telegram, Post or Skip) or "live" (published as written).
     persona_model: str = field(default_factory=lambda: _env("SYNTH_PERSONA_MODEL", "claude-opus-5-5"))

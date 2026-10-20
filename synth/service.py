@@ -36,6 +36,7 @@ class Agent:
         self.store = store
         self.synth = synth
         self.persona = persona_writer
+        self.chat = None          # synth/chat.py, set by make_agent when there is an API key
         self.brief_synth = brief_synth or synth
         self.reflex = (
             reflex.ReflexClient(
@@ -454,7 +455,11 @@ def make_agent(settings: Settings) -> Agent:
     except Exception as e:  # noqa: BLE001 - no key: run detection-only
         log.warning("LLM disabled: %s", e)
         writer = None
-    return Agent(settings, Store(settings.db_path), synth, brief_synth, writer)
+    agent = Agent(settings, Store(settings.db_path), synth, brief_synth, writer)
+    if writer:
+        from .chat import Chat
+        agent.chat = Chat(agent, settings.chat_model, settings.chat_effort, settings.chat_daily_usd)
+    return agent
 
 
 def _public(ev: dict) -> dict:

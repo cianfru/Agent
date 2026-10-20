@@ -140,6 +140,21 @@ Only smart-money events ping you: convergences, big single-wallet moves, smart-c
 
 Reflex flags a convergence when 2+ profitable traders open the same side within 24 hours. The agent alerts only on fast ones, where all the opens came within `SYNTH_FAST_CONVERGENCE_HOURS` (default 6). Slower ones stay on the dashboard and in the pulse but don't ping you.
 
+## Talking to Outrider
+
+Write to the bot in plain words and Outrider answers from the agent's own data (`synth/chat.py`): the market now, one
+coin (engine, profitable traders, tracked traders, big money, Derive options, open winners, recent adds and alerts),
+tracked traders, one trader by address or codename, open winners, where money is moving, recent alerts and the studies.
+It keeps short notes when asked ("remember I hold ENA") and never trades, posts or makes a call. The desk's Ask tab uses
+the same conversation, kept apart.
+
+- Needs `ANTHROPIC_API_KEY` on Railway (without it the bot says so and nothing else changes).
+- `SYNTH_CHAT_MODEL` (default `claude-opus-5-5`, with Anthropic's server-side refusal fallback), `SYNTH_CHAT_EFFORT`
+  (default `medium`), `SYNTH_CHAT_DAILY_USD` (default 2: talking stops for the day at that spend, 00:00 UTC reset).
+- About 5 to 10 cents an answer on Opus 5.5; `/cost` shows today's spend, `/reset` starts afresh (notes stay).
+- Each conversation keeps its last 6 exchanges as plain text; tool results and reasoning are not carried between
+  turns, so a long chat stays cheap.
+
 ## Outrider on X (the persona)
 
 Outrider is the public character: a masked scout who rides ahead of the herd and posts what he sees, built to bring

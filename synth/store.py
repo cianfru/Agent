@@ -125,6 +125,21 @@ CREATE TABLE IF NOT EXISTS pt_list (
     qualified_ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pt_positions_open ON pt_positions(address, status);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    chat_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    text TEXT NOT NULL,
+    cost REAL NOT NULL DEFAULT 0,
+    cleared INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages(chat_id, id);
+CREATE TABLE IF NOT EXISTS chat_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    text TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pt_cand (
     address TEXT PRIMARY KEY,
     src TEXT,
@@ -378,6 +393,43 @@ class Store:
             self._db.executemany("DELETE FROM pt_list WHERE address=?", [(a,) for a in gone])
             self._db.commit()
         return gone
+
+    # conversations (synth/chat.py) -------------------------------------------------
+    def chat_add(self, chat_id: str, role: str, text: str, ts: float, cost: float = 0.0) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO chat_messages(ts, chat_id, role, text, cost) VALUES(?,?,?,?,?)",
+                             (ts, str(chat_id), role, text, cost))
+            self._db.commit()
+
+    def chat_history(self, chat_id: str, limit: int) -> list[dict]:
+        """The conversation's last messages, oldest first (a /reset hides what came before)."""
+        rows = self._db.execute("SELECT role, text FROM chat_messages WHERE chat_id=? AND cleared=0 "
+                                "ORDER BY id DESC LIMIT ?", (str(chat_id), limit)).fetchall()
+        return [{"role": r["role"], "text": r["text"]} for r in reversed(rows)]
+
+    def chat_reset(self, chat_id: str) -> None:
+        with self._lock:
+            self._db.execute("UPDATE chat_messages SET cleared=1 WHERE chat_id=?", (str(chat_id),))
+            self._db.commit()
+
+    def chat_spent(self, since: float) -> float:
+        return float(self._db.execute("SELECT COALESCE(SUM(cost), 0) FROM chat_messages WHERE ts>=?",
+                                      (since,)).fetchone()[0])
+
+    def chat_notes(self) -> list[dict]:
+        return [dict(r) for r in self._db.execute("SELECT id, text FROM chat_notes ORDER BY id").fetchall()]
+
+    def chat_note_add(self, text: str, ts: float) -> int:
+        with self._lock:
+            cur = self._db.execute("INSERT INTO chat_notes(ts, text) VALUES(?,?)", (ts, text))
+            self._db.commit()
+            return cur.lastrowid
+
+    def chat_note_drop(self, note_id: int) -> bool:
+        with self._lock:
+            cur = self._db.execute("DELETE FROM chat_notes WHERE id=?", (note_id,))
+            self._db.commit()
+            return cur.rowcount > 0
 
     # proven-list candidates (synth/proven.py) ------------------------------------
     _CAND_JSON = ("src", "info", "state", "closed", "moves", "moves_last", "record", "subs", "live")
