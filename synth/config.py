@@ -39,15 +39,16 @@ class Settings:
     brief_model: str = field(default_factory=lambda: _env("SYNTH_BRIEF_MODEL"))
     effort: str = field(default_factory=lambda: _env("SYNTH_EFFORT", "low"))
     # Talking to Outrider (synth/chat.py): the model, its effort, and the most it may spend a day in dollars.
-    chat_model: str = field(default_factory=lambda: _env("SYNTH_CHAT_MODEL", "claude-opus-5-5"))
+    # Sonnet 5.5 by default (owner, 20 October 2026: "it has to be efficient"); claude-haiku-5-5 is cheaper still.
+    chat_model: str = field(default_factory=lambda: _env("SYNTH_CHAT_MODEL", "claude-sonnet-5-5"))
     chat_effort: str = field(default_factory=lambda: _env("SYNTH_CHAT_EFFORT", "medium"))
-    chat_daily_usd: float = field(default_factory=lambda: _float("SYNTH_CHAT_DAILY_USD", 2.0))
+    chat_daily_usd: float = field(default_factory=lambda: _float("SYNTH_CHAT_DAILY_USD", 1.0))
     # Outrider's read (synth/analyst.py): the market reasoned over by the model, sent when it is worth reading; it
     # replaces the code-built pulse and daily brief. SYNTH_READS=off brings those back.
     reads: bool = field(default_factory=lambda: _env("SYNTH_READS", "on").lower() not in ("off", "0", "no"))
-    read_model: str = field(default_factory=lambda: _env("SYNTH_READ_MODEL", "claude-opus-5-5"))
-    read_effort: str = field(default_factory=lambda: _env("SYNTH_READ_EFFORT", "high"))
-    read_daily_usd: float = field(default_factory=lambda: _float("SYNTH_READ_DAILY_USD", 1.5))
+    read_model: str = field(default_factory=lambda: _env("SYNTH_READ_MODEL", "claude-sonnet-5-5"))
+    read_effort: str = field(default_factory=lambda: _env("SYNTH_READ_EFFORT", "medium"))
+    read_daily_usd: float = field(default_factory=lambda: _float("SYNTH_READ_DAILY_USD", 0.5))
     reads_per_day: int = field(default_factory=lambda: int(_float("SYNTH_READS_PER_DAY", 6)))
     # UTC hours without reads on market changes ("22-6"); a group turning against his position still comes through.
     read_quiet_utc: str = field(default_factory=lambda: _env("SYNTH_READ_QUIET_UTC", "22-6"))

@@ -143,8 +143,9 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   against one of your positions (tracked traders, big money, open winners; the crowd never counts here, study S2).
 - **What it writes:** a headline, at most three sentences on what it sees and how much it is worth (the studies'
   evidence guide), one line per position or watched coin that changed or has a group against it (every one in the
-  morning read): hold, trim, close or watch, with the reason; and up to two views. It can look closer with the chat's
-  tools first, and it holds a read back when nothing is worth your attention. The record rides on the morning read.
+  morning read): hold, trim, close or watch, with the reason; and up to two views. One call with no tools (the scan
+  holds what a read needs), and it holds a read back when nothing is worth your attention. The record rides on the
+  morning read.
 - **Watch list:** positions or coins you want followed whatever your wallets show. `/watch ENA long 0.09 5k` (side,
   entry and size optional; `/watch HYPE` follows a coin), `/watch` lists them with the price, the move since entry,
   the groups on them and what is against you (built in code, no model), `/unwatch ENA`. In the chat, "I'm long ENA
@@ -154,9 +155,10 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   into each read, and `/record` shows it.
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
   list is added to them.
-- **Cost:** `SYNTH_READ_MODEL` (default `claude-opus-5-5`), `SYNTH_READ_EFFORT` (default `high`),
-  `SYNTH_READ_DAILY_USD` (default 1.5; the morning read still goes out), `SYNTH_READS_PER_DAY` (default 6 sent). About
-  10 to 25 cents a read on Opus 5.5 at high effort. `/read` asks for one now; `/cost` shows talking and reads.
+- **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
+  deeper), `SYNTH_READ_EFFORT` (default `medium`), `SYNTH_READ_DAILY_USD` (default 0.5; the morning read still goes
+  out), `SYNTH_READS_PER_DAY` (default 6 sent). About 2 to 3 cents a read on Sonnet 5.5 (a prompt of about 4,000
+  tokens). `/read` asks for one now; `/cost` shows talking and reads.
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
 
@@ -181,9 +183,10 @@ the evidence is and what would change its mind (the same evidence guide as the r
 ("remember I hold ENA") and never trades or posts. The desk's Ask tab uses the same conversation, kept apart.
 
 - Needs `ANTHROPIC_API_KEY` on Railway (without it the bot says so and nothing else changes).
-- `SYNTH_CHAT_MODEL` (default `claude-opus-5-5`, with Anthropic's server-side refusal fallback), `SYNTH_CHAT_EFFORT`
-  (default `medium`), `SYNTH_CHAT_DAILY_USD` (default 2: talking stops for the day at that spend, 00:00 UTC reset).
-- About 5 to 10 cents an answer on Opus 5.5; `/cost` shows today's spend, `/reset` starts afresh (notes stay).
+- `SYNTH_CHAT_MODEL` (default `claude-sonnet-5-5`, with Anthropic's server-side refusal fallback), `SYNTH_CHAT_EFFORT`
+  (default `medium`), `SYNTH_CHAT_DAILY_USD` (default 1: talking stops for the day at that spend, 00:00 UTC reset).
+- About 2 to 4 cents an answer on Sonnet 5.5 (tool rounds read the earlier rounds from the prompt cache); `/cost`
+  shows today's spend, `/reset` starts afresh (notes stay).
 - Each conversation keeps its last 6 exchanges as plain text; tool results and reasoning are not carried between
   turns, so a long chat stays cheap.
 

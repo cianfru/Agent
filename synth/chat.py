@@ -212,9 +212,11 @@ class Chat:
         return SYSTEM + "\n\nNotes you hold:\n" + "\n".join(f"{n['id']}. {n['text']}" for n in notes)
 
     def _create(self, system: str, messages: list[dict]):
+        # the system breakpoint caches tools and instructions; the top-level one caches the conversation so far, so
+        # each tool round reads the earlier rounds from the cache instead of paying for them again
         params = {"model": self.model, "max_tokens": 16000, "tools": TOOLS, "messages": messages,
                   "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                  "output_config": {"effort": self.effort}}
+                  "cache_control": {"type": "ephemeral"}, "output_config": {"effort": self.effort}}
         if self.model in FALLBACK_MODELS:
             return self.client.beta.messages.create(**params, betas=["server-side-fallback-2026-07-01"],
                                                     fallbacks="default")

@@ -5,8 +5,9 @@ where something is happening, each with what the crowd of profitable traders, th
 or cut in 24 hours), big money by owner and the open winners hold, the engine's reading and Derive's options; plus the
 owner's own positions (SYNTH_OWNER_WALLETS, read from Hyperliquid) with what each group does on those coins.
 `changes` compares it with the scan behind the last read. When enough changed, when a group turns against one of the
-owner's positions, or at the morning read, the model reads the scan (and may look closer with the chat's tools) and
-writes a read: what it sees, what it makes of it, what it would do with his positions, and up to three views on coins.
+owner's positions, or at the morning read, the model reads the scan in one call (no tools: the scan holds what a read
+needs, which keeps a read to a few cents) and writes a read: what it sees, what it makes of it, what it would do with
+his positions and watch list, and up to two views on coins.
 It may also decide that nothing is worth his attention. Every view is logged and scored after 1, 3 and 7 days (study
 S5), and that record goes back into the next read, so the agent knows how often it has been right.
 """
@@ -24,7 +25,7 @@ from typing import Any
 import anthropic
 
 from . import desk, notify
-from .chat import EVIDENCE, PRICES, TOOLS, cost_of
+from .chat import EVIDENCE, PRICES, cost_of
 from .hyperliquid import HL
 from .llm import FALLBACK_MODELS
 from .position_traders import MAJORS
@@ -33,11 +34,10 @@ from .wallet_names import codename
 log = logging.getLogger(__name__)
 
 DAY = 86400
-TOP_COINS = 14               # coins in a scan besides BTC, ETH and the owner's own
+TOP_COINS = 10               # coins in a scan besides BTC, ETH and the owner's own
 TRIGGER = 4                  # change points that make a read worth running
 MIN_GAP_S = 2 * 3600         # between reads on market changes
 OWNER_GAP_S = 30 * 60        # a group turning against one of his positions may come sooner
-MAX_ROUNDS = 5               # tool rounds per read
 REPEAT_S = DAY               # the same view (coin and side) is logged once a day, so repeats do not pad the record
 
 SIGNAL = {"STRONG_LONG": "strong up-setup", "LIGHT_LONG": "leaning up", "ACCUMULATE": "base forming",
@@ -77,8 +77,7 @@ Style: he reads it on a phone in ten seconds. Plain text, no markdown, no emojis
 up", not the code). The headline under 80 characters. The read at most three short sentences, under 350 characters: \
 the story and what it means, not a list of figures; two or three numbers at most, the ones that carry the point. Each \
 position or view line under 120 characters. Never repeat in one part what another already says. Numbers only from \
-the scan or the tools; never a price target. Name traders by codename. You may call the tools to look closer at a \
-coin, a trader or the open winners before writing; do not call them for what the scan already holds."""
+the scan; never a price target. If he wants more, he asks you in the chat."""
 
 SCHEMA = {
     "type": "object",
@@ -129,10 +128,6 @@ def _move(side: str | None, price: float | None, entry: float | None) -> float |
     if not side or not price or not entry:
         return None
     return round(100 * (price / entry - 1) * (1 if side == "long" else -1), 1)
-
-
-def _crowd(v: list | None) -> dict | None:
-    return {"long": v[0], "short": v[2], "long_usd": round(v[1]), "short_usd": round(v[3])} if v else None
 
 
 def _engine(snap: dict, cow: dict, coin: str) -> dict | None:
@@ -218,7 +213,7 @@ def scan(agent, now: float | None = None) -> dict:
                              "change_24h_pct": _pct(px, d[4] if d and len(d) > 4 else None),
                              "change_7d_pct": _pct(px, wk[4] if wk and len(wk) > 4 else None)}
         if c:
-            r["crowd"] = {**_crowd(c), "lean": desk.lean(c[0], c[2])}
+            r["crowd"] = {"long": c[0], "short": c[2], "lean": desk.lean(c[0], c[2])}   # heads: S2 says dollars add little
             if d:
                 r["crowd"]["long_24h_ago"], r["crowd"]["short_24h_ago"] = d[0], d[2]
         if coin in tracked:
@@ -236,7 +231,7 @@ def scan(agent, now: float | None = None) -> dict:
             w = winners[coin]
             r["open_winners"] = {**w, "long_upnl": round(w["long_upnl"]), "short_upnl": round(w["short_upnl"])}
         for k, v in (("engine", _engine(snap, cow, coin)), ("options", _options(cow, coin)),
-                     ("alerts_24h", alerts.get(coin))):
+                     ("alerts_24h", (alerts.get(coin) or [])[-2:])):
             if v:
                 r[k] = v
         return r
@@ -261,10 +256,7 @@ def scan(agent, now: float | None = None) -> dict:
     direction = []
     for d in home.get("direction") or []:
         r = row(d["coin"])
-        r.update({"groups_agree": d["agree"], "crowd_change_24h_pts": d["crowd_change_24h"],
-                  "tracked_added_24h_usd": d["tracked_added_24h"],
-                  "lenses": {k: {x: v.get(x) for x in ("long_n", "short_n", "share_long", "lean")}
-                             for k, v in (d.get("lenses") or {}).items()}})
+        r.update({"groups_agree": d["agree"], "crowd_change_24h_pts": d["crowd_change_24h"]})
         direction.append(r)
 
     mine = []
@@ -305,8 +297,8 @@ def scan(agent, now: float | None = None) -> dict:
         "direction": direction,
         "coins": coins,
         "my_positions": mine,
-        "alerts_24h": [a["text"] for a in sorted(home.get("alerts") or [], key=lambda a: -a["ts"])
-                       if a["ts"] >= now - DAY][:12],
+        "alerts_24h": [a["text"].split("\n")[0][:100] for a in sorted(home.get("alerts") or [], key=lambda a: -a["ts"])
+                       if a["ts"] >= now - DAY][:8],
         "data_age_min": round((now - tss[-1]) / 60) if tss else None,
     }
 
@@ -320,7 +312,7 @@ def _alerts(store, since: float) -> dict[str, list[str]]:
                 continue
             text = body.get("text") or (f"conviction: {codename(body.get('address', ''))} {body['side']} "
                                         f"{body.get('x') or ''}x usual size")
-            out.setdefault(body["coin"], []).append(text.split("\n")[0][:140])
+            out.setdefault(body["coin"], []).append(text.split("\n")[0][:100])
     for g in store.groups(limit=30):
         if g["ts"] >= since:
             out.setdefault(g["coin"], []).append(f"{(g['meta'] or {}).get('n') or ''} profitable traders opened "
@@ -527,7 +519,7 @@ def quiet_hours(spec: str) -> set[int]:
 
 
 class Analyst:
-    def __init__(self, agent, model: str, effort: str = "high", daily_usd: float = 1.5, per_day: int = 6,
+    def __init__(self, agent, model: str, effort: str = "medium", daily_usd: float = 0.5, per_day: int = 6,
                  quiet: str = "22-6", client: anthropic.Anthropic | None = None):
         self.agent = agent
         self.store = agent.store
@@ -635,29 +627,16 @@ class Analyst:
         return "\n\n".join(parts)
 
     def think(self, task: str, now: float) -> tuple[dict, float]:
-        tools = [t for t in TOOLS if t["name"] not in ("remember", "forget")]
-        messages: list[dict] = [{"role": "user", "content": task}]
-        cost = 0.0
-        for rnd in range(MAX_ROUNDS):
-            resp = self._create(messages, tools)
-            cost += cost_of(resp.model if resp.model in PRICES else self.model, resp.usage)
-            if resp.stop_reason == "refusal":
-                raise RuntimeError("the model declined this read")
-            if resp.stop_reason == "tool_use":
-                messages.append({"role": "assistant", "content": resp.content})
-                results: list[dict] = [{"type": "tool_result", "tool_use_id": b.id,
-                                        "content": self.agent.chat.execute(b.name, b.input, now)}
-                                       for b in resp.content if b.type == "tool_use"]
-                if rnd == MAX_ROUNDS - 2:
-                    results.append({"type": "text", "text": "Write the read now with what you have; no more tools."})
-                messages.append({"role": "user", "content": results})
-                continue
-            text = "".join(b.text for b in resp.content if b.type == "text").strip()
-            return json.loads(text), cost
-        raise RuntimeError("the read took too many steps")
+        """One call: the scan in, the read out as JSON."""
+        resp = self._create([{"role": "user", "content": task}])
+        cost = cost_of(resp.model if resp.model in PRICES else self.model, resp.usage)
+        if resp.stop_reason == "refusal":
+            raise RuntimeError("the model declined this read")
+        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        return json.loads(text), cost
 
-    def _create(self, messages: list[dict], tools: list[dict]):
-        params = {"model": self.model, "max_tokens": 16000, "tools": tools, "messages": messages,
+    def _create(self, messages: list[dict]):
+        params = {"model": self.model, "max_tokens": 16000, "messages": messages,
                   "system": [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
                   "output_config": {"effort": self.effort, "format": {"type": "json_schema", "schema": SCHEMA}}}
         if self.model in FALLBACK_MODELS:

@@ -49,6 +49,7 @@ def test_answers_from_the_data_through_tools(tmp_path):
     assert answer == "HYPE: 12 profitable traders long, 3 short."
     first, second = agent.chat.client.calls
     assert first["fallbacks"] == "default" and first["output_config"] == {"effort": "medium"}
+    assert first["cache_control"] == {"type": "ephemeral"}            # tool rounds read the conversation from cache
     assert [t["name"] for t in first["tools"]][:2] == ["market_overview", "coin"]
     result = json.loads(second["messages"][-1]["content"][0]["content"])
     assert result["coin"] == "HYPE" and result["profitable_traders"]["long_n"] == 12
