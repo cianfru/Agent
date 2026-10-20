@@ -7,7 +7,8 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /positions  what the proven position traders hold now, by coin
   /help       what each alert means and the words in them
   /draft      one of Outrider's X posts now, as a draft (Post or Skip; reply to a draft to change its text)
-  /reset      start the conversation afresh;  /cost  what talking has cost today
+  /read       Outrider's read of the market now;  /record  how its past views did
+  /reset      start the conversation afresh;  /cost  what talking and reads have cost today
 Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
 """
 
@@ -21,8 +22,11 @@ from . import notify
 
 log = logging.getLogger(__name__)
 
-HELP = """Outrider watches profitable traders on Hyperliquid. Context, not signals.
-Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners).
+HELP = """Outrider watches profitable traders on Hyperliquid and Derive's options, and tells you what it makes of them.
+Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position).
+
+Reads
+Every morning, and when something worth your attention changes, I send my read: what I see, what I'd do with your positions, and up to three views. Each view is scored after 1, 3 and 7 days; /record shows how they did. Nothing changed, no message.
 
 Alerts
 Conviction: a tracked trader opens a position at least 2x their usual size.
@@ -37,21 +41,25 @@ Usual size: the size of a typical position of theirs.
 Big money: accounts of $500K+ in profit all-time, one vote per owner.
 Scored after 14 and 30 days: the move since the alert, kept as a record.
 
+/read  my read of the market now
+/record  how my past views did
 /now  live pulse (1h, 6h, 24h)
 /positions  what tracked traders hold
 /following  groups you follow
 /groups  latest groups
 /draft  an Outrider post for X now, as a draft
 /reset  start our conversation afresh
-/cost  what talking has cost today"""
+/cost  what talking and reads have cost today"""
 
-COMMANDS = [{"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
+COMMANDS = [{"command": "read", "description": "Outrider's read of the market now"},
+            {"command": "record", "description": "How Outrider's past views did"},
+            {"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
             {"command": "groups", "description": "Latest groups"},
             {"command": "draft", "description": "An Outrider post for X, as a draft"},
             {"command": "reset", "description": "Start the conversation afresh"},
-            {"command": "cost", "description": "What talking has cost today"},
+            {"command": "cost", "description": "What talking and reads have cost today"},
             {"command": "help", "description": "What the alerts and their words mean"}]
 
 
@@ -126,8 +134,32 @@ async def handle(agent, update: dict) -> None:
         if not agent.chat:
             await notify.telegram(s.telegram_token, chat, "Talking is off: no ANTHROPIC_API_KEY on Railway.")
         else:
-            await notify.telegram(s.telegram_token, chat, f"Today: ${agent.chat.spent_today():.2f} of "
-                                  f"${agent.chat.daily_usd:.2f} ({agent.chat.model}).")
+            text = f"Talking today: ${agent.chat.spent_today():.2f} of ${agent.chat.daily_usd:.2f} ({agent.chat.model})."
+            if agent.analyst:
+                text += (f"\nReads today: ${agent.analyst.spent_today():.2f} of ${agent.analyst.daily_usd:.2f} "
+                         f"({agent.analyst.model}).")
+            await notify.telegram(s.telegram_token, chat, text)
+        return
+    if cmd == ["/read"]:
+        if not agent.analyst:
+            await notify.telegram(s.telegram_token, chat, "Reads are off: no ANTHROPIC_API_KEY, or SYNTH_READS=off.")
+            return
+        await notify.tg(s.telegram_token, "sendChatAction", chat_id=chat, action="typing")
+        try:
+            await agent.analyst.run("asked", force_send=True)
+        except Exception as e:  # noqa: BLE001 - say why instead of going quiet
+            log.warning("/read failed: %s", e)
+            await notify.telegram(s.telegram_token, chat, f"The read failed: {type(e).__name__}. Try again in a minute.")
+        return
+    if cmd == ["/record"]:
+        from .analyst import record, record_text
+        rec = record(store)
+        lines = [record_text(rec) or f"{rec['logged']} views logged; the record shows once 5 have a 3-day result."]
+        for h in ("1d", "3d", "7d"):
+            a = rec[h]["all"]
+            if a["n"]:
+                lines.append(f"After {h}: {a['right']} of {a['n']} right, median {a['median_pct']:+.1f}% their way")
+        await notify.telegram(s.telegram_token, chat, "\n".join(lines))
         return
     if cmd == ["/draft"]:
         try:

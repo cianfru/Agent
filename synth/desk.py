@@ -121,7 +121,7 @@ def direction(coin: str, rows: list[tuple[float, dict]], lenses: dict, adding_24
             "series": series, "tracked_added_24h": {"long": added.get("long", 0), "short": added.get("short", 0)}}
 
 
-def home(agent, now: float | None = None) -> dict:
+def home(agent, now: float | None = None, board: dict | None = None) -> dict:
     now = now or time.time()
     store, pt = agent.store, agent.positions
     rows = store.series("reflex", now - 7 * DAY_S - 1800)
@@ -131,7 +131,7 @@ def home(agent, now: float | None = None) -> dict:
     snap = store.get_snapshot("reflex") or {}
     positions = snap.get("positions") or {}
 
-    board = pt.board(now)
+    board = board or pt.board(now)
     bm = pt.big_money()
     bm_long = sum(v["long_usd"] for v in bm.values())
     bm_short = sum(v["short_usd"] for v in bm.values())
@@ -178,8 +178,10 @@ def home(agent, now: float | None = None) -> dict:
                            f"{(g['meta'] or {}).get('n') or ''} profitable traders"})
     alerts.sort(key=lambda a: -a["ts"])
 
+    read = next((b for b in reversed(store.briefs_since("read", now - 2 * DAY_S)) if b["body"].get("sent")), None)
     return {
         "ts": now,
+        "read": {"ts": read["ts"], "text": read["body"].get("text")} if read else None,
         "kpi": {
             "crowd": {"share_long": crowd_now[1] if crowd_now else None,
                       "change_24h": round(crowd_now[1] - day_ago[1], 1) if crowd_now and day_ago else None,

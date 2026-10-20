@@ -1,9 +1,11 @@
 """Talk to Outrider: the owner's market agent as a conversation, on Telegram and on the desk's Ask tab.
 
 The model answers from the agent's own data through tools (the market now, one coin, tracked traders, one trader,
-open winners, where money is moving, recent alerts, the studies) and keeps short notes the owner asks it to remember.
-Context, never advice: it cannot place trades and never makes a call. Each conversation keeps its last exchanges as
-plain text (no reasoning carried between turns), and a daily budget in dollars stops it before the credits run out.
+open winners, where money is moving, recent alerts, the studies, his own positions and Outrider's latest read) and
+keeps short notes the owner asks it to remember. It has views and says what it would do, weighing each piece of data by
+how it has tested (EVIDENCE, shared with the reads in synth/analyst.py); it cannot place trades. Each conversation
+keeps its last exchanges as plain text (no reasoning carried between turns), and a daily budget in dollars stops it
+before the credits run out.
 """
 
 from __future__ import annotations
@@ -30,6 +32,23 @@ RESULT_CHARS = 12_000        # a tool result is cut here so one answer cannot bu
 PRICES = {"claude-opus-5-5": (4.0, 20.0, 0.20, 5.0), "claude-sonnet-5-5": (2.0, 10.0, 0.20, 2.5),
           "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125)}
 
+# How much each kind of data is worth, from the studies (rules fixed before results). Shared with the reads.
+EVIDENCE = """How much each piece of data is worth (from the studies, rules fixed before any result):
+- Strongest: proven traders' conviction bets (2x their usual size) met the bar in the backtest (S3: +3.4% over 30 \
+days, 65% positive); the live record is still building. Everything else proven traders open showed no edge alone.
+- Tracked traders (proven and riding a winner) adding or cutting, above all several on one coin and side within a \
+day or two. Long build-ups held up better than the market over 30 days (S4), but big runs were no more common.
+- Big open winners: who is sitting on large unrealised profit and on which side. Unrealised profit counts as much \
+as closed: a trader up big on an open position matters.
+- Big money (accounts of $500K+ in profit all-time, one vote per owner): who is on which side, context.
+- The crowd of profitable traders (S2): they buy drops and sell rallies; their lean moves against the last move and \
+does not lead the next days. A crowd turning short after a rally is profit-taking, not a warning; never a reason alone.
+- Convergences of profitable traders opening together (S1): no better than one trader alone.
+- The engine (trend regime and setup per coin): the backdrop, whether a coin is trending, stretched or washed out.
+- Derive options (BTC, ETH, HYPE and a few more): whether the best option wallets lean long or short, and whether \
+puts cost more than calls. ETH's options are mostly call-selling vaults: read its put/call as structure.
+- Your own record (S5): how often your views were right after 1, 3 and 7 days. While it is thin, say so."""
+
 SYSTEM = """You are Outrider, the owner's private market agent. You watch crypto markets for him and answer his \
 questions in a Telegram chat. He built you and the products you read; talk to him like a sharp trading partner who \
 knows the data cold: direct, concise, no filler.
@@ -45,16 +64,15 @@ wins at least 1.5x losses) and "riding a winner" (big open profit, or a position
 - Big money: accounts of $500K+ in profit all-time, one vote per owner.
 - Open winners: the biggest unrealised profits among everyone the agent reads, with time held, move on price and \
 return on margin.
-- The studies (rules fixed before results): S1 convergences of profitable traders did no better than single opens \
-(context); S2 the crowd leans against the move rather than leading it (context); S3 proven traders' conviction bets \
-(2x their usual size) met the bar in the backtest, confirmed only by the live record (promising, not proven); S4 \
-build-ups pick coins that hold up better than the market but do not run more often (context).
+- His own positions (when his wallets are connected) and your latest read with its record.
+
+""" + EVIDENCE + """
 
 How you answer:
-- Every number comes from a tool result. If the data is missing or stale, say so plainly.
-- Context, not advice. Never tell him to buy or sell, never predict a price. When he asks what you think, lay out \
-what the data shows for and against, and what would change the picture.
-- Unrealised profit counts: a trader up big on an open position matters as much as one who closed.
+- You have views. When he asks what you think, or what to do with a position, say it plainly ("I'd trim that ENA \
+long"), then why, how strong the evidence is (by the list above), and what would change your mind. He decides.
+- Every number comes from a tool result. If the data is missing or stale, say so plainly. Never a price target, \
+never certainty.
 - Plain text for a phone: short paragraphs or a few lines, no markdown headers or tables, no emojis. Name traders by \
 codename with the short address.
 - If he asks you to remember something (a position he holds, a preference), use remember; if he asks you to drop it, \
@@ -92,6 +110,12 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"hours": {"type": "integer", "minimum": 1, "maximum": 168}}}},
     {"name": "studies", "description": "The studies with their findings and verdicts, and the live forward record "
      "of tracked traders' new positions (14 and 30 days).", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "my_positions", "description": "His own open positions from his connected Hyperliquid wallets (value, "
+     "open profit, leverage, liquidation price) with what each group does on those coins and what is against each, "
+     "plus the notes he gave about positions held elsewhere.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "latest_read", "description": "Outrider's latest reads of the market (headline, read, views, what it "
+     "said on his positions) and the record of its past views after 1, 3 and 7 days.",
+     "input_schema": {"type": "object", "properties": {}}},
     {"name": "remember", "description": "Keep a short note about the owner for later conversations.",
      "input_schema": {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}},
     {"name": "forget", "description": "Drop a note by its number.",
@@ -199,11 +223,12 @@ class Chat:
         h = desk.home(self.agent, now)
         k = h["kpi"]
         k.get("crowd", {}).pop("spark", None)
-        pulse = self.store.latest_brief("pulse")
+        read = self.store.latest_brief("read") or self.store.latest_brief("pulse")
         return {"kpi": k, "btc_eth_direction": [{x: d[x] for x in d if x != "series"} for d in h.get("direction") or []],
                 "largest_coins": [{x: r.get(x) for x in ("coin", "price", "leans", "agree", "crowd", "tracked", "big_money")}
                                   for r in h["lenses"][:12]],
-                "latest_market_read": (pulse or {}).get("text"), "read_at": (pulse or {}).get("ts")}
+                "latest_market_read": (read or {}).get("text"),
+                "read_at": (read or {}).get("ts")}
 
     def t_coin(self, now: float, coin: str) -> dict:
         from .service import coin_context    # service builds the chat: imported here, not at the top
@@ -304,6 +329,25 @@ class Chat:
         r = desk.research(self.agent)
         return {"studies": [{x: s.get(x) for x in ("id", "title", "finding", "verdict")} for s in r.get("studies") or []],
                 "forward_record": r.get("forward")}
+
+    def t_my_positions(self, now: float) -> dict:
+        from .analyst import scan    # the analyst imports this module: imported here, not at the top
+        own = self.store.get_snapshot("owner_positions")
+        notes = [n["text"] for n in self.store.chat_notes()]
+        if not own:
+            return {"connected": False, "notes": notes,
+                    "note": "No wallets connected (SYNTH_OWNER_WALLETS on Railway); only his notes are known."}
+        mine = scan(self.agent, now)["my_positions"]
+        return {"connected": True, "read_at": time.strftime("%d %b %H:%M UTC", time.gmtime(own["ts"])),
+                "accounts": {a[:6]: round(w.get("equity") or 0) for a, w in (own.get("wallets") or {}).items()},
+                "positions": mine, "notes": notes}
+
+    def t_latest_read(self, now: float) -> dict:
+        from .analyst import record
+        reads = [{"when": time.strftime("%a %d %b %H:%M UTC", time.gmtime(b["ts"])),
+                  **{k: b["body"].get(k) for k in ("reason", "sent", "headline", "read", "positions", "views")}}
+                 for b in self.store.briefs_since("read", now - 3 * 86400) if not b["body"].get("error")]
+        return {"reads": reads[-4:], "record": record(self.store)}
 
     def t_remember(self, now: float, note: str) -> dict:
         return {"saved": self.store.chat_note_add(note.strip()[:300], now)}

@@ -67,7 +67,7 @@ Reflex refreshes every tracked profitable wallet's positions every few minutes w
 
 Where it shows:
 - **Dashboard, Now tab:** the Pulse panel follows the 1h / 6h / 24h / 3d selector. Tiles show long and short positions now with their change; the share of positions that are long, as a line you can hover; and coins moving long (green) and moving short (red). Event cards are green or red by direction too.
-- **Telegram:** the market read (06, 10, 14, 18 UTC) now comes as a picture: the 24h line of the share long, and a map of the most active coins with their L / S change and net size in the last 1h, 6h and 24h, coloured by direction. Send `/now` at any time for the same picture with a two-line summary.
+- **Telegram:** with `SYNTH_READS=off` (or no model key), the market read (06, 10, 14, 18 UTC) comes as a picture: the 24h line of the share long, and a map of the most active coins with their L / S change and net size in the last 1h, 6h and 24h, coloured by direction. Send `/now` at any time for the same picture with a two-line summary.
 - **API:** `GET /flow?hours=6` (JSON) and `GET /flow.png` (the picture).
 
 ## Tracked traders: proven and riding winners
@@ -129,7 +129,33 @@ Where it shows: the dashboard's **Traders** tab (by coin; what they are adding; 
 leverage and positions; filters for proven, riding and leverage 5x or less), `GET /position-traders`, and `/positions`
 in Telegram (holdings by coin and what they added this week).
 
-## Daily brief (Telegram, after 08:00 UTC)
+## Outrider's read (Telegram)
+
+With a model key, Outrider reads the market instead of posting the same numbers on a clock (`synth/analyst.py`):
+
+- **Scan, every poll (code):** BTC and ETH as direction; the market's mood; the 14 coins where most is happening, each
+  with what the crowd of profitable traders, the tracked traders (and what they added or cut in 24 hours), big money
+  by owner and the open winners hold, the engine's reading and Derive's options; and your own positions with what is
+  against each.
+- **When it reads:** the morning read after `SYNTH_BRIEF_HOUR_UTC` (always sent); when enough changed since the last
+  read (groups flipping, several tracked traders piling into one coin, BTC moving, new alerts), at most every 2 hours
+  and not during `SYNTH_READ_QUIET_UTC` (default 22-6); and within 30 minutes when a group that has tested well turns
+  against one of your positions (tracked traders, big money, open winners; the crowd never counts here, study S2).
+- **What it writes:** a headline, a few lines on what it sees and how much each piece is worth (the studies' evidence
+  guide), what it would do with each of your positions (hold, trim, close, watch, with the reason), and up to three
+  views. It can look closer with the chat's tools first, and it holds a read back when nothing is worth your attention.
+- **Its record:** every view sent is logged at Hyperliquid's mid and scored after 1, 3 and 7 days (study S5, declared
+  before any result: useful only after 60 views with 62%+ right at 3 days and a median +1% their way). The record goes
+  into each read, and `/record` shows it.
+- **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll. Without them it
+  goes by what you told it in the chat ("remember I hold ENA long from 0.09").
+- **Cost:** `SYNTH_READ_MODEL` (default `claude-opus-5-5`), `SYNTH_READ_EFFORT` (default `high`),
+  `SYNTH_READ_DAILY_USD` (default 1.5; the morning read still goes out), `SYNTH_READS_PER_DAY` (default 6 sent). About
+  10 to 25 cents a read on Opus 5.5 at high effort. `/read` asks for one now; `/cost` shows talking and reads.
+- It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
+  pulse picture.
+
+## Daily brief (Telegram, after 08:00 UTC; only with SYNTH_READS=off or no model key)
 
 The brief has three short sections and is under 15 lines:
 - **Derive smart wallets:** BTC, ETH, HYPE. One line each: the lean of top option wallets (7d, else 30d), their net delta, and whether calls or puts were bought today. Built in code.
@@ -144,9 +170,10 @@ Reflex flags a convergence when 2+ profitable traders open the same side within 
 
 Write to the bot in plain words and Outrider answers from the agent's own data (`synth/chat.py`): the market now, one
 coin (engine, profitable traders, tracked traders, big money, Derive options, open winners, recent adds and alerts),
-tracked traders, one trader by address or codename, open winners, where money is moving, recent alerts and the studies.
-It keeps short notes when asked ("remember I hold ENA") and never trades, posts or makes a call. The desk's Ask tab uses
-the same conversation, kept apart.
+tracked traders, one trader by address or codename, open winners, where money is moving, recent alerts, the studies,
+your positions and its latest read. It has views: ask what it would do with a position and it says so, with how strong
+the evidence is and what would change its mind (the same evidence guide as the reads). It keeps short notes when asked
+("remember I hold ENA") and never trades or posts. The desk's Ask tab uses the same conversation, kept apart.
 
 - Needs `ANTHROPIC_API_KEY` on Railway (without it the bot says so and nothing else changes).
 - `SYNTH_CHAT_MODEL` (default `claude-opus-5-5`, with Anthropic's server-side refusal fallback), `SYNTH_CHAT_EFFORT`
@@ -240,6 +267,8 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `GET /coin/{coin}` | Both products' current view of a coin, plus 7 days of its events |
 | `GET /brief` / `POST /brief?push=true` | Latest daily brief / write one now |
 | `POST /ask` `{"question": "..."}` | Question answered from current data and the last 7 days of events |
+| `POST /read?send=false` | Outrider's read now (send=true pushes it to Telegram) |
+| `GET /reads?days=3` | Recent reads, sent or held back, and the record of their views |
 | `GET /picks` | Pick journal with 1d/3d/7d returns |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
