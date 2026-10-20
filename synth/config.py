@@ -42,6 +42,17 @@ class Settings:
     chat_model: str = field(default_factory=lambda: _env("SYNTH_CHAT_MODEL", "claude-opus-5-5"))
     chat_effort: str = field(default_factory=lambda: _env("SYNTH_CHAT_EFFORT", "medium"))
     chat_daily_usd: float = field(default_factory=lambda: _float("SYNTH_CHAT_DAILY_USD", 2.0))
+    # Outrider's read (synth/analyst.py): the market reasoned over by the model, sent when it is worth reading; it
+    # replaces the code-built pulse and daily brief. SYNTH_READS=off brings those back.
+    reads: bool = field(default_factory=lambda: _env("SYNTH_READS", "on").lower() not in ("off", "0", "no"))
+    read_model: str = field(default_factory=lambda: _env("SYNTH_READ_MODEL", "claude-opus-5-5"))
+    read_effort: str = field(default_factory=lambda: _env("SYNTH_READ_EFFORT", "high"))
+    read_daily_usd: float = field(default_factory=lambda: _float("SYNTH_READ_DAILY_USD", 1.5))
+    reads_per_day: int = field(default_factory=lambda: int(_float("SYNTH_READS_PER_DAY", 6)))
+    # UTC hours without reads on market changes ("22-6"); a group turning against his position still comes through.
+    read_quiet_utc: str = field(default_factory=lambda: _env("SYNTH_READ_QUIET_UTC", "22-6"))
+    # His own Hyperliquid wallets (comma-separated addresses), read each poll so the reads can speak to his positions.
+    owner_wallets: list[str] = field(default_factory=lambda: _list("SYNTH_OWNER_WALLETS"))
     # Outrider's posts on X (synth/persona.py): the model that writes them, the UTC hours a draft is made (empty
     # disables), and "draft" (to your Telegram, Post or Skip) or "live" (published as written).
     persona_model: str = field(default_factory=lambda: _env("SYNTH_PERSONA_MODEL", "claude-opus-5-5"))

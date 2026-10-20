@@ -104,7 +104,7 @@ def test_telegram_plain_messages_are_questions(tmp_path, monkeypatch):
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "what's moving?"}}))
     assert sent[0] == "sendChatAction" and sent[1] == "x" * 3900 and sent[2] == "x" * 1100
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/cost"}}))
-    assert sent[-1].startswith("Today: $0.") and "claude-opus-5-5" in sent[-1]
+    assert sent[-1].startswith("Talking today: $0.") and "claude-opus-5-5" in sent[-1]
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/reset"}}))
     assert agent.store.chat_history("1", 12) == []
     agent.chat = None

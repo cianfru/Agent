@@ -39,16 +39,27 @@ async def _loop(agent: Agent) -> None:
     while True:
         try:
             await agent.cycle()
-            await _maybe_daily_brief(agent)
+            if agent.analyst:
+                await _maybe_read(agent)          # the reasoned read replaces the code-built brief and pulse
+            else:
+                await _maybe_daily_brief(agent)
+                await _maybe_pulse(agent)
             await _maybe_desk_posts(agent)
             await _maybe_persona(agent)
-            await _maybe_pulse(agent)
             await _maybe_reflex_history(agent)
             if agent.positions.enabled and agent.positions.discover_due():
                 asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
+
+
+async def _maybe_read(agent: Agent) -> None:
+    """Outrider's read when one is due: the morning read, enough change, or a group turning against his position."""
+    try:
+        await agent.analyst.step()
+    except Exception:  # noqa: BLE001 - the next poll tries again
+        log.exception("read failed")
 
 
 async def _maybe_reflex_history(agent: Agent) -> None:
@@ -253,6 +264,21 @@ def ask(q: Question):
     digest = build_digest(snaps, agent.store.events(time.time() - 7 * 86400, limit=80))
     answer, usage = agent.synth.ask(q.question, digest)
     return {**answer.model_dump(), "usage": usage}
+
+
+@app.post("/read", dependencies=[Depends(auth)])
+async def make_read(send: bool = False):
+    """Outrider's read now. send=true pushes it to Telegram whatever the model decides."""
+    if not agent.analyst:
+        raise HTTPException(503, "reads are off (ANTHROPIC_API_KEY missing or SYNTH_READS=off)")
+    return await agent.analyst.run("asked", force_send=send)
+
+
+@app.get("/reads", dependencies=[Depends(auth)])
+def list_reads(days: float = 3):
+    """Outrider's recent reads, sent or held back, and the record of its views."""
+    from .analyst import record
+    return {"reads": agent.store.briefs_since("read", time.time() - days * 86400), "record": record(agent.store)}
 
 
 @app.get("/picks", dependencies=[Depends(auth)])

@@ -432,7 +432,7 @@ document.querySelectorAll("#movewin button").forEach((b) => b.onclick = () => {
 
 async function loadDesk() {
   const [d, p] = await Promise.all([api("/desk"), api("/pulse?hours=4").catch(() => ({}))]);
-  deskData = d; $("#read").textContent = p.text || "";
+  deskData = d; $("#read").textContent = (d.read && d.read.text) || p.text || "";
   const k = d.kpi, c = k.crowd || {}, bm = k.big_money || {}, cy = k.cycle, tr = k.tracked || {};
   const leanWord = (s) => s == null ? "unknown" : s >= 60 ? "long" : s <= 40 ? "short" : "balanced";
   const cls = (s) => s == null ? "" : s >= 55 ? "up" : s <= 45 ? "down" : "";

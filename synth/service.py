@@ -37,6 +37,7 @@ class Agent:
         self.synth = synth
         self.persona = persona_writer
         self.chat = None          # synth/chat.py, set by make_agent when there is an API key
+        self.analyst = None       # synth/analyst.py, the same
         self.brief_synth = brief_synth or synth
         self.reflex = (
             reflex.ReflexClient(
@@ -420,8 +421,8 @@ class Agent:
         now, n = time.time(), 0
         for p in self.store.open_picks():
             hl_px = self.tracker.last_mids.get(p["coin"].upper())
-            # group picks were entered at Hyperliquid's mid, so they are scored on it too
-            hl_entry = p.get("origin") in ("group", "position")
+            # group, position and read picks were entered at Hyperliquid's mid, so they are scored on it too
+            hl_entry = p.get("origin") in ("group", "position", "read")
             px = (hl_px or price_of(p["coin"], snaps)) if hl_entry else (price_of(p["coin"], snaps) or hl_px)
             if not px or not p["entry_price"]:
                 continue
@@ -457,8 +458,12 @@ def make_agent(settings: Settings) -> Agent:
         writer = None
     agent = Agent(settings, Store(settings.db_path), synth, brief_synth, writer)
     if writer:
+        from .analyst import Analyst
         from .chat import Chat
         agent.chat = Chat(agent, settings.chat_model, settings.chat_effort, settings.chat_daily_usd)
+        if settings.reads:
+            agent.analyst = Analyst(agent, settings.read_model, settings.read_effort, settings.read_daily_usd,
+                                    settings.reads_per_day, settings.read_quiet_utc)
     return agent
 
 
