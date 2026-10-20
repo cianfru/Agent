@@ -6,7 +6,7 @@ from synth import analyst, chat, notify, service
 from synth.config import Settings
 from synth.position_traders import PositionTraders
 from synth.store import Store
-from tests.test_chat import FakeClient, response, text_block, tool_block
+from tests.test_chat import FakeClient, response, text_block
 
 TRADERS = ["0x" + c * 40 for c in "abcdef"]
 OWNER = "0x" + "9" * 40
@@ -101,8 +101,7 @@ def test_changes_weigh_what_moved_and_mark_his_positions():
 
 
 def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_path, monkeypatch):
-    agent, sent = make(tmp_path, monkeypatch, [response([tool_block("coin", {"coin": "SUI"})], stop="tool_use"),
-                                               response([text_block(json.dumps(READ))])])
+    agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))])])
     now = time.time()
     seed(agent.store, now)
     out = asyncio.run(agent.analyst.step(now))
@@ -112,18 +111,17 @@ def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_
     assert "Yours\nSUI long · trim: Four proven traders are short against you." in text
     assert "Views\nSUI short · firm: Proven traders adding, engine stretched. Off if they cut those shorts." in text
     assert "Record" not in text                                       # the record rides on the morning read only
-    first, second = agent.analyst.client.calls
-    assert first["output_config"]["effort"] == "high" and first["output_config"]["format"]["type"] == "json_schema"
-    assert first["fallbacks"] == "default" and "remember" not in [t["name"] for t in first["tools"]]
+    first, = agent.analyst.client.calls                                # one call, no tools: the scan holds it all
+    assert first["output_config"]["effort"] == "medium" and first["output_config"]["format"]["type"] == "json_schema"
+    assert first["fallbacks"] == "default" and "tools" not in first
     task = first["messages"][0]["content"]
     assert "- first read" in task and '"my_positions"' in task and "tracked traders lean short" in task
-    assert json.loads(second["messages"][-1]["content"][0]["content"])["coin"] == "SUI"   # the tool ran
     pick = agent.store.picks(origin="read")[0]
     assert (pick["coin"], pick["direction"], pick["conviction"], pick["entry_price"]) == ("SUI", "short", 2, 1.8)
-    assert abs(agent.analyst.spent_today(now) - 2 * 0.05) < 1e-9
+    assert abs(agent.analyst.spent_today(now) - 0.05) < 1e-9
 
     # nothing changed: no read, no model call
-    assert asyncio.run(agent.analyst.step(now + 600)) is None and len(agent.analyst.client.calls) == 2
+    assert asyncio.run(agent.analyst.step(now + 600)) is None and len(agent.analyst.client.calls) == 1
 
     # big money turns against his long: a new reason against him, but within 30 minutes of the last read it waits
     agent.store.add_brief("pt_bigmoney", {"coins": {"SUI": {"long_n": 1, "short_n": 5, "long_usd": 1e5, "short_usd": 9e5}}})
