@@ -75,13 +75,16 @@ def test_changes_weigh_what_moved_and_mark_his_positions():
     assert analyst.changes(None, {}) == [{"w": analyst.TRIGGER, "text": "first read", "owner": False}]
     prev = {"market": {"crowd_long_pct": 60.0}, "direction": [{"coin": "BTC", "price": 100_000.0, "groups_agree": "mixed"}],
             "coins": [{"coin": "SUI", "price": 2.0, "tracked": {"lean": "split"}}],
-            "my_positions": [{"coin": "SUI", "side": "long", "value": 20_000, "upnl": 0, "against": []}],
+            "my_positions": [{"source": "wallet 0x9999", "coin": "SUI", "side": "long", "move_pct": 2.6, "against": []},
+                             {"source": "watch list", "coin": "HYPE", "side": None, "price": 40.0, "against": []}],
             "alerts_24h": ["old"]}
     cur = {"market": {"crowd_long_pct": 48.0}, "direction": [{"coin": "BTC", "price": 96_000.0, "groups_agree": "all short"}],
            "coins": [{"coin": "SUI", "price": 1.7, "tracked": {"lean": "short"},
                       "tracked_24h": {"short": {"adders": 3, "cutters": 0, "net_usd": 400_000}}}],
-           "my_positions": [{"coin": "SUI", "side": "long", "value": 20_000, "upnl": -1_500,
-                             "against": ["tracked traders lean short (4 short vs 0 long)"]}],
+           "my_positions": [{"source": "wallet 0x9999", "coin": "SUI", "side": "long", "move_pct": -12.8,
+                             "against": ["tracked traders lean short (4 short vs 0 long)"]},
+                            {"source": "watch list", "coin": "HYPE", "side": None, "price": 44.0, "against": []},
+                            {"source": "watch list", "coin": "ENA", "side": "long", "move_pct": 0.0, "against": []}],
            "alerts_24h": ["old", "new one"]}
     got = {c["text"]: (c["w"], c["owner"]) for c in analyst.changes(prev, cur)}
     assert got["profitable traders -12 points long (60% to 48%)"] == (3, False)
@@ -92,7 +95,9 @@ def test_changes_weigh_what_moved_and_mark_his_positions():
     assert got["SUI -15% since the last read"] == (1, False)
     assert got["1 new alerts: new one"] == (1, False)
     assert got["your SUI long: tracked traders lean short (4 short vs 0 long)"] == (4, True)
-    assert got["your SUI long is -8% on its value since the last read"] == (2, True)
+    assert got["your SUI long moved -15 points since the last read (-13% from entry)"] == (2, True)
+    assert got["HYPE (watched) +10% since the last read"] == (2, True)
+    assert got["you are now watching ENA long"] == (1, True)
 
 
 def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_path, monkeypatch):
@@ -104,8 +109,9 @@ def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_
     assert out["reason"] == "market changed" and out["sent"] and len(sent) == 1
     text = sent[0]
     assert text.splitlines()[1] == READ["headline"]
-    assert "Your positions\nSUI long: trim. Four proven traders are short against you." in text
-    assert "SUI short, firm: Proven traders adding, engine stretched. Changes if they cut those shorts." in text
+    assert "Yours\nSUI long · trim: Four proven traders are short against you." in text
+    assert "Views\nSUI short · firm: Proven traders adding, engine stretched. Off if they cut those shorts." in text
+    assert "Record" not in text                                       # the record rides on the morning read only
     first, second = agent.analyst.client.calls
     assert first["output_config"]["effort"] == "high" and first["output_config"]["format"]["type"] == "json_schema"
     assert first["fallbacks"] == "default" and "remember" not in [t["name"] for t in first["tools"]]
@@ -158,7 +164,7 @@ def test_record_counts_views_their_way(tmp_path, monkeypatch):
         agent.store.set_pick_return(pid, "3d", ret)
     rec = analyst.record(agent.store)
     assert rec["3d"]["all"] == {"n": 6, "right": 4, "median_pct": 2.0} and rec["3d"]["firm_or_strong"]["n"] == 3
-    assert analyst.record_text(rec) == "My record: 4 of 6 views right after 3 days (67%), median +2.0% their way."
+    assert analyst.record_text(rec) == "Record: 4 of 6 views right after 3 days (67%), median +2.0% their way."
 
 
 def test_chat_sees_his_positions_and_the_latest_read(tmp_path, monkeypatch):
@@ -167,6 +173,34 @@ def test_chat_sees_his_positions_and_the_latest_read(tmp_path, monkeypatch):
     seed(agent.store, now)
     asyncio.run(agent.analyst.step(now))
     mine = json.loads(agent.chat.execute("my_positions", {}, now))
-    assert mine["connected"] and mine["positions"][0]["against"][0].startswith("tracked traders lean short")
+    assert mine["wallets_connected"] and mine["positions"][0]["against"][0].startswith("tracked traders lean short")
     last = json.loads(agent.chat.execute("latest_read", {}, now))
     assert last["reads"][-1]["headline"] == READ["headline"] and last["record"]["logged"] == 1
+
+
+def test_watch_list_is_followed_like_a_wallet_position(tmp_path, monkeypatch):
+    agent, sent = make(tmp_path, monkeypatch, [])
+    now = time.time()
+    seed(agent.store, now)
+    agent.store.put_snapshot("owner_positions", {"ts": now, "wallets": {}})
+    assert analyst.parse_watch(["$sui", "LONG", "2.0", "5k"]) == {"coin": "SUI", "side": "long", "entry": 2.0,
+                                                                 "size_usd": 5000.0}
+    assert analyst.parse_watch(["hype"]) == {"coin": "HYPE", "side": None, "entry": None, "size_usd": None}
+
+    async def fake_tg(token, method, **params):
+        return {}
+
+    monkeypatch.setattr(notify, "tg", fake_tg)
+    from synth import bot
+    asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/watch SUI long 2.0 5k"}}))
+    assert sent[-1].splitlines() == ["Watching", "SUI long from 2.00 · now 1.80 (-10.0%) · tracked 0 long / 4 short, "
+                                     "4 added shorts in 24h",
+                                     "  against you: tracked traders lean short (4 short vs 0 long); "
+                                     "4 tracked traders added shorts in 24h"]
+    m = analyst.scan(agent, now)["my_positions"][0]
+    assert (m["source"], m["move_pct"], m["upnl"]) == ("watch list", -10.0, -500)
+    # in plain words through the chat, and off again
+    json.loads(agent.chat.execute("watch_add", {"coin": "hype"}, now))
+    assert [w["coin"] for w in agent.store.watch_list()] == ["SUI", "HYPE"]
+    asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/unwatch sui"}}))
+    assert sent[-1] == "Took SUI off the watch list." and [w["coin"] for w in agent.store.watch_list()] == ["HYPE"]

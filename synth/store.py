@@ -140,6 +140,15 @@ CREATE TABLE IF NOT EXISTS chat_notes (
     ts REAL NOT NULL,
     text TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS watchlist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    coin TEXT NOT NULL,
+    side TEXT,
+    entry REAL,
+    size_usd REAL,
+    note TEXT
+);
 CREATE TABLE IF NOT EXISTS pt_cand (
     address TEXT PRIMARY KEY,
     src TEXT,
@@ -430,6 +439,29 @@ class Store:
             cur = self._db.execute("DELETE FROM chat_notes WHERE id=?", (note_id,))
             self._db.commit()
             return cur.rowcount > 0
+
+    # the owner's watch list: positions (or coins) Outrider follows whatever his wallets show ------------------
+    def watch_add(self, coin: str, side: str | None, entry: float | None, size_usd: float | None, note: str | None,
+                  ts: float) -> int:
+        """Add or replace (same coin and side) one watched position."""
+        with self._lock:
+            self._db.execute("DELETE FROM watchlist WHERE coin=? AND COALESCE(side, '')=?", (coin.upper(), side or ""))
+            cur = self._db.execute("INSERT INTO watchlist(ts, coin, side, entry, size_usd, note) VALUES(?,?,?,?,?,?)",
+                                   (ts, coin.upper(), side, entry, size_usd, note))
+            self._db.commit()
+            return cur.lastrowid
+
+    def watch_list(self) -> list[dict]:
+        return [dict(r) for r in self._db.execute("SELECT * FROM watchlist ORDER BY id").fetchall()]
+
+    def watch_drop(self, coin: str, side: str | None = None) -> int:
+        with self._lock:
+            if side:
+                cur = self._db.execute("DELETE FROM watchlist WHERE coin=? AND side=?", (coin.upper(), side))
+            else:
+                cur = self._db.execute("DELETE FROM watchlist WHERE coin=?", (coin.upper(),))
+            self._db.commit()
+            return cur.rowcount
 
     # proven-list candidates (synth/proven.py) ------------------------------------
     _CAND_JSON = ("src", "info", "state", "closed", "moves", "moves_last", "record", "subs", "live")

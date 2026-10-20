@@ -8,6 +8,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /help       what each alert means and the words in them
   /draft      one of Outrider's X posts now, as a draft (Post or Skip; reply to a draft to change its text)
   /read       Outrider's read of the market now;  /record  how its past views did
+  /watch      the watch list, or /watch ENA long 0.09 5k to add;  /unwatch ENA  to take it off
   /reset      start the conversation afresh;  /cost  what talking and reads have cost today
 Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from . import groups as G
 from . import notify
@@ -26,7 +28,7 @@ HELP = """Outrider watches profitable traders on Hyperliquid and Derive's option
 Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position).
 
 Reads
-Every morning, and when something worth your attention changes, I send my read: what I see, what I'd do with your positions, and up to three views. Each view is scored after 1, 3 and 7 days; /record shows how they did. Nothing changed, no message.
+Every morning, and when something worth your attention changes, I send my read: what I see, what I'd do with your positions and your watch list, and up to two views. Each view is scored after 1, 3 and 7 days; /record shows how they did. Nothing changed, no message.
 
 Alerts
 Conviction: a tracked trader opens a position at least 2x their usual size.
@@ -43,6 +45,8 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 
 /read  my read of the market now
 /record  how my past views did
+/watch  your watch list; /watch ENA long 0.09 5k adds one (side, entry and size optional)
+/unwatch ENA  takes it off
 /now  live pulse (1h, 6h, 24h)
 /positions  what tracked traders hold
 /following  groups you follow
@@ -52,6 +56,8 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /cost  what talking and reads have cost today"""
 
 COMMANDS = [{"command": "read", "description": "Outrider's read of the market now"},
+            {"command": "watch", "description": "Your watch list (/watch ENA long 0.09 5k adds one)"},
+            {"command": "unwatch", "description": "Take a coin off the watch list (/unwatch ENA)"},
             {"command": "record", "description": "How Outrider's past views did"},
             {"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
@@ -150,6 +156,18 @@ async def handle(agent, update: dict) -> None:
         except Exception as e:  # noqa: BLE001 - say why instead of going quiet
             log.warning("/read failed: %s", e)
             await notify.telegram(s.telegram_token, chat, f"The read failed: {type(e).__name__}. Try again in a minute.")
+        return
+    if cmd in (["/watch"], ["/unwatch"]):
+        from .analyst import parse_watch, watch_text
+        w = parse_watch(reply_text.split()[1:])
+        if cmd == ["/unwatch"]:
+            n = store.watch_drop(w["coin"], w["side"]) if w else 0
+            text = f"Took {w['coin']} off the watch list." if n else "Nothing to take off: /unwatch ENA"
+        else:
+            if w:
+                store.watch_add(w["coin"], w["side"], w["entry"], w["size_usd"], None, time.time())
+            text = await asyncio.to_thread(watch_text, agent)
+        await notify.telegram(s.telegram_token, chat, text)
         return
     if cmd == ["/record"]:
         from .analyst import record, record_text

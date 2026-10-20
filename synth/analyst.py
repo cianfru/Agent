@@ -50,8 +50,9 @@ STRENGTH = {1: "light", 2: "firm", 3: "strong"}
 
 SYSTEM = """You are Outrider, the owner's private market agent. Through the day the code scans the market and hands \
 you the scan: BTC and ETH as direction, the market's mood, the coins where something is happening (what each group of \
-traders holds and how it changed, the engine's reading, Derive's options), his own positions with what each group does \
-on those coins, and what changed since your last read. Think like a sharp desk analyst who knows this data cold: find \
+traders holds and how it changed, the engine's reading, Derive's options), his positions (from his wallets and from \
+his watch list, positions he follows by hand; a watch-list coin with no side is a coin he wants followed) with what \
+each group does on those coins, and what changed since your last read. Think like a sharp desk analyst who knows this data cold: find \
 what matters, connect it, and tell him in a few lines what you see and what you would do in his place.
 
 """ + EVIDENCE + """
@@ -63,18 +64,21 @@ the crowd buys the dip").
 converge (several adding the same coin and side), where groups disagree, and where the big open winners sit.
 - Weighs each piece by the evidence above and says how much it is worth. A crowd lean alone is never the story.
 - Puts his positions first when a group turned against one: hold, trim, close or watch, each with the reason. He \
-decides; you say what you would do and why.
-- Gives at most three views on coins (long or short; light, firm or strong) and what would change each. Every view is \
+decides; you say what you would do and why. Each of his positions and watched coins gets a line only when something \
+changed on it or a group is against it; in the morning read, every one gets a line.
+- Gives at most two views on coins (long or short; light, firm or strong) and what would change each. Every view is \
 logged and scored after 1, 3 and 7 days, so give only one you would stand behind. Strong needs independent groups \
 agreeing before the price has run. No view is fine.
 - Says what is new since your last read, and says so plainly when an earlier view of yours is now wrong.
 - Sets send to false when nothing changed enough to be worth his attention (never for the morning read). He prefers \
 silence to filler.
 
-Style: plain text for a phone, short lines, no markdown, no emojis, no engine codes (say "trending up", not the code). \
-Numbers only from the scan or the tools; never a price target. Name traders by codename. Headline under 90 \
-characters, the read under 900. You may call the tools to look closer at a coin, a trader or the open winners before \
-writing; do not call them for what the scan already holds."""
+Style: he reads it on a phone in ten seconds. Plain text, no markdown, no emojis, no engine codes (say "trending \
+up", not the code). The headline under 80 characters. The read at most three short sentences, under 350 characters: \
+the story and what it means, not a list of figures; two or three numbers at most, the ones that carry the point. Each \
+position or view line under 120 characters. Never repeat in one part what another already says. Numbers only from \
+the scan or the tools; never a price target. Name traders by codename. You may call the tools to look closer at a \
+coin, a trader or the open winners before writing; do not call them for what the scan already holds."""
 
 SCHEMA = {
     "type": "object",
@@ -85,7 +89,7 @@ SCHEMA = {
         "market_lean": {"type": "string", "enum": ["long", "short", "neutral"]},
         "positions": {"type": "array", "items": {
             "type": "object", "additionalProperties": False, "required": ["coin", "side", "take", "why"],
-            "properties": {"coin": {"type": "string"}, "side": {"type": "string", "enum": ["long", "short"]},
+            "properties": {"coin": {"type": "string"}, "side": {"type": "string", "enum": ["long", "short", "none"]},
                            "take": {"type": "string", "enum": ["hold", "trim", "close", "watch"]},
                            "why": {"type": "string"}}}},
         "views": {"type": "array", "items": {
@@ -118,6 +122,13 @@ def _sig(x: float | None) -> float | None:
 
 def _pct(now: float | None, then: float | None) -> float | None:
     return round(100 * (now / then - 1), 1) if now and then else None
+
+
+def _move(side: str | None, price: float | None, entry: float | None) -> float | None:
+    """How far a position has moved its way since entry, in percent."""
+    if not side or not price or not entry:
+        return None
+    return round(100 * (price / entry - 1) * (1 if side == "long" else -1), 1)
 
 
 def _crowd(v: list | None) -> dict | None:
@@ -197,6 +208,8 @@ def scan(agent, now: float | None = None) -> dict:
     alerts = _alerts(store, now - DAY)
     owner = store.get_snapshot("owner_positions") or {}
     held = {c: p for w in (owner.get("wallets") or {}).values() for c, p in (w.get("positions") or {}).items()}
+    watch = store.watch_list()
+    held.update({w["coin"]: w for w in watch if w["coin"] not in held})
 
     def row(coin: str) -> dict:
         c, d, wk = cur.get(coin), day.get(coin), week.get(coin)
@@ -261,10 +274,19 @@ def scan(agent, now: float | None = None) -> dict:
         for c, p in (w.get("positions") or {}).items():
             r = by_coin.get(c) or row(c)
             value = round(p.get("notional") or 0)
-            mine.append({"wallet": addr[:6], "coin": c, "side": p["side"], "value": value,
+            mine.append({"source": f"wallet {addr[:6]}", "coin": c, "side": p["side"], "value": value,
                          "share_of_account": round(value / eq, 2) if eq else None, "upnl": round(p.get("upnl") or 0),
-                         "entry": _sig(p.get("entry_px")), "price": r.get("price"), "lev": p.get("lev"),
+                         "entry": _sig(p.get("entry_px")), "price": r.get("price"),
+                         "move_pct": _move(p["side"], r.get("price"), p.get("entry_px")), "lev": p.get("lev"),
                          "roe": p.get("roe"), "liq": _sig(p.get("liq")), "against": _against(p["side"], r)})
+    for w in watch:
+        r = by_coin.get(w["coin"]) or row(w["coin"])
+        m = _move(w["side"], r.get("price"), w["entry"])
+        mine.append({"source": "watch list", "coin": w["coin"], "side": w["side"], "entry": _sig(w["entry"]),
+                     "price": r.get("price"), "move_pct": m, "value": w["size_usd"],
+                     "upnl": round(w["size_usd"] * m / 100) if w["size_usd"] and m is not None else None,
+                     "since": time.strftime("%d %b", time.gmtime(w["ts"])), "note": w["note"],
+                     "against": _against(w["side"], r) if w["side"] else []})
 
     k = home["kpi"]
     cy = k.get("cycle") or {}
@@ -304,6 +326,60 @@ def _alerts(store, since: float) -> dict[str, list[str]]:
             out.setdefault(g["coin"], []).append(f"{(g['meta'] or {}).get('n') or ''} profitable traders opened "
                                                  f"{g['side']} together")
     return out
+
+
+def parse_watch(words: list[str]) -> dict | None:
+    """'ENA long 0.09 5k' -> coin, side, entry, size in dollars (side, entry and size optional)."""
+    if not words:
+        return None
+    out: dict[str, Any] = {"coin": words[0].upper().lstrip("$"), "side": None, "entry": None, "size_usd": None}
+    nums = []
+    for w in words[1:]:
+        lw = w.lower().strip(",")
+        if lw in ("long", "short"):
+            out["side"] = lw
+            continue
+        mult = 1000 if lw.endswith("k") else 1_000_000 if lw.endswith("m") else 1
+        try:
+            nums.append(float(lw.lstrip("$").rstrip("km").replace(",", "")) * mult)
+        except ValueError:
+            continue
+    if nums:
+        out["entry"] = nums[0]
+    if len(nums) > 1:
+        out["size_usd"] = nums[1]
+    return out
+
+
+def watch_text(agent, now: float | None = None) -> str:
+    """The watch list built in code, one line each: the price and move since entry, the groups, what is against it."""
+    from .groups import px
+    s = scan(agent, now)
+    items = [m for m in s["my_positions"] if m["source"] == "watch list"]
+    if not items:
+        return "Your watch list is empty. Add one: /watch ENA long 0.09 5k (side, entry and size are optional)."
+    by_coin = {r["coin"]: r for r in s["coins"] + s["direction"]}
+    lines = ["Watching"]
+    for m in items:
+        r = by_coin.get(m["coin"]) or {}
+        head = m["coin"] + (f" {m['side']}" if m["side"] else "") + (f" from {px(m['entry'])}" if m["entry"] else "")
+        head += f" · now {px(m['price'])}" if m["price"] else " · no price"
+        if m["move_pct"] is not None:
+            head += f" ({m['move_pct']:+.1f}%)"
+        groups = []
+        t = r.get("tracked")
+        if t:
+            groups.append(f"tracked {t['long']} long / {t['short']} short")
+        for side in ("long", "short"):
+            a = (r.get("tracked_24h") or {}).get(side) or {}
+            if a.get("adders", 0) >= 2:
+                groups.append(f"{a['adders']} added {side}s in 24h")
+        if (r.get("big_money") or {}).get("lean"):
+            groups.append(f"big money {r['big_money']['lean']}")
+        lines.append(head + (" · " + ", ".join(groups) if groups else ""))
+        if m["against"]:
+            lines.append("  against you: " + "; ".join(m["against"]))
+    return "\n".join(lines)
 
 
 # ------------------------------------------------------------------- changes --
@@ -356,22 +432,33 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
     new_alerts = [a for a in cur.get("alerts_24h") or [] if a not in seen]
     if new_alerts:
         add(min(3, len(new_alerts)), f"{len(new_alerts)} new alerts: " + "; ".join(new_alerts[:3]))
-    mine0 = {(m["coin"], m["side"]): m for m in prev.get("my_positions") or []}
-    mine1 = {(m["coin"], m["side"]): m for m in cur.get("my_positions") or []}
+    def key(m: dict) -> tuple:
+        return m["coin"], m.get("side"), "watch" if m.get("source") == "watch list" else "wallet"
+
+    def name(k: tuple) -> str:
+        return f"{k[0]} {k[1]}" if k[1] else k[0]
+
+    mine0 = {key(m): m for m in prev.get("my_positions") or []}
+    mine1 = {key(m): m for m in cur.get("my_positions") or []}
     for k in mine1.keys() - mine0.keys():
-        add(1, f"you opened {k[0]} {k[1]}", owner=True)
+        add(1, f"you {'opened' if k[2] == 'wallet' else 'are now watching'} {name(k)}", owner=True)
     for k in mine0.keys() - mine1.keys():
-        add(1, f"you closed {k[0]} {k[1]}", owner=True)
+        add(1, f"you {'closed' if k[2] == 'wallet' else 'stopped watching'} {name(k)}", owner=True)
     for k, m in mine1.items():
         old = set((mine0.get(k) or {}).get("against") or [])
         fresh = [a for a in m.get("against") or [] if a not in old]
         if fresh:
-            add(4, f"your {k[0]} {k[1]}: " + "; ".join(fresh), owner=True)
-        m0 = mine0.get(k)
-        if m0 and m0.get("value") and m.get("value"):
-            pnl_move = (m["upnl"] - m0["upnl"]) / m["value"]
-            if abs(pnl_move) >= 0.05:
-                add(2, f"your {k[0]} {k[1]} is {100 * pnl_move:+.0f}% on its value since the last read", owner=True)
+            add(4, f"your {name(k)}: " + "; ".join(fresh), owner=True)
+        m0 = mine0.get(k) or {}
+        if m.get("move_pct") is not None and m0.get("move_pct") is not None:
+            d = m["move_pct"] - m0["move_pct"]
+            if abs(d) >= 5:
+                add(2, f"your {name(k)} moved {d:+.0f} points since the last read ({m['move_pct']:+.0f}% from entry)",
+                    owner=True)
+        elif not k[1]:
+            mv = _pct(m.get("price"), m0.get("price"))
+            if mv is not None and abs(mv) >= 8:
+                add(2, f"{k[0]} (watched) {mv:+.0f}% since the last read", owner=True)
     return out
 
 
@@ -397,7 +484,7 @@ def record_text(rec: dict) -> str | None:
     if a["n"] < 5:
         return None
     s = rec["3d"]["firm_or_strong"]
-    line = (f"My record: {a['right']} of {a['n']} views right after 3 days ({round(100 * a['right'] / a['n'])}%), "
+    line = (f"Record: {a['right']} of {a['n']} views right after 3 days ({round(100 * a['right'] / a['n'])}%), "
             f"median {a['median_pct']:+.1f}% their way")
     if s["n"] >= 5:
         line += f"; firm or strong {s['right']} of {s['n']}"
@@ -408,15 +495,18 @@ def record_text(rec: dict) -> str | None:
 
 
 def format_read(r: dict, now: float, rec: dict | None = None) -> str:
+    """Headline, the read, then one line per position and per view; the record only when `rec` is passed (the
+    morning read)."""
     lines = [f"Outrider · {time.strftime('%H:%M', time.gmtime(now))} UTC", r["headline"].strip(), "", r["read"].strip()]
     if r.get("positions"):
-        lines += ["", "Your positions"]
-        lines += [f"{p['coin']} {p['side']}: {p['take']}. {p['why'].strip()}" for p in r["positions"]]
+        lines += ["", "Yours"]
+        lines += [f"{p['coin']}{' ' + p['side'] if p.get('side') in ('long', 'short') else ''} · {p['take']}: "
+                  f"{p['why'].strip()}" for p in r["positions"]]
     if r.get("views"):
-        lines += ["", "Views (scored after 1, 3 and 7 days)"]
+        lines += ["", "Views"]
         for v in r["views"]:
-            lines.append(f"{v['coin']} {v['lean']}, {STRENGTH.get(v['strength'], 'light')}: {v['why'].strip()} "
-                         f"Changes if {v['changes_if'].strip().rstrip('.')}.")
+            lines.append(f"{v['coin']} {v['lean']} · {STRENGTH.get(v['strength'], 'light')}: "
+                         f"{v['why'].strip().rstrip('.')}. Off if {v['changes_if'].strip().rstrip('.')}.")
     rt = record_text(rec) if rec else None
     if rt:
         lines += ["", rt]
@@ -517,7 +607,7 @@ class Analyst:
             raise
         out = self.clean(out)
         send = bool(out["send"]) or reason == "morning" or force_send
-        text = format_read(out, now, rec)
+        text = format_read(out, now, rec if reason == "morning" else None)
         logged = self.log_views(out["views"], now, reason) if send else []
         self.store.put_snapshot("read_scan", cur)
         self.store.add_brief("read", {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4),
@@ -541,7 +631,7 @@ class Analyst:
                  "<notes_on_him>\n" + ("\n".join(n["text"] for n in notes) or "none") + "\n</notes_on_him>",
                  f"<scan>\n{json.dumps(cur, default=str, separators=(',', ':'))}\n</scan>"]
         if not cur.get("my_positions"):
-            parts.append("His wallets are not connected (or hold nothing): use the notes for what he holds, if any.")
+            parts.append("No wallet positions and an empty watch list: use the notes for what he holds, if any.")
         return "\n\n".join(parts)
 
     def think(self, task: str, now: float) -> tuple[dict, float]:
@@ -578,7 +668,7 @@ class Analyst:
     @staticmethod
     def clean(out: dict) -> dict:
         views = []
-        for v in (out.get("views") or [])[:3]:
+        for v in (out.get("views") or [])[:2]:
             coin = str(v.get("coin") or "").upper().lstrip("$")
             if coin and v.get("lean") in ("long", "short"):
                 views.append({**v, "coin": coin, "strength": int(v.get("strength") or 1)})
