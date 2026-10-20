@@ -7,6 +7,8 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /positions  what the proven position traders hold now, by coin
   /help       what each alert means and the words in them
   /draft      one of Outrider's X posts now, as a draft (Post or Skip; reply to a draft to change its text)
+  /reset      start the conversation afresh;  /cost  what talking has cost today
+Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from . import notify
 log = logging.getLogger(__name__)
 
 HELP = """Outrider watches profitable traders on Hyperliquid. Context, not signals.
+Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners).
 
 Alerts
 Conviction: a tracked trader opens a position at least 2x their usual size.
@@ -38,13 +41,17 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /positions  what tracked traders hold
 /following  groups you follow
 /groups  latest groups
-/draft  an Outrider post for X now, as a draft"""
+/draft  an Outrider post for X now, as a draft
+/reset  start our conversation afresh
+/cost  what talking has cost today"""
 
 COMMANDS = [{"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
             {"command": "groups", "description": "Latest groups"},
             {"command": "draft", "description": "An Outrider post for X, as a draft"},
+            {"command": "reset", "description": "Start the conversation afresh"},
+            {"command": "cost", "description": "What talking has cost today"},
             {"command": "help", "description": "What the alerts and their words mean"}]
 
 
@@ -108,6 +115,20 @@ async def handle(agent, update: dict) -> None:
             await agent.send_draft(draft["id"])
         return
     cmd = [c.split("@")[0] for c in (msg.get("text") or "").strip().split()[0:1]]
+    if reply_text and not reply_text.startswith("/"):
+        await _talk(agent, chat, reply_text)
+        return
+    if cmd == ["/reset"]:
+        store.chat_reset(chat)
+        await notify.telegram(s.telegram_token, chat, "Fresh start. Notes I keep stay.")
+        return
+    if cmd == ["/cost"]:
+        if not agent.chat:
+            await notify.telegram(s.telegram_token, chat, "Talking is off: no ANTHROPIC_API_KEY on Railway.")
+        else:
+            await notify.telegram(s.telegram_token, chat, f"Today: ${agent.chat.spent_today():.2f} of "
+                                  f"${agent.chat.daily_usd:.2f} ({agent.chat.model}).")
+        return
     if cmd == ["/draft"]:
         try:
             res = await agent.persona_post(publish=False)
@@ -138,6 +159,22 @@ async def handle(agent, update: dict) -> None:
     else:
         lines = [HELP]
     await notify.telegram(s.telegram_token, chat, "\n".join(lines))
+
+
+async def _talk(agent, chat: str, text: str) -> None:
+    """A plain message: Outrider answers it (typing shown while it reads the data)."""
+    s = agent.s
+    if not getattr(agent, "chat", None):
+        await notify.telegram(s.telegram_token, chat, "I can't talk yet: add ANTHROPIC_API_KEY on Railway.\n\n" + HELP)
+        return
+    await notify.tg(s.telegram_token, "sendChatAction", chat_id=chat, action="typing")
+    try:
+        answer = await agent.chat.reply(chat, text)
+    except Exception as e:  # noqa: BLE001 - say what went wrong instead of going quiet
+        log.warning("chat failed: %s", e)
+        answer = f"Something went wrong reaching the model: {type(e).__name__}. Try again in a minute."
+    for i in range(0, len(answer), 3900):     # Telegram's limit is 4,096 characters a message
+        await notify.telegram(s.telegram_token, chat, answer[i:i + 3900])
 
 
 async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> None:
