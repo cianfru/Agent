@@ -141,14 +141,19 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   read (groups flipping, several tracked traders piling into one coin, BTC moving, new alerts), at most every 2 hours
   and not during `SYNTH_READ_QUIET_UTC` (default 22-6); and within 30 minutes when a group that has tested well turns
   against one of your positions (tracked traders, big money, open winners; the crowd never counts here, study S2).
-- **What it writes:** a headline, a few lines on what it sees and how much each piece is worth (the studies' evidence
-  guide), what it would do with each of your positions (hold, trim, close, watch, with the reason), and up to three
-  views. It can look closer with the chat's tools first, and it holds a read back when nothing is worth your attention.
+- **What it writes:** a headline, at most three sentences on what it sees and how much it is worth (the studies'
+  evidence guide), one line per position or watched coin that changed or has a group against it (every one in the
+  morning read): hold, trim, close or watch, with the reason; and up to two views. It can look closer with the chat's
+  tools first, and it holds a read back when nothing is worth your attention. The record rides on the morning read.
+- **Watch list:** positions or coins you want followed whatever your wallets show. `/watch ENA long 0.09 5k` (side,
+  entry and size optional; `/watch HYPE` follows a coin), `/watch` lists them with the price, the move since entry,
+  the groups on them and what is against you (built in code, no model), `/unwatch ENA`. In the chat, "I'm long ENA
+  from 0.09" does the same. Watched positions count like wallet positions: a group turning against one brings a read.
 - **Its record:** every view sent is logged at Hyperliquid's mid and scored after 1, 3 and 7 days (study S5, declared
   before any result: useful only after 60 views with 62%+ right at 3 days and a median +1% their way). The record goes
   into each read, and `/record` shows it.
-- **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll. Without them it
-  goes by what you told it in the chat ("remember I hold ENA long from 0.09").
+- **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
+  list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-opus-5-5`), `SYNTH_READ_EFFORT` (default `high`),
   `SYNTH_READ_DAILY_USD` (default 1.5; the morning read still goes out), `SYNTH_READS_PER_DAY` (default 6 sent). About
   10 to 25 cents a read on Opus 5.5 at high effort. `/read` asks for one now; `/cost` shows talking and reads.

@@ -75,8 +75,9 @@ long"), then why, how strong the evidence is (by the list above), and what would
 never certainty.
 - Plain text for a phone: short paragraphs or a few lines, no markdown headers or tables, no emojis. Name traders by \
 codename with the short address.
-- If he asks you to remember something (a position he holds, a preference), use remember; if he asks you to drop it, \
-use forget. Notes you hold are listed below.
+- When he tells you about a position he holds or a coin he wants followed, put it on his watch list (watch_add; \
+watch_remove when he is out). Other things worth keeping (a preference, a plan): remember, and forget when he asks. \
+Notes you hold are listed below.
 - You cannot trade, post or change settings; say so if asked."""
 
 TOOLS = [
@@ -110,12 +111,23 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"hours": {"type": "integer", "minimum": 1, "maximum": 168}}}},
     {"name": "studies", "description": "The studies with their findings and verdicts, and the live forward record "
      "of tracked traders' new positions (14 and 30 days).", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "my_positions", "description": "His own open positions from his connected Hyperliquid wallets (value, "
-     "open profit, leverage, liquidation price) with what each group does on those coins and what is against each, "
-     "plus the notes he gave about positions held elsewhere.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "my_positions", "description": "His positions: from his connected Hyperliquid wallets (value, open "
+     "profit, leverage, liquidation price) and from his watch list (entry, move since entry), with what each group "
+     "does on those coins and what is against each, plus his notes.",
+     "input_schema": {"type": "object", "properties": {}}},
     {"name": "latest_read", "description": "Outrider's latest reads of the market (headline, read, views, what it "
      "said on his positions) and the record of its past views after 1, 3 and 7 days.",
      "input_schema": {"type": "object", "properties": {}}},
+    {"name": "watch_add", "description": "Put a position (or a coin) on his watch list: Outrider follows it in every "
+     "read whatever his wallets show, and says when a group turns against it.",
+     "input_schema": {"type": "object", "properties": {
+         "coin": {"type": "string"}, "side": {"type": "string", "enum": ["long", "short"]},
+         "entry": {"type": "number", "description": "His entry price"},
+         "size_usd": {"type": "number", "description": "Position size in dollars"},
+         "note": {"type": "string"}}, "required": ["coin"]}},
+    {"name": "watch_remove", "description": "Take a coin (or one side of it) off his watch list.",
+     "input_schema": {"type": "object", "properties": {
+         "coin": {"type": "string"}, "side": {"type": "string", "enum": ["long", "short"]}}, "required": ["coin"]}},
     {"name": "remember", "description": "Keep a short note about the owner for later conversations.",
      "input_schema": {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}},
     {"name": "forget", "description": "Drop a note by its number.",
@@ -334,12 +346,10 @@ class Chat:
         from .analyst import scan    # the analyst imports this module: imported here, not at the top
         own = self.store.get_snapshot("owner_positions")
         notes = [n["text"] for n in self.store.chat_notes()]
-        if not own:
-            return {"connected": False, "notes": notes,
-                    "note": "No wallets connected (SYNTH_OWNER_WALLETS on Railway); only his notes are known."}
         mine = scan(self.agent, now)["my_positions"]
-        return {"connected": True, "read_at": time.strftime("%d %b %H:%M UTC", time.gmtime(own["ts"])),
-                "accounts": {a[:6]: round(w.get("equity") or 0) for a, w in (own.get("wallets") or {}).items()},
+        return {"wallets_connected": bool(own),
+                "wallets_read_at": time.strftime("%d %b %H:%M UTC", time.gmtime(own["ts"])) if own else None,
+                "accounts": {a[:6]: round(w.get("equity") or 0) for a, w in ((own or {}).get("wallets") or {}).items()},
                 "positions": mine, "notes": notes}
 
     def t_latest_read(self, now: float) -> dict:
@@ -348,6 +358,15 @@ class Chat:
                   **{k: b["body"].get(k) for k in ("reason", "sent", "headline", "read", "positions", "views")}}
                  for b in self.store.briefs_since("read", now - 3 * 86400) if not b["body"].get("error")]
         return {"reads": reads[-4:], "record": record(self.store)}
+
+    def t_watch_add(self, now: float, coin: str, side: str | None = None, entry: float | None = None,
+                    size_usd: float | None = None, note: str | None = None) -> dict:
+        coin = coin.upper().lstrip("$")
+        self.store.watch_add(coin, side, entry, size_usd, note, now)
+        return {"watching": [{k: w[k] for k in ("coin", "side", "entry", "size_usd")} for w in self.store.watch_list()]}
+
+    def t_watch_remove(self, now: float, coin: str, side: str | None = None) -> dict:
+        return {"removed": self.store.watch_drop(coin.upper().lstrip("$"), side)}
 
     def t_remember(self, now: float, note: str) -> dict:
         return {"saved": self.store.chat_note_add(note.strip()[:300], now)}
