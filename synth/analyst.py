@@ -25,6 +25,7 @@ from typing import Any
 import anthropic
 
 from . import desk, notify
+from .sources import reflex as reflex_src
 from .chat import EVIDENCE, PRICES, cost_of
 from .hyperliquid import HL
 from .llm import FALLBACK_MODELS
@@ -138,6 +139,17 @@ def _engine(snap: dict, cow: dict, coin: str) -> dict | None:
            "regime": REGIME.get(r.get("regime_1d") or "", None), "heat": r.get("heat_1d")}
     out = {k: v for k, v in out.items() if v is not None}
     return out or None
+
+
+def engine_words(rows: dict) -> dict:
+    """Reflex's scan rows for one coin (`reflex.engine_rows`) in plain words, as the scan carries the engine."""
+    d, h = rows.get("1d") or {}, rows.get("4h") or {}
+    out = {"daily": SIGNAL.get(d.get("signal") or "", None), "4h": SIGNAL.get(h.get("signal") or "", None),
+           "regime": REGIME.get(d.get("regime") or "", None), "regime_4h": REGIME.get(h.get("regime") or "", None),
+           "heat": d.get("heat"), "zscore": round(d["zscore"], 2) if d.get("zscore") is not None else None,
+           "exhaustion": d.get("exhaustion_state") if d.get("exhaustion_state") not in (None, "NEUTRAL") else None,
+           "why_daily": (d.get("signal_reason") or "")[:120] or None, "sector": d.get("sector") or h.get("sector")}
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def _options(cow: dict, coin: str) -> dict | None:
@@ -589,6 +601,7 @@ class Analyst:
             cur = await asyncio.to_thread(scan, self.agent, now)
         if ch is None:
             ch = changes(self.store.get_snapshot("read_scan"), cur)
+        await self.fill_engine(cur)
         rec = record(self.store)
         task = self.task(reason, cur, ch, self.store.latest_brief("read"), rec)
         try:
@@ -607,6 +620,20 @@ class Analyst:
         if send:
             await notify.telegram(self.agent.s.telegram_token, self.agent.s.telegram_chat_id, text)
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged}
+
+    async def fill_engine(self, cur: dict) -> None:
+        """Coins in the scan without a full engine reading (outside the 40 Reflex's positioning feed carries) get
+        theirs from Reflex's scan, only when a read runs."""
+        rc = self.agent.reflex
+        if not rc:
+            return
+        rows = [r for r in cur["direction"] + cur["coins"] if not (r.get("engine") or {}).get("regime")]
+        got = await asyncio.gather(*(reflex_src.engine_rows(rc, r["coin"]) for r in rows), return_exceptions=True)
+        for r, g in zip(rows, got):
+            if isinstance(g, dict):
+                r["engine"] = engine_words(g)
+            elif isinstance(g, Exception):
+                log.warning("engine row for %s failed: %s", r["coin"], g)
 
     def task(self, reason: str, cur: dict, ch: list[dict], last: dict | None, rec: dict) -> str:
         notes = self.store.chat_notes()

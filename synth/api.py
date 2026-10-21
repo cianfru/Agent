@@ -254,15 +254,15 @@ class Question(BaseModel):
 
 
 @app.post("/ask", dependencies=[Depends(auth)])
-def ask(q: Question):
+async def ask(q: Question):
     if not agent.synth:
         raise HTTPException(503, "no LLM configured (set ANTHROPIC_API_KEY)")
     if agent.chat:                          # the same conversation as on Telegram, kept apart as "desk"
-        answer = agent.chat.run("desk", q.question, time.time())
+        answer = await agent.chat.reply("desk", q.question)
         return {"answer": answer, "coins": [], "usage": {"spent_today_usd": round(agent.chat.spent_today(), 2)}}
     snaps = {n: s for n in ("cowboy", "reflex") if (s := agent.store.get_snapshot(n))}
     digest = build_digest(snaps, agent.store.events(time.time() - 7 * 86400, limit=80))
-    answer, usage = agent.synth.ask(q.question, digest)
+    answer, usage = await asyncio.to_thread(agent.synth.ask, q.question, digest)
     return {**answer.model_dump(), "usage": usage}
 
 
