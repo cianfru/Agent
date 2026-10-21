@@ -6,7 +6,7 @@ from synth import analyst, chat, notify, service
 from synth.config import Settings
 from synth.position_traders import PositionTraders
 from synth.store import Store
-from tests.test_chat import FakeClient, response, text_block
+from tests.test_chat import FakeClient, response, text_block, tool_block
 
 TRADERS = ["0x" + c * 40 for c in "abcdef"]
 OWNER = "0x" + "9" * 40
@@ -202,3 +202,55 @@ def test_watch_list_is_followed_like_a_wallet_position(tmp_path, monkeypatch):
     assert [w["coin"] for w in agent.store.watch_list()] == ["SUI", "HYPE"]
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/unwatch sui"}}))
     assert sent[-1] == "Took SUI off the watch list." and [w["coin"] for w in agent.store.watch_list()] == ["HYPE"]
+
+
+class FakeReflex:
+    """Reflex's scan rows: SUI and SPX are scanned, anything else is not (404)."""
+    ROWS = {"SUI": {"1d": {"signal": "TRIM", "regime": "MARKUP", "heat": 82, "zscore": 1.71234, "sector": "L1",
+                           "exhaustion_state": "NEUTRAL", "conditions_detail": ["long"]},
+                    "4h": {"signal": "WAIT", "regime": "REACC"}},
+            "SPX": {"1d": {"signal": "LIGHT_LONG", "regime": "ACCUM", "heat": 30, "signal_reason": "base forming"},
+                    "4h": {"signal": "STRONG_LONG", "regime": "MARKUP"}}}
+
+    def __init__(self):
+        self.paths = []
+
+    async def get(self, path):
+        import httpx
+        self.paths.append(path)
+        coin = path.split("symbol=")[1].split("&")[0]
+        tf = path.split("timeframe=")[1]
+        if coin not in self.ROWS:
+            req = httpx.Request("GET", "http://x" + path)
+            raise httpx.HTTPStatusError("404", request=req, response=httpx.Response(404, request=req))
+        return {"as_of": 1, "row": self.ROWS[coin][tf]}
+
+
+def test_engine_rows_for_any_scanned_coin():
+    from synth.sources import reflex
+    rows = asyncio.run(reflex.engine_rows(FakeReflex(), "spx"))
+    assert rows["1d"] == {"signal": "LIGHT_LONG", "regime": "ACCUM", "heat": 30, "signal_reason": "base forming"}
+    assert asyncio.run(reflex.engine_rows(FakeReflex(), "NOPE")) is None
+    assert analyst.engine_words(rows) == {"daily": "leaning up", "4h": "strong up-setup", "regime": "building a base",
+                                          "regime_4h": "trending up", "heat": 30, "why_daily": "base forming"}
+
+
+def test_chat_reads_the_engine_for_a_coin_outside_the_feed(tmp_path, monkeypatch):
+    agent, _ = make(tmp_path, monkeypatch, [response([tool_block("coin", {"coin": "SPX"})], stop="tool_use"),
+                                            response([text_block("SPX: base forming on the daily.")])])
+    agent.reflex = FakeReflex()
+    assert asyncio.run(agent.chat.reply("1", "what does the engine say on SPX?")) == "SPX: base forming on the daily."
+    result = json.loads(agent.chat.client.calls[1]["messages"][-1]["content"][0]["content"])
+    assert result["engine_now"]["daily"] == "leaning up" and result["engine_now"]["regime"] == "building a base"
+
+
+def test_a_read_fills_the_engine_for_coins_the_feed_leaves_short(tmp_path, monkeypatch):
+    agent, _ = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))])])
+    now = time.time()
+    seed(agent.store, now)
+    agent.reflex = FakeReflex()
+    asyncio.run(agent.analyst.step(now))
+    task = agent.analyst.client.calls[0]["messages"][0]["content"]
+    sui = next(r for r in json.loads(task.split("<scan>\n")[1].split("\n</scan>")[0])["coins"] if r["coin"] == "SUI")
+    assert sui["engine"]["regime"] == "trending up" and sui["engine"]["heat"] == 82 and sui["engine"]["zscore"] == 1.71
+    assert any("symbol=BTC" in p for p in agent.reflex.paths)            # BTC had no reading either: asked, 404, fine

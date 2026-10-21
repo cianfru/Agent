@@ -12,6 +12,8 @@ Endpoints read each poll (all unrate-limited GETs; ETag/304 keeps egress low):
   /api/notifications/market-setups              OI-vs-price divergence setups
   /api/notifications/exhaustion-opportunities   exhaustion floors / climax reversals
   /api/market-pulse?timeframe=1d                consensus, BTC regime, funding mood, ETF flows
+On demand (a question about a coin, or a read's coins without a full engine reading):
+  /api/scan/row?symbol=X&timeframe=1d|4h        one coin's full engine row, for any coin Reflex scans
 
 Note: every request marks Reflex "active" (faster synthesis = more Railway cost), so
 keep the poll interval at a few minutes.
@@ -29,6 +31,11 @@ import httpx
 log = logging.getLogger(__name__)
 
 TOP_COINS = 40  # coins kept in the snapshot, by number of smart traders positioned
+
+
+# The parts of a scan row a read or an answer uses (the full row also carries the conditions, setups and positioning).
+ROW_KEYS = ("price", "regime", "signal", "zscore", "heat", "heat_phase", "exhaustion_state", "divergence",
+            "signal_reason", "conditions_met", "conditions_total", "sector")
 
 
 class ReflexAuthError(RuntimeError):
@@ -125,6 +132,22 @@ def _row(r: dict) -> dict:
         "convergence": r.get("convergence"),
     }
     return {k: v for k, v in out.items() if v is not None}
+
+
+async def engine_rows(rc: ReflexClient, coin: str) -> dict | None:
+    """One coin's engine reading on the daily and 4-hour timeframes, from Reflex's scan: any coin it scans, not only
+    the 40 the positioning feed carries in full. None when Reflex does not scan the coin."""
+    out = {}
+    for tf in ("1d", "4h"):
+        try:
+            body = await rc.get(f"/api/scan/row?symbol={coin.upper()}&timeframe={tf}")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                continue
+            raise
+        row = (body or {}).get("row") or {}
+        out[tf] = {k: row[k] for k in ROW_KEYS if row.get(k) not in (None, "")}
+    return out or None
 
 
 async def fetch(rc: ReflexClient) -> dict:

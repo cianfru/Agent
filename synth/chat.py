@@ -85,7 +85,8 @@ TOOLS = [
      "big money and tracked traders' share long, the market cycle (share of coins in an uptrend, run length), BTC, "
      "BTC and ETH direction by each group, the largest coins with how the three groups lean, alerts in 24h, and the "
      "latest market read.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "coin", "description": "Everything on one coin: price, Reflex engine signals and regime, profitable "
+    {"name": "coin", "description": "Everything on one coin: price, the engine's reading now on the daily and "
+     "4-hour charts (any coin Reflex scans), profitable "
      "traders long/short, tracked traders holding it, big money owners, Derive options read, its open winners, what "
      "tracked traders added in 7 days, and recent alerts on it.",
      "input_schema": {"type": "object", "properties": {"coin": {"type": "string", "description": "Ticker, e.g. BTC, HYPE, ENA"}},
@@ -161,9 +162,11 @@ class Chat:
         self.effort = effort
         self.daily_usd = daily_usd
         self.client = client or anthropic.Anthropic()
+        self.loop: asyncio.AbstractEventLoop | None = None   # the service's loop, for Reflex reads from a tool
 
     # ---------------------------------------------------------------- talking --
     async def reply(self, chat_id: str, text: str, now: float | None = None) -> str:
+        self.loop = asyncio.get_running_loop()
         return await asyncio.to_thread(self.run, chat_id, text, now or time.time())
 
     def spent_today(self, now: float | None = None) -> float:
@@ -259,7 +262,7 @@ class Chat:
         alerts = [b["body"].get("text") or f"{b['body'].get('coin')} {b['body'].get('side')}"
                   for kind in ("pt_build", "pt_alert") for b in self.store.briefs_since(kind, week_ago)
                   if b["body"].get("coin") == coin]
-        return {"coin": coin, "sources": ctx,
+        return {"coin": coin, "engine_now": self._engine_now(coin), "sources": ctx,
                 "profitable_traders": {"long_n": pos[0], "long_usd": pos[1], "short_n": pos[2], "short_usd": pos[3],
                                        "price": pos[4]} if pos else None,
                 "tracked_traders_holding": sorted(holders, key=lambda x: -(x["value"] or 0))[:12],
@@ -267,6 +270,19 @@ class Chat:
                 "open_winners": [w for w in pt.open_winners(now, limit=500) if w["coin"] == coin][:8],
                 "tracked_added_7d": [r for r in pt.adding(168, now) if r["coin"] == coin],
                 "alerts_7d": alerts[-8:]}
+
+    def _engine_now(self, coin: str) -> dict | None:
+        """The coin's engine reading from Reflex's scan, asked for now (any coin Reflex scans); None without Reflex."""
+        from .analyst import engine_words
+        from .sources.reflex import engine_rows
+        if not self.agent.reflex or not self.loop:
+            return None
+        try:
+            rows = asyncio.run_coroutine_threadsafe(engine_rows(self.agent.reflex, coin), self.loop).result(timeout=20)
+        except Exception as e:  # noqa: BLE001 - the answer carries on with the stored data
+            log.warning("engine row for %s failed: %s", coin, e)
+            return None
+        return engine_words(rows) if rows else {"note": "Reflex does not scan this coin."}
 
     def t_tracked_traders(self, now: float, tier: str = "all", coin: str | None = None, limit: int = 10) -> list[dict]:
         out = []
