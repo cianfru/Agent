@@ -15,6 +15,8 @@ from . import brief as brief_mod
 from . import chart, detectors, flow, notify, orbio, persona, post, stories
 from .config import Settings
 from .llm import PersonaWriter, Synthesizer
+from .hyperliquid import HL
+from .market import MarketIndex
 from .sources import block0, cowboy, reflex
 from .store import Store
 from .position_traders import PositionTraders
@@ -50,6 +52,7 @@ class Agent:
         )
         self.tracker = GroupTracker(settings, store, self.reflex)
         self.positions = PositionTraders(settings, store)
+        self.market = MarketIndex(store)    # the market's move beside every pick's (synth/market.py)
         self.last_cycle: dict[str, Any] = {}
 
     # ------------------------------------------------------------ collect --
@@ -126,6 +129,13 @@ class Agent:
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
         scored = self.score_picks(snaps)
+        try:
+            if self.market.ready:
+                async with httpx.AsyncClient(timeout=20) as http:     # used once a day, for the basket's coins
+                    await self.market.step(self.tracker.last_mids, started, HL(http))
+                self.market.fill()
+        except Exception as e:  # noqa: BLE001 - the market move waits for the next poll
+            log.warning("market index step failed: %s", e)
 
         self.last_cycle = {
             "ts": started,

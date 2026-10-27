@@ -32,3 +32,17 @@ views are judged, so a good week cannot be mistaken for an edge and a bad week c
   evidence guide it reads (synth/chat.py `EVIDENCE`) says which data has tested well and which has not.
 - Market drift is not removed: in a strong trend, views with the trend will look right more often. The share of long
   and short views is reported with the record.
+
+## Amendment 1 (27 October 2026): the market beside every view
+
+After the first week (8 views logged, the 6 scored at 3 days all longs, 1 right) the owner asked whether the record
+shows anything yet. Two changes to how results are shown; the verdict rule above is unchanged.
+
+- Every pick, Outrider's views included, is also scored against the market (`synth/market.py`): an equal-weight basket
+  of the 50 most traded Hyperliquid perps, chain-linked hourly (rebuilt from hourly candles back to the first pick,
+  9 October). A view beats the market when its move its way is better than the basket's move its way over the same
+  days. Over the 14 days to 27 October the basket fell 8% (BTC 3%), so shorts were right almost whatever was picked.
+  The journal and `/record` show "beat the market" beside "right", and longs and shorts apart.
+- The record shows how the reads went over 7 days (ran, sent, held back, failed, sent with no view, views logged), so
+  a thin record can be told from a broken one.
+- Changing the verdict to the market-relative result would be a new dated rule, decided before more results come in.

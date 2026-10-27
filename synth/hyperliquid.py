@@ -59,6 +59,13 @@ class HL:
                 pass
         return out
 
+    async def top_coins(self, n: int) -> list[str]:
+        """The n most traded perps by 24-hour volume, UPPER-case (delisted ones left out)."""
+        meta, ctxs = await self._post({"type": "metaAndAssetCtxs"})
+        rows = [(float(c.get("dayNtlVlm") or 0), u["name"].upper())
+                for u, c in zip(meta.get("universe") or [], ctxs or []) if not u.get("isDelisted")]
+        return [name for _, name in sorted(rows, reverse=True)[:n]]
+
     def name(self, coin: str) -> str:
         return self._names.get(coin.upper(), coin)
 
