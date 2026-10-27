@@ -44,7 +44,7 @@ Big money: accounts of $500K+ in profit all-time, one vote per owner.
 Scored after 14 and 30 days: the move since the alert, kept as a record.
 
 /read  my read of the market now
-/record  how my past views did
+/record  how my views and every other kind of pick did
 /watch  your watch list; /watch ENA long 0.09 5k adds one (side, entry and size optional)
 /unwatch ENA  takes it off
 /now  live pulse (1h, 6h, 24h)
@@ -58,7 +58,7 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 COMMANDS = [{"command": "read", "description": "Outrider's read of the market now"},
             {"command": "watch", "description": "Your watch list (/watch ENA long 0.09 5k adds one)"},
             {"command": "unwatch", "description": "Take a coin off the watch list (/unwatch ENA)"},
-            {"command": "record", "description": "How Outrider's past views did"},
+            {"command": "record", "description": "How Outrider's views and the other picks did"},
             {"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
@@ -170,14 +170,8 @@ async def handle(agent, update: dict) -> None:
         await notify.telegram(s.telegram_token, chat, text)
         return
     if cmd == ["/record"]:
-        from .analyst import record, record_text
-        rec = record(store)
-        lines = [record_text(rec) or f"{rec['logged']} views logged; the record shows once 5 have a 3-day result."]
-        for h in ("1d", "3d", "7d"):
-            a = rec[h]["all"]
-            if a["n"]:
-                lines.append(f"After {h}: {a['right']} of {a['n']} right, median {a['median_pct']:+.1f}% their way")
-        await notify.telegram(s.telegram_token, chat, "\n".join(lines))
+        from . import journal
+        await notify.telegram(s.telegram_token, chat, journal.text(journal.record(store)))
         return
     if cmd == ["/draft"]:
         try:

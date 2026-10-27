@@ -282,8 +282,15 @@ def list_reads(days: float = 3):
 
 
 @app.get("/picks", dependencies=[Depends(auth)])
-def picks(limit: int = 100):
-    return {"picks": agent.store.picks(limit)}
+def picks(limit: int = 100, origin: str | None = None):
+    return {"picks": agent.store.picks(min(limit, 2000), origin or None)}
+
+
+@app.get("/record", dependencies=[Depends(auth)])
+def pick_record():
+    """How each kind of pick did over every pick logged: per horizon, share right and median, longs and shorts apart."""
+    from . import journal
+    return {"kinds": journal.record(agent.store)}
 
 
 @app.get("/posts", dependencies=[Depends(auth)])

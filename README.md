@@ -260,7 +260,9 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 - **Research** (`GET /research`): the market cycle from Reflex's market history (fetched once a day: share of coins in
   an uptrend, the current risk-on or risk-off run against past runs), and every study as a chart with its finding and
   verdict (S1 to S4, where the money came from), plus the forward record.
-- **Journal:** brief, picks and desk posts.
+- **Journal:** brief, picks and desk posts. Picks opens on the record of every pick logged, by kind (Outrider's views,
+  tracked traders' new positions, groups, alerts, posts): share right and median move at 1, 3, 7, 14 and 30 days, longs
+  and shorts apart; then the picks themselves, filtered by kind. `/record` on Telegram sends the same, one block a kind.
 - **Ask:** a question answered from current data (uses the model).
 
 ## API
@@ -277,7 +279,8 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `POST /ask` `{"question": "..."}` | Question answered from current data and the last 7 days of events |
 | `POST /read?send=false` | Outrider's read now (send=true pushes it to Telegram) |
 | `GET /reads?days=3` | Recent reads, sent or held back, and the record of their views |
-| `GET /picks` | Pick journal with 1d/3d/7d returns |
+| `GET /picks?origin=read` | Pick journal with 1d/3d/7d returns (origin: read, position, group, alert, post) |
+| `GET /record` | Every pick logged, by kind: share right and median move per horizon, longs and shorts apart |
 | `GET /flow?hours=1` | What profitable traders opened and closed in the window, and the share long over time |
 | `GET /flow.png` | The pulse picture (as sent to Telegram) |
 | `GET /desk` | The desk's home: readings, BTC and ETH direction, crowd against price, money moving, three lenses, alerts |
