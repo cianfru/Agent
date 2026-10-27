@@ -261,8 +261,13 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
   an uptrend, the current risk-on or risk-off run against past runs), and every study as a chart with its finding and
   verdict (S1 to S4, where the money came from), plus the forward record.
 - **Journal:** brief, picks and desk posts. Picks opens on the record of every pick logged, by kind (Outrider's views,
-  tracked traders' new positions, groups, alerts, posts): share right and median move at 1, 3, 7, 14 and 30 days, longs
-  and shorts apart; then the picks themselves, filtered by kind. `/record` on Telegram sends the same, one block a kind.
+  tracked traders' conviction bets and their other new positions, groups, alerts, posts): share right and median move
+  at 1, 3, 7, 14 and 30 days, and under each the same against the market, longs and shorts apart; then how Outrider's
+  reads went over 7 days (ran, sent, held back, failed, with no view); then the picks, filtered by kind. `/record` on
+  Telegram sends the same.
+- **The market** (`synth/market.py`): an equal-weight basket of the 50 most traded Hyperliquid perps, one reading an
+  hour, rebuilt once from hourly candles back to the first pick. A pick beats the market when its move its way is
+  better than the basket's over the same days (`mkt_1d` ... `mkt_30d` on each pick).
 - **Ask:** a question answered from current data (uses the model).
 
 ## API

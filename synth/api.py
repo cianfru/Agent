@@ -49,6 +49,8 @@ async def _loop(agent: Agent) -> None:
             await _maybe_reflex_history(agent)
             if agent.positions.enabled and agent.positions.discover_due():
                 asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
+            if agent.market.due(time.time()):
+                asyncio.create_task(_rebuild_market(agent))   # once: the market's hours back to the first pick
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
@@ -75,6 +77,17 @@ async def _maybe_reflex_history(agent: Agent) -> None:
         log.warning("reflex market history failed: %s", e)
         return
     agent.store.put_snapshot("reflex_history", {**desk.compact_history(body), "fetched": time.time()})
+
+
+async def _rebuild_market(agent: Agent) -> None:
+    from .hyperliquid import HL
+    hl = HL()
+    try:
+        added = await agent.market.ensure(hl)
+        if added:
+            log.info("market index rebuilt: %d hours", added)
+    finally:
+        await hl.aclose()
 
 
 async def _discover(agent: Agent) -> None:
@@ -290,7 +303,7 @@ def picks(limit: int = 100, origin: str | None = None):
 def pick_record():
     """How each kind of pick did over every pick logged: per horizon, share right and median, longs and shorts apart."""
     from . import journal
-    return {"kinds": journal.record(agent.store)}
+    return {"kinds": journal.record(agent.store), "reads": journal.reads(agent.store)}
 
 
 @app.get("/posts", dependencies=[Depends(auth)])

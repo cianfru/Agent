@@ -235,9 +235,10 @@
     </div>
     <div id="j-picks" style="display:none">
       <div class="panel scroll" style="margin-bottom:12px"><table id="rectable"><thead><tr>
-        <th>Every pick logged, by kind</th><th>Logged</th><th>1d</th><th>3d</th><th>7d</th><th>14d</th><th>30d</th><th>Longs right</th><th>Shorts right</th>
+        <th style="min-width:210px">Every pick logged, by kind</th><th>Logged</th><th>1d</th><th>3d</th><th>7d</th><th>14d</th><th>30d</th><th>Longs right</th><th>Shorts right</th>
       </tr></thead><tbody></tbody></table>
-      <div class="muted" style="margin-top:8px">Right: the price moved the pick's way by then (share, count, median move its way). Longs and shorts at the study's horizon (or the longest scored so far): when the market falls, shorts look right whatever the picking.</div></div>
+      <div class="muted" style="margin-top:8px">Right: the price moved the pick's way by then (share, count, median move its way). Below it, against the market: the pick beat the market when its move its way was better than the market's (the 50 most traded Hyperliquid coins, equal-weight) over the same days, so a market that falls everywhere cannot make shorts look smart. Longs and shorts at the study's horizon (or the longest scored so far).</div>
+      <div id="readsline" style="margin-top:8px"></div></div>
       <div class="seg" id="pickfrom" style="margin-bottom:10px"><button data-o="" class="on">All</button><button data-o="read">Outrider</button><button data-o="position">Tracked traders</button><button data-o="group">Groups</button><button data-o="alert">Alerts</button></div>
       <div class="panel scroll"><table id="picktable"><thead><tr>
         <th>#</th><th>When</th><th>From</th><th>Coin</th><th>Side</th><th>Entry</th><th>1d</th><th>3d</th><th>7d</th><th>Why</th>
@@ -776,9 +777,15 @@ document.querySelectorAll("#pickfrom button").forEach((b) => b.onclick = () => {
   document.querySelectorAll("#pickfrom button").forEach((x) => x.classList.toggle("on", x === b));
   pickFrom = b.dataset.o; loadPicks().catch((e) => console.warn(e)); });
 async function loadPicks() {
-  const [{ kinds }, { picks }] = await Promise.all([api("/record"), api("/picks?limit=500" + (pickFrom ? "&origin=" + pickFrom : ""))]);
+  const [{ kinds, reads }, { picks }] = await Promise.all([api("/record"), api("/picks?limit=500" + (pickFrom ? "&origin=" + pickFrom : ""))]);
+  const one = (s) => `<span class="${s.right_pct >= 50 ? "long" : "short"}">${s.right_pct}%</span> <span class="muted">${s.right}/${s.n} · ${pct(s.median_pct)}</span>`;
   const cell = (s) => !s || !s.n ? '<span class="muted">-</span>'
-    : `<span class="${s.right_pct >= 50 ? "long" : "short"}">${s.right_pct}%</span> <span class="muted">${s.right}/${s.n} · ${pct(s.median_pct)}</span>`;
+    : one(s) + (s.vs_market && s.vs_market.n ? `<br><span class="muted">vs market</span> ${one(s.vs_market)}` : "");
+  const rd = reads || {};
+  $("#readsline").innerHTML = !rd.run ? '<span class="muted">No Outrider reads in the last 7 days.</span>'
+    : `<b>Outrider's reads, 7 days:</b> ${rd.run} ran · ${rd.sent} sent · ${rd.held_back} held back · ` +
+      `<span class="${rd.failed ? "short" : ""}">${rd.failed} failed</span> · ${rd.sent_without_view} sent with no view · ${rd.views_logged} views logged` +
+      (rd.last_error ? `<br><span class="muted">Last failure: ${esc(rd.last_error)}</span>` : "");
   $("#rectable tbody").innerHTML = kinds.length ? kinds.map((k) => `<tr>
     <td><b>${esc(k.label)}</b>${k.study ? ` <span class="muted">${k.study}, judged at ${k.main}</span>` : ""}</td>
     <td class="n">${k.logged} <span class="muted">since ${esc(k.since)}</span></td>

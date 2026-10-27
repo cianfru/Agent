@@ -161,8 +161,10 @@ def test_record_counts_views_their_way(tmp_path, monkeypatch):
         pid = agent.store.add_pick("read", "SUI", "short", 2 if i < 3 else 1, 1.8, "why", {})
         agent.store.set_pick_return(pid, "3d", ret)
     rec = analyst.record(agent.store)
-    assert rec["3d"]["all"] == {"n": 6, "right": 4, "median_pct": 2.0} and rec["3d"]["firm_or_strong"]["n"] == 3
-    assert analyst.record_text(rec) == "Record: 4 of 6 views right after 3 days (67%), median +2.0% their way."
+    a = rec["3d"]["all"]
+    assert (a["n"], a["right"], a["median_pct"], a["vs_market"]["n"]) == (6, 4, 1.5, 0)   # no market move yet
+    assert rec["3d"]["firm_or_strong"]["n"] == 3 and (rec["shorts"], rec["3d"]["short"]["right"]) == (6, 4)
+    assert analyst.record_text(rec) == "Record: 4 of 6 views right after 3 days (67%), median +1.5% their way."
 
 
 def test_chat_sees_his_positions_and_the_latest_read(tmp_path, monkeypatch):

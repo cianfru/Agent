@@ -171,7 +171,7 @@ async def handle(agent, update: dict) -> None:
         return
     if cmd == ["/record"]:
         from . import journal
-        await notify.telegram(s.telegram_token, chat, journal.text(journal.record(store)))
+        await notify.telegram(s.telegram_token, chat, journal.text(journal.record(store), journal.reads(store)))
         return
     if cmd == ["/draft"]:
         try:

@@ -185,6 +185,11 @@ CREATE TABLE IF NOT EXISTS briefs (
     body TEXT NOT NULL,
     usage TEXT
 );
+CREATE TABLE IF NOT EXISTS market_index (
+    ts REAL PRIMARY KEY,
+    btc REAL,
+    basket REAL NOT NULL
+);
 """
 
 
@@ -199,6 +204,9 @@ class Store:
             for col in ("ret_14d", "ret_30d"):   # added with the position traders' 14/30-day scoring
                 if col not in cols:
                     self._db.execute(f"ALTER TABLE picks ADD COLUMN {col} REAL")
+            for h in ("1d", "3d", "7d", "14d", "30d"):   # the market's move over each pick's days (synth/market.py)
+                if f"mkt_{h}" not in cols:
+                    self._db.execute(f"ALTER TABLE picks ADD COLUMN mkt_{h} REAL")
             if "size" not in {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}:
                 self._db.execute("ALTER TABLE pt_positions ADD COLUMN size REAL")
             pt_cols = {r[1] for r in self._db.execute("PRAGMA table_info(pt_positions)")}
@@ -316,7 +324,7 @@ class Store:
 
     def picks(self, limit: int = 100, origin: str | None = None, since: float = 0) -> list[dict]:
         q = ("SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d, "
-             "ret_14d, ret_30d "
+             "ret_14d, ret_30d, mkt_1d, mkt_3d, mkt_7d, mkt_14d, mkt_30d "
              "FROM picks WHERE ts>=?")
         args: list[Any] = [since]
         if origin:
@@ -325,6 +333,40 @@ class Store:
         q += " ORDER BY ts DESC LIMIT ?"
         args.append(limit)
         return [dict(r) for r in self._db.execute(q, args).fetchall()]
+
+    def first_pick_ts(self) -> float | None:
+        return self._db.execute("SELECT MIN(ts) FROM picks").fetchone()[0]
+
+    def picks_missing_market(self) -> list[dict]:
+        """Picks with a return at some horizon and no market move beside it yet."""
+        cond = " OR ".join(f"(ret_{h} IS NOT NULL AND mkt_{h} IS NULL)" for h in ("1d", "3d", "7d", "14d", "30d"))
+        return [dict(r) for r in self._db.execute(f"SELECT * FROM picks WHERE {cond}").fetchall()]
+
+    def set_pick_market(self, pick_id: int, horizon: str, move: float) -> None:
+        assert horizon in ("1d", "3d", "7d", "14d", "30d")
+        with self._lock:
+            self._db.execute(f"UPDATE picks SET mkt_{horizon}=? WHERE id=?", (move, pick_id))
+            self._db.commit()
+
+    # the market index (synth/market.py) ------------------------------------------
+    def market_add(self, rows: list[tuple[float, float | None, float]]) -> None:
+        with self._lock:
+            self._db.executemany("INSERT OR REPLACE INTO market_index(ts, btc, basket) VALUES(?,?,?)", rows)
+            self._db.commit()
+
+    def market_first(self) -> dict | None:
+        r = self._db.execute("SELECT * FROM market_index ORDER BY ts LIMIT 1").fetchone()
+        return dict(r) if r else None
+
+    def market_last(self) -> dict | None:
+        r = self._db.execute("SELECT * FROM market_index ORDER BY ts DESC LIMIT 1").fetchone()
+        return dict(r) if r else None
+
+    def market_near(self, ts: float, within: float) -> dict | None:
+        before = self._db.execute("SELECT * FROM market_index WHERE ts<=? ORDER BY ts DESC LIMIT 1", (ts,)).fetchone()
+        after = self._db.execute("SELECT * FROM market_index WHERE ts>=? ORDER BY ts LIMIT 1", (ts,)).fetchone()
+        best = min((dict(r) for r in (before, after) if r), key=lambda r: abs(r["ts"] - ts), default=None)
+        return best if best and abs(best["ts"] - ts) <= within else None
 
     def set_pick_conviction(self, pick_id: int, conviction: int) -> None:
         with self._lock:

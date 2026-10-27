@@ -24,7 +24,7 @@ from typing import Any
 
 import anthropic
 
-from . import desk, notify
+from . import desk, journal, notify
 from .sources import reflex as reflex_src
 from .chat import EVIDENCE, PRICES, cost_of
 from .hyperliquid import HL
@@ -470,16 +470,16 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
 
 
 def record(store) -> dict:
-    """How the read's views did: share right and the median move their way, by horizon (all, and firm or strong)."""
+    """How the read's views did, scored as the journal scores them (synth/journal.py): per horizon, right and beat the
+    market, for all views, the firm or strong ones, and longs and shorts apart. The model reads it before each read."""
     picks = store.picks(limit=100_000, origin="read")
-    out: dict[str, Any] = {"logged": len(picks)}
+    out: dict[str, Any] = {"logged": len(picks), "longs": sum(p["direction"] == "long" for p in picks),
+                           "shorts": sum(p["direction"] == "short" for p in picks)}
     for h in ("1d", "3d", "7d"):
-        row = {}
-        for name, sel in (("all", picks), ("firm_or_strong", [p for p in picks if (p.get("conviction") or 0) >= 2])):
-            v = sorted(p[f"ret_{h}"] for p in sel if p.get(f"ret_{h}") is not None)
-            row[name] = {"n": len(v), "right": sum(x > 0 for x in v),
-                         "median_pct": round(100 * v[len(v) // 2], 2) if v else None}
-        out[h] = row
+        out[h] = {"all": journal.block(picks, h),
+                  "firm_or_strong": journal.block([p for p in picks if (p.get("conviction") or 0) >= 2], h),
+                  "long": journal.block([p for p in picks if p["direction"] == "long"], h),
+                  "short": journal.block([p for p in picks if p["direction"] == "short"], h)}
     return out
 
 
@@ -487,11 +487,14 @@ def record_text(rec: dict) -> str | None:
     a = rec["3d"]["all"]
     if a["n"] < 5:
         return None
-    s = rec["3d"]["firm_or_strong"]
-    line = (f"Record: {a['right']} of {a['n']} views right after 3 days ({round(100 * a['right'] / a['n'])}%), "
+    line = (f"Record: {a['right']} of {a['n']} views right after 3 days ({a['right_pct']}%), "
             f"median {a['median_pct']:+.1f}% their way")
+    v = a["vs_market"]
+    if v["n"]:
+        line += f"; beat the market {v['right']} of {v['n']}"
+    s = rec["3d"]["firm_or_strong"]
     if s["n"] >= 5:
-        line += f"; firm or strong {s['right']} of {s['n']}"
+        line += f"; firm or strong {s['right']} of {s['n']} right"
     return line + "."
 
 
