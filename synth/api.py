@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from . import board, bot, config, desk, notify, study
+from . import board, bot, config, desk, notify, study, turns
 from . import groups as G
 from .service import Agent, build_digest, coin_context, make_agent
 
@@ -69,14 +69,15 @@ async def _maybe_reflex_history(agent: Agent) -> None:
     if not agent.reflex:
         return
     snap = agent.store.get_snapshot("reflex_history")
-    if snap and time.time() - (snap.get("fetched") or 0) < 20 * 3600:
+    if snap and "turns" in snap and time.time() - (snap.get("fetched") or 0) < 20 * 3600:
         return
     try:
         body = await agent.reflex.get("/api/market-history")
     except Exception as e:  # noqa: BLE001 - context only; tried again next poll
         log.warning("reflex market history failed: %s", e)
         return
-    agent.store.put_snapshot("reflex_history", {**desk.compact_history(body), "fetched": time.time()})
+    agent.store.put_snapshot("reflex_history", {**desk.compact_history(body), "turns": turns.turns(body),
+                                                "fetched": time.time()})
 
 
 async def _rebuild_market(agent: Agent) -> None:

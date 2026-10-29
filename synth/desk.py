@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import flow
+from . import flow, turns
 from .position_traders import MAJORS
 
 RESEARCH = Path(__file__).parent / "data" / "research.json"
@@ -195,6 +195,8 @@ def home(agent, now: float | None = None, board: dict | None = None) -> dict:
                         "riding": sum(1 for t in board["traders"] if t["tier"] == "riding")},
             "cycle": {**(hist.get("cycle") or {}), "uptrend": (hist.get("rows") or [[None, None]])[-1][1],
                       "percentile": (hist.get("today") or {}).get("percentile")} if hist else None,
+            # Where the market stands in its cycle, as Reflex's Chart view reads it (synth/turns.py)
+            "turns": turns.with_crowd(hist.get("turns"), crowd_now[1] if crowd_now else None),
             "alerts_24h": sum(1 for a in alerts if a["ts"] >= now - DAY_S),
             "btc": {"price": crowd_now[2] if crowd_now else None,
                     "change_24h": round(100 * (crowd_now[2] / day_ago[2] - 1), 2)

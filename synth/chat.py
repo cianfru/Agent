@@ -47,6 +47,14 @@ does not lead the next days. A crowd turning short after a rally is profit-takin
 - The engine (trend regime and setup per coin): the backdrop, whether a coin is trending, stretched or washed out.
 - Derive options (BTC, ETH, HYPE and a few more): whether the best option wallets lean long or short, and whether \
 puts cost more than calls. ETH's options are mostly call-selling vaults: read its put/call as structure.
+- The market cycle (Reflex's market history, 13 broad uptrends and 14 downturns since 2021; in sample, rules fixed \
+before results): a broad uptrend is 55%+ of coins in uptrend. Its share peaked early (median day 18) and rolled over \
+late (median day 61): prices of the typical coin turned before the share did, so once it has rolled over most of the \
+fall has usually happened. The median z turning down came about a month before the roll-over in all 10 runs that had \
+both: it warns that coins are leaving their uptrends, not what prices do next. Greed in the last month was harmless \
+early in a broad uptrend; two-plus months in, it came before the typical coin's weakest months (3 runs). In a \
+downturn, extreme fear in the first month came before more falls (5 of 5); two to three months in, before the best \
+months (5 downturns). Few cases: weigh it as the backdrop, never a reason alone.
 - Your own record (S5): how often your views were right after 1, 3 and 7 days. While it is thin, say so."""
 
 SYSTEM = """You are Outrider, the owner's private market agent. You watch crypto markets for him and answer his \
@@ -82,7 +90,9 @@ Notes you hold are listed below.
 
 TOOLS = [
     {"name": "market_overview", "description": "The market now: profitable traders' share long and its 24h change, "
-     "big money and tracked traders' share long, the market cycle (share of coins in an uptrend, run length), BTC, "
+     "big money and tracked traders' share long, the market cycle (share of coins in an uptrend, run length; and as "
+     "Reflex's chart reads it: broad uptrend or downturn, its day against past ones, its high or low, the median z, "
+     "and the marks: greed or fear, traders long or short, median z turned, rolled over or turned up), BTC, "
      "BTC and ETH direction by each group, the largest coins with how the three groups lean, alerts in 24h, and the "
      "latest market read.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "coin", "description": "Everything on one coin: price, the engine's reading now on the daily and "

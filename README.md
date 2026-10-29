@@ -133,16 +133,21 @@ in Telegram (holdings by coin and what they added this week).
 
 With a model key, Outrider reads the market instead of posting the same numbers on a clock (`synth/analyst.py`):
 
-- **Scan, every poll (code):** BTC and ETH as direction; the market's mood; the 14 coins where most is happening, each
+- **Scan, every poll (code):** BTC and ETH as direction; the market's mood; where the market stands in its cycle as
+  Reflex's market history Chart view reads it (`synth/turns.py`, from the market history fetched once a day, no extra
+  Reflex reads): a broad uptrend (55%+ of coins in uptrend) or a downturn, its day against past ones, its high or low,
+  the median z and its 14-day change, and the marks (greed or extreme fear in the last 30 days, the crowd 86%+ long or
+  30% or less, the median z turned, rolled over or turned up), with the last run's turns; the 14 coins where most is happening, each
   with what the crowd of profitable traders, the tracked traders (and what they added or cut in 24 hours), big money
   by owner and the open winners hold, the engine's reading and Derive's options; and your own positions with what is
   against each.
 - **When it reads:** the morning read after `SYNTH_BRIEF_HOUR_UTC` (always sent); when enough changed since the last
-  read (groups flipping, several tracked traders piling into one coin, BTC moving, new alerts), at most every 2 hours
+  read (groups flipping, several tracked traders piling into one coin, BTC moving, new alerts, the cycle flipping or one
+  of its marks lighting), at most every 2 hours
   and not during `SYNTH_READ_QUIET_UTC` (default 22-6); and within 30 minutes when a group that has tested well turns
   against one of your positions (tracked traders, big money, open winners; the crowd never counts here, study S2).
 - **What it writes:** a headline, at most three sentences on what it sees and how much it is worth (the studies'
-  evidence guide), one line per position or watched coin that changed or has a group against it (every one in the
+  evidence guide, which includes what Reflex's market-cycle studies found and how little it rests on), one line per position or watched coin that changed or has a group against it (every one in the
   morning read): hold, trim, close or watch, with the reason; and up to two views. One call with no tools (the scan
   holds what a read needs), and it holds a read back when nothing is worth your attention. The record rides on the
   morning read.

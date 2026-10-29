@@ -48,9 +48,11 @@ SIGNAL = {"STRONG_LONG": "strong up-setup", "LIGHT_LONG": "leaning up", "ACCUMUL
 REGIME = {"MARKUP": "trending up", "BLOWOFF": "overheated", "REACC": "cooling off", "ACCUM": "building a base",
           "MARKDOWN": "trending down", "CAP": "washed out", "FLAT": "no regime yet"}
 STRENGTH = {1: "light", 2: "firm", 3: "strong"}
+TURN_MARKS = {"median_z_turned_down", "rolled_over", "median_z_turned_up", "turned_up"}   # the cycle's own turns
 
 SYSTEM = """You are Outrider, the owner's private market agent. Through the day the code scans the market and hands \
-you the scan: BTC and ETH as direction, the market's mood, the coins where something is happening (what each group of \
+you the scan: BTC and ETH as direction, the market's mood and where it stands in its cycle (market.turns: a broad \
+uptrend or a downturn, its day, its marks), the coins where something is happening (what each group of \
 traders holds and how it changed, the engine's reading, Derive's options), his positions (from his wallets and from \
 his watch list, positions he follows by hand; a watch-list coin with no side is a coin he wants followed) with what \
 each group does on those coins, and what changed since your last read. Think like a sharp desk analyst who knows this data cold: find \
@@ -304,6 +306,7 @@ def scan(agent, now: float | None = None) -> dict:
             "btc": {**(k.get("btc") or {}), "price": _sig((k.get("btc") or {}).get("price"))},
             "cycle": {x: cy.get(x) for x in ("type", "age_days", "uptrend", "median_days", "reached_age",
                                              "lasted_30_more")} if cy else None,
+            "turns": k.get("turns"),
             "reflex": snap.get("market"), "cowboy": cow.get("market"),
         },
         "direction": direction,
@@ -432,6 +435,13 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
         mv = _pct(r.get("price"), p.get("price"))
         if mv is not None and abs(mv) >= 10:
             add(1, f"{r['coin']} {mv:+.0f}% since the last read")
+    t0, t1 = pm.get("turns") or {}, cm.get("turns") or {}
+    if t0.get("state") and t1.get("state") and t0["state"] != t1["state"]:
+        add(3, f"the market moved from a {t0['state']} into a {t1['state']}")
+    elif t0.get("state") == t1.get("state"):
+        for mark, on in (t1.get("marks") or {}).items():
+            if on and not (t0.get("marks") or {}).get(mark):
+                add(3 if mark in TURN_MARKS else 2, f"{t1['state']}: {mark.replace('_', ' ')} now")
     seen = set(prev.get("alerts_24h") or [])
     new_alerts = [a for a in cur.get("alerts_24h") or [] if a not in seen]
     if new_alerts:
