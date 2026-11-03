@@ -3,11 +3,14 @@
 - Each poll, one read of every perp's context (price, open interest, funding, 24-hour volume); once an hour a compact
   copy goes into the series (source "hl_ctx", kept 8 days), so open interest and funding can be compared with a day
   and a week ago. Open interest is compared in coins, so a price move does not read as new positions.
-- On demand (a read, a question about a coin): the coin's daily candles for its 200-day simple average and its price
-  action (the high of the last 120 days, where the leg up to it started, the low since, the recent swing highs and
-  lows), and its weekly candles for the bull market support band (the 20-week simple and 21-week exponential averages
-  of weekly closes, the forming bar included as on TradingView). Kept a day per coin; where the price sits against
-  them (how much of the last leg it has retraced, which levels are within 3%) is worked out with the price at hand.
+- On demand (a read, a question about a coin) and daily for the screen: one request for the coin's last 1,000 daily
+  candles gives its 200-day simple average, its price action (the high of the last 120 days, where the leg up to it
+  started, the low since, the recent swing highs and lows, from closed days), its volatility (14-day average true
+  range, 30-day realised volatility, the last day's volume against its 20-day median) and its last 91 daily closes
+  (for its strength against BTC and its beta), and the bull market support band: the 20-week simple and 21-week
+  exponential averages of weekly closes, weeks starting Monday as on TradingView's crypto charts (Hyperliquid's own
+  weekly candles start on Thursday), built from the daily closes with the forming week included. Kept a day per coin;
+  where the price sits against them is worked out with the price at hand.
 Context, not a signal: none of these is tested in the studies.
 """
 
@@ -16,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import bisect
 import logging
+import math
+import statistics
 import time
 
 log = logging.getLogger(__name__)
@@ -51,8 +56,52 @@ def ema(xs: list[float], n: int) -> float | None:
 
 def trend_levels(daily: list[float], weekly: list[float]) -> dict:
     """Closes oldest first -> the 200-day simple average and the band's two averages (None when too short)."""
-    return {"ma200d": _sig(sma(daily, 200)), "sma20w": _sig(sma(weekly, 20)), "ema21w": _sig(ema(weekly, 21)),
-            "daily_bars": len(daily), "weekly_bars": len(weekly)}
+    out = {"ma200d": _sig(sma(daily, 200)), "sma20w": _sig(sma(weekly, 20)), "ema21w": _sig(ema(weekly, 21)),
+           "daily_bars": len(daily), "weekly_bars": len(weekly)}
+    if 21 <= len(weekly) < 60:
+        out["band_short_history"] = True       # the 21-week EMA has not forgotten its seed yet
+    return out
+
+
+WEEK = 7 * DAY
+
+
+def weekly_closes(bars: list[list[float]]) -> list[float]:
+    """Daily bars [t_ms, o, h, l, c, ...] oldest first -> weekly closes, weeks starting Monday 00:00 UTC (TradingView's
+    crypto weeks; 5 January 1970 was a Monday). The forming week's close is the latest daily close."""
+    out: list[float] = []
+    key = None
+    for b in bars:
+        wk = int((b[0] / 1000 - 4 * DAY) // WEEK)
+        if wk != key:
+            out.append(b[4])
+            key = wk
+        else:
+            out[-1] = b[4]
+    return out
+
+
+def vol_stats(bars: list[list[float]]) -> dict:
+    """Closed daily bars oldest first -> the 14-day average true range (Wilder) as a share of the last close, the
+    30-day realised volatility (yearly, from daily log returns) and the last day's volume over its 20-day median."""
+    out: dict = {}
+    if len(bars) >= 15:
+        trs = [max(b[2] - b[3], abs(b[2] - a[4]), abs(b[3] - a[4])) for a, b in zip(bars, bars[1:])]
+        atr = sum(trs[:14]) / 14
+        for tr in trs[14:]:
+            atr = (atr * 13 + tr) / 14
+        if bars[-1][4]:
+            out["atr14_pct"] = round(100 * atr / bars[-1][4], 2)
+    closes = [b[4] for b in bars[-31:] if b[4]]
+    if len(closes) >= 21:
+        rets = [math.log(b / a) for a, b in zip(closes, closes[1:])]
+        out["rv30_pct"] = round(100 * statistics.pstdev(rets) * math.sqrt(365), 1)
+    vols = [b[5] for b in bars[-21:-1] if len(b) > 5 and b[5]]
+    if len(vols) >= 10 and len(bars[-1]) > 5:
+        med = statistics.median(vols)
+        if med:
+            out["rel_vol"] = round(bars[-1][5] / med, 2)
+    return out
 
 
 PIVOT_N = 3            # a swing high (low) is the highest (lowest) of the 3 days either side
@@ -197,6 +246,12 @@ class Levels:
         self._memo = (last, now, tss, cs)
         return tss, cs
 
+    def path(self, coin: str, t0: float, t1: float, now: float | None = None) -> list[tuple[float, float, float]]:
+        """The coin's hourly copies from t0 to t1: [(ts, price, hourly funding rate)], oldest first."""
+        tss, rows = self._rows(now or time.time())
+        i, j = bisect.bisect_left(tss, t0), bisect.bisect_right(tss, t1)
+        return [(tss[k], v[0], v[2] or 0.0) for k in range(i, j) if (v := rows[k].get(coin)) and v[0]]
+
     def price_at(self, coin: str, ts: float, within: float = 2 * 3600, now: float | None = None) -> float | None:
         """The coin's price in the hourly copy nearest `ts` (within `within` seconds), from the last 8 days."""
         tss, rows = self._rows(now or time.time())
@@ -230,6 +285,9 @@ class Levels:
         out = {"open_interest_usd": round(cur["oi"] * cur["px"]) if cur.get("oi") and cur.get("px") else None,
                "oi_change_24h_pct": _pct(cur.get("oi"), day[1] if day else None),
                "oi_change_7d_pct": _pct(cur.get("oi"), week[1] if week else None),
+               "price_change_24h_pct": _pct(cur.get("px"), day[0] if day else None),
+               "price_change_7d_pct": _pct(cur.get("px"), week[0] if week else None),
+               "spread_bps": cur.get("impact_bps"),
                "funding_apr_pct": round(cur["funding"] * 24 * 365 * 100, 1) if cur.get("funding") is not None else None,
                "funding_24h_avg_apr_pct": round(sum(last_day) / len(last_day) * 24 * 365 * 100, 1) if last_day else None,
                "volume_24h_usd": round(cur["vol"]) if cur.get("vol") else None}
@@ -264,12 +322,13 @@ class Levels:
             return hit
         end = int(now * 1000)
         await hl.ensure_names()
-        daily = await hl.candles(coin, "1d", end - 230 * DAY * 1000, end)
-        weekly = await hl.candles(coin, "1w", end - 40 * 7 * DAY * 1000, end)
+        daily = await hl.candles(coin, "1d", end - 1000 * DAY * 1000, end)    # one request: days and weeks
         if not daily:
             return None
-        lv = {**trend_levels([b[4] for b in daily], [b[4] for b in weekly]), **price_structure(daily), "day": day,
-              "ts": now}
+        closed = [b for b in daily if b[0] / 1000 + DAY <= now] or daily      # today's forming bar left out
+        lv = {**trend_levels([b[4] for b in daily], weekly_closes(daily)), **price_structure(closed),
+              **vol_stats(closed), "closes": [_sig(b[4]) for b in closed[-91:]],
+              "closes_to": time.strftime("%Y-%m-%d", time.gmtime(closed[-1][0] / 1000)), "day": day, "ts": now}
         # read again after the awaits: another read (the daily refresh, a question) may have written meanwhile, and
         # writing back the copy read before them would drop its coins
         cache = self.store.get_snapshot("trend_levels") or {}

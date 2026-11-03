@@ -55,3 +55,25 @@ positioning with price action, a chart pattern or the engine), names what to loo
 the coin's price action and Reflex's chart patterns. They are logged and scored exactly as before (at most two a read,
 once a day per coin and side). The verdict rule is unchanged; views before 3 November are reported apart from the
 setups after it when the verdict is computed.
+
+## Amendment 3 (3 November 2026): what is shown beside the record (display only)
+
+From the quant audit. The verdict rule above is unchanged; these are reported beside it, computed the same way for
+every setup from this date (and for the earlier views where the data exists):
+
+- the 95% interval (Wilson) for the share right, the number of separate bets (the same coin and side logged within 3
+  days of the one before counts once) and the number of days they span: repeated views of one coin on following days
+  are one bet, not several;
+- the return after a taker round trip (0.045% a side, Hyperliquid's base fee) and the funding the position would have
+  paid or received over the horizon, from the hourly copy of every coin's funding;
+- the worst move against the setup on the way (from hourly prices, so a little under the true extreme) and whether its
+  named off level (the code's risk frame, logged with the setup) was touched before the horizon;
+- the move beyond the coin's beta to BTC (beta over the 60 days before the setup, BTC's move over the same hours).
+
+Each setup now carries a risk frame built in code (where it is wrong, the next level the other way, the room to it over
+the risk), and every setup must sit on a coin the read was shown; a view on any other coin is dropped and noted.
+
+Proposed, for the owner to decide before more 3-day results come in (not adopted): judge the verdict on separate bets
+rather than picks, on the 3-day move beyond the market rather than the raw move, with the share right and the mean
+averaged per day and a verdict only when the lower end of their 95% interval clears the bar; firm and strong reported
+as description only. The raw bar, met in a one-way market by repeated views of a few coins, can pass with no skill.

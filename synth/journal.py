@@ -16,6 +16,7 @@ told apart from a broken one.
 from __future__ import annotations
 
 import calendar
+import math
 import statistics
 import time
 
@@ -30,6 +31,10 @@ KINDS = [  # key, label, study, horizons, the horizon its verdict uses, which pi
      lambda p: p["origin"] == "read" and p["ts"] >= S5_SETUPS_FROM),
     ("read_before", "Outrider's views before 3 Nov", "S5, before Amendment 2", H3, "3d",
      lambda p: p["origin"] == "read" and p["ts"] < S5_SETUPS_FROM),
+    # matched controls logged beside each read and never sent (S6, proposed): the code's top two candidates, and a
+    # random liquid coin on each view's side
+    ("screen", "The code's top candidates (shadow, never sent)", None, H3, "3d", lambda p: p["origin"] == "screen"),
+    ("random", "Random liquid coins, same side (shadow control)", None, H3, "3d", lambda p: p["origin"] == "random"),
     ("conviction", "Tracked traders' conviction bets (2x usual size)", "S3", H5, "30d",
      lambda p: p["origin"] == "position" and (p.get("conviction") or 0) >= 2),
     ("position", "Tracked traders' other new positions", None, H5, "30d",
@@ -63,10 +68,57 @@ def verdict(a: dict, bar: dict = S5_BAR) -> str:
     return "context, not a signal"
 
 
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[int, int] | None:
+    """The 95% interval for a share right of k in n (Wilson's), in percent."""
+    if not n:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    w = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return round(100 * max(0.0, c - w)), round(100 * min(1.0, c + w))
+
+
+def episodes(picks: list[dict], window: float = 3 * 86400) -> int:
+    """Picks on one coin and side logged within `window` of the one before count as one episode: the same bet repeated
+    on following days is not new evidence."""
+    n, last = 0, {}
+    for p in sorted(picks, key=lambda p: p["ts"]):
+        k = (p["coin"], p["direction"])
+        if k not in last or p["ts"] - last[k] > window:
+            n += 1
+        last[k] = p["ts"]
+    return n
+
+
+def beta_excess(p: dict, h: str) -> float | None:
+    """The pick's move its way less what its beta to BTC explains: ret - side x beta x BTC's move."""
+    path = (p.get("state") or {}).get(f"path_{h}") or {}
+    beta, btc, ret = (p.get("state") or {}).get("beta_btc"), path.get("btc_pct"), p.get(f"ret_{h}")
+    if beta is None or btc is None or ret is None:
+        return None
+    return ret - (1 if p["direction"] == "long" else -1) * beta * btc / 100
+
+
 def block(picks: list[dict], h: str) -> dict:
     got = [p for p in picks if p.get(f"ret_{h}") is not None]
     vs = [x for p in got if (x := excess(p, h)) is not None]
-    return {**_stats([p[f"ret_{h}"] for p in got]), "vs_market": _stats(vs)}
+    out = {**_stats([p[f"ret_{h}"] for p in got]), "vs_market": _stats(vs)}
+    if got:
+        out["interval"] = wilson(out["right"], out["n"])
+        out["days"] = len({time.strftime("%Y-%m-%d", time.gmtime(p["ts"])) for p in got})
+        out["episodes"] = episodes(got)
+        paths = [p["state"][f"path_{h}"] for p in got if (p.get("state") or {}).get(f"path_{h}")]
+        if paths:
+            out["net_mean_pct"] = round(statistics.fmean(x["net_pct"] for x in paths), 2)
+            out["mae_median_pct"] = round(statistics.median(x["mae_pct"] for x in paths), 2)
+            named = [x for x in paths if "off_hit" in x]
+            if named:
+                out["off_hit"] = {"n": len(named), "hit": sum(1 for x in named if x["off_hit"])}
+        be = [x for p in got if (x := beta_excess(p, h)) is not None]
+        if be:
+            out["beta_adjusted_median_pct"] = round(100 * statistics.median(be), 2)
+    return out
 
 
 def record(store) -> list[dict]:
@@ -141,6 +193,16 @@ def text(rows: list[dict], rd: dict | None = None) -> str:
         if s["n"]:
             lo, sh = s["long"], s["short"]
             lines.append(f"  longs {lo['right']}/{lo['n']} right, shorts {sh['right']}/{sh['n']} right")
+            more = [f"95% interval for right {s['interval'][0]}-{s['interval'][1]}%",
+                    f"{s['episodes']} separate bet{'s' if s['episodes'] != 1 else ''} over {s['days']} "
+                    f"day{'s' if s['days'] != 1 else ''}"]
+            if s.get("net_mean_pct") is not None:
+                more.append(f"after fees and funding {s['net_mean_pct']:+.1f}% on average")
+            if s.get("off_hit"):
+                more.append(f"touched its off level {s['off_hit']['hit']} of {s['off_hit']['n']}")
+            if s.get("beta_adjusted_median_pct") is not None:
+                more.append(f"beyond its beta to BTC {s['beta_adjusted_median_pct']:+.1f}% (median)")
+            lines.append("  " + " · ".join(more))
     if not lines:
         lines.append("Nothing logged yet.")
     if rd:

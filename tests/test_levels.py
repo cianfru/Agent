@@ -20,9 +20,13 @@ class FakeHL:
         pass
 
     async def candles(self, coin, interval, start_ms, end_ms):
+        """Daily bars ending with today's forming bar (at end_ms), closes 100, 101, ... (the weeks come from them)."""
         self.calls += 1
         n, step = (self.daily, 1.0) if interval == "1d" else (self.weekly, 5.0)
-        return [[i, 0, 0, 0, 100 + step * i] for i in range(n)]
+        ms = (86_400_000 if interval == "1d" else 7 * 86_400_000)
+        last = end_ms // ms * ms
+        return [[last - (n - 1 - i) * ms, 0, 100 + step * i + 1, 100 + step * i - 1, 100 + step * i, 1000.0]
+                for i in range(n)]
 
     async def aclose(self):
         pass
@@ -55,6 +59,7 @@ def test_open_interest_and_funding_against_a_day_and_a_week_ago(tmp_path):
     assert asyncio.run(lv.step(hl, now)) is False              # a copy within the hour already: none added
     sol = lv.oi_funding("SOL", now)
     assert sol == {"open_interest_usd": 135_000, "oi_change_24h_pct": 25.0, "oi_change_7d_pct": 50.0,
+                   "price_change_24h_pct": -5.3, "price_change_7d_pct": -10.0,
                    "funding_apr_pct": 26.3, "funding_24h_avg_apr_pct": 26.3, "volume_24h_usd": 250_000_000}
     assert lv.oi_funding("NOPE", now) is None
     m = lv.market(now)
@@ -67,7 +72,9 @@ def test_trend_levels_are_read_once_a_day(tmp_path):
     now = time.time()
     a = asyncio.run(lv.trend(hl, "SOL", now))
     b = asyncio.run(lv.trend(hl, "SOL", now + 60))
-    assert a["ma200d"] == 249.5 and a == b and hl.calls == 2           # daily and weekly, once
+    assert a["ma200d"] == 249.5 and a == b and hl.calls == 1           # one request a day: days and weeks
+    assert a["closes"][-1] == 348.0 and len(a["closes"]) == 91          # closed days only: today's bar left out
+    assert a["atr14_pct"] == round(100 * 2 / 348, 2) and a["rv30_pct"] is not None and a["weekly_bars"] >= 35
 
 
 def test_price_action_says_how_much_of_the_last_leg_is_given_back_and_what_is_near():

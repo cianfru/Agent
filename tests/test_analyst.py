@@ -108,14 +108,15 @@ def test_a_read_goes_out_with_setups_then_waits_for_change(tmp_path, monkeypatch
     text = sent[0]
     assert text.splitlines()[1] == READ["headline"]
     assert "Yours" not in text                                        # his positions are his: on request only
-    assert ("Setups to look at\nSUI short · firm: Proven traders adding, engine stretched. Chart: back under the "
-            "20-week SMA at 1.95. Off if they cut those shorts.") in text
+    assert ("Setups to look at\nSUI short · firm\nProven traders adding, engine stretched. Chart: back under the "
+            "20-week SMA at 1.95.\nEnds if they cut those shorts.") in text
     assert "Record" not in text                                       # the record rides on the morning read only
     first, = agent.analyst.client.calls                                # one call, no tools: the scan holds it all
     assert first["output_config"]["effort"] == "medium" and first["output_config"]["format"]["type"] == "json_schema"
     assert first["fallbacks"] == "default" and "tools" not in first
     task = first["messages"][0]["content"]
-    assert "- first read" in task and '"my_positions"' in task and "tracked traders lean short" in task
+    assert "- first read" in task and '"my_positions":[{"coin":"SUI","side":"long"' in task
+    assert "against" not in task.split("<scan>")[1]                    # what he holds, never a briefing on it
     pick = agent.store.picks(origin="read")[0]
     assert (pick["coin"], pick["direction"], pick["conviction"], pick["entry_price"]) == ("SUI", "short", 2, 1.8)
     assert abs(agent.analyst.spent_today(now) - 0.05) < 1e-9

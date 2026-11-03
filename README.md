@@ -164,7 +164,10 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   now while the horizon is under two hours old; never at a later price as if it were the horizon's (study S5, declared
   before any result: useful only after 60 setups with 62%+ right at 3 days and a median +1% their way). The setups
   since S5's Amendment 2 (3 November 2026) are reported apart from the views before it, as the study says; each read
-  and `/record` show the setups against the declared bar.
+  and `/record` show the setups against the declared bar. Beside it (S5 Amendment 3, display only): the 95% interval
+  for the share right, how many separate bets (the same coin and side within 3 days counts once) over how many days,
+  the return after a taker round trip and the funding paid, how often the setup's own off level was touched before the
+  horizon, and the move beyond the coin's beta to BTC.
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
   list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
@@ -177,29 +180,48 @@ With a model key, Outrider reads the market instead of posting the same numbers 
 
 ### The screen: every liquid coin against its levels
 
-`synth/screen.py`, from what the agent keeps (no model): the 100 most traded Hyperliquid perps (their levels read once
-a day after 00:30 UTC, a few seconds apart; prices from the last poll), each with its band state and distance, its
-200-day average, how much of its last leg it has given back (or of its last drop it has bounced), its nearest swing low
-and high, open interest change and funding, the engine's daily signal, what tracked traders hold, added in 24 hours and
-bet with conviction in 7 days, and a setup score for long and short with the reasons.
+`synth/screen.py`, from what the agent keeps (no model): the most traded Hyperliquid perps and wherever traders are
+(levels read once a day after 00:30 UTC, a few seconds apart; prices from the last poll), each with its band state and
+distance, its 200-day average, how much of its last leg it has given back (or of its last drop it has bounced), its
+nearest swing low and high, its volatility, strength against BTC and beta, open interest against price, funding, how
+thin its book is, the engine's daily reading, what tracked traders hold, added in 24 hours and bet with conviction in 7
+days, and for each side a score with the reasons and a risk frame.
 - **The band** (owner, 3 November 2026): inside it is testing it, a zone to watch, not a block; just above (within 5%)
-  is holding it; 15% or more above is extended, not an entry; under it the trend is lost until reclaimed.
+  is holding it; 15% or more above is extended, not an entry; under it the trend is lost until reclaimed. The band is
+  built on Monday-to-Sunday weeks (TradingView's crypto weeks) from 1,000 daily closes, the forming week included;
+  Hyperliquid's own weekly candles start on Thursday and gave a different band near its edges.
 - **The z-score** (owner, 4 November 2026: the first thing for shorts): every coin's daily and 4-hour engine z-score,
-  read from Reflex's scan list once an hour. The engine's lines: 2.5 blow-off, 3 trim, 3.5 hard trim, -1
-  capitulation. A coin stretched past 2.5 is a short setup on its own route (35, 40 past 3, plus 10 when 15%+ over the
-  band, no downtrend needed: it fades a run), lifted by shorts building and longs paying funding; a long on a
-  stretched coin loses 15.
+  read from Reflex's scan list once an hour. The owner's lines: 2.5 blow-off, 3 trim, 3.5 hard trim, -1 capitulation
+  (the engine scales its own by volatility, 0.85x to 1.25x, and trims only in its blow-off regime; a read sees the
+  engine's own lines for a coin when it has its full row). A coin stretched past 2.5 is a short setup on its own route
+  (35, 40 past 3, 45 past 3.5, plus 10 when 15%+ over the band, no downtrend needed: it fades a run), lifted by shorts
+  building and longs paying funding; a long on a stretched coin loses 15.
+- **In the coin's own volatility:** "near" a level is within one 14-day average true range (between 1% and 5%), not a
+  fixed 3%. Each row carries the average true range, 30-day realised volatility and the last day's volume against its
+  median.
 - **Which coins:** the 100 most traded by 24-hour volume (re-picked daily, so it follows the market) plus every coin
   where traders are: what tracked traders hold or added in 7 days, conviction bets in 7 days, coins 5+ profitable
   traders hold, and the watch list (up to 180).
-- **The score** (a ranking of what is worth a look, not a tested signal): where the price sits with the trend (up to
-  45: in or just over the band 35, at the 200-day 25, on a swing low 20, plus 10 for a 30-70% pullback of the last
-  leg), who is positioning (up to 35: a conviction bet that side 20, two or more tracked traders adding 10, their lean
-  5), the engine (15, or -10 against), crowded funding (-5). Shorts are the mirror.
-- **Where it is used:** each read gets the 6 best candidates (40 points or more) and the market's breadth (coins under,
-  inside and over their band, over their 200-day) and picks its setups mostly from them; the chat's `screen` tool
-  answers any question across coins in one look; the dashboard's **Levels** tab shows the table, sortable by any
-  column; `GET /screen?sort=band&band=inside`.
+- **The score** (a ranking of what is worth a look, not a tested signal): where the price sits (up to 55: in or just
+  over the band 35, near the 200-day 25, on a swing low 20, plus 10 for a 30-70% pullback; a stretched short 35-45);
+  who is positioning (a conviction bet 20, two or more tracked traders adding 10, their lean 5, open interest against
+  price 5); the engine (15, or -10 against); crowding on the day's average funding (-5, or +5 for a short when longs
+  pay 30%+ a year); strength against BTC over 30 days (+5 or -5). A long under its band or extended over it, or a short
+  15%+ under it, gets no location points.
+- **Two independent things:** each side's reasons are kept by family (price at a level, traders positioning, the
+  engine, which counts only beside one of the others). A candidate needs two, 40 points, at least $3M a day of volume
+  and a book no wider than 15 basis points.
+- **Risk frame:** for each side, where it is wrong (the level the setup sits on, in % and in average true ranges), the
+  next level the other way and the room to it over the risk. Each setup a read sends shows them, built in code.
+- **Where it is used:** each read gets the 6 best candidates and the market's breadth (coins under, inside and over
+  their band, over their 200-day, stretched and washed out) and picks its setups mostly from them; every coin in a read
+  carries its screen figures; the chat's `screen` tool answers any question across coins in one look (sort by score,
+  band, 200-day, retracement, open interest, funding, z or strength); the dashboard's **Levels** tab shows the table;
+  `GET /screen?sort=band&band=inside`.
+- **Kept for a test:** once a day after the levels refresh, every coin's row as the screen saw it (scores by family,
+  risk frames, band, z, strength) goes into `screen_log`, and at each read the code's top two candidates and a random
+  liquid coin on each view's side are logged as shadow picks (never sent). Study S6 (proposed, awaiting the owner)
+  would test from these whether the screen ranks and whether the read adds anything over the code and over chance.
 
 ### Open interest, funding, the 200-day average and the support band
 
