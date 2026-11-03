@@ -58,6 +58,22 @@ async def telegram(token: str, chat_id: str, text: str, buttons: dict | None = N
     return await tg(token, "sendMessage", **params)
 
 
+async def push(s, store, text: str, kind: str, buttons: dict | None = None, png: bytes | None = None,
+               must: bool = False) -> dict | None:
+    """An unprompted message (anything but a reply to him): at most SYNTH_MAX_PUSHES_PER_DAY in 24 hours. Past that
+    it is kept as held (briefs 'push_held'), not sent; `must` (the morning read, a read he asked for) always goes."""
+    import time
+    if not must and store.count_briefs("push", time.time() - 86400) >= s.max_pushes_per_day:
+        store.add_brief("push_held", {"kind": kind, "text": text[:500]})
+        return None
+    if png is not None:
+        msg = await telegram_photo(s.telegram_token, s.telegram_chat_id, png, text, buttons)
+    else:
+        msg = await telegram(s.telegram_token, s.telegram_chat_id, text, buttons)
+    store.add_brief("push", {"kind": kind})
+    return msg
+
+
 async def telegram_photo(token: str, chat_id: str, png: bytes, caption: str,
                          buttons: dict | None = None) -> dict | None:
     if not (token and chat_id):

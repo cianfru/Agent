@@ -164,7 +164,7 @@ class Agent:
             body = _plain_alert(ev)
         text = notify.format_alert(body, ev)
         if "smart" in self.s.pushes:
-            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+            await notify.push(self.s, self.store, text, "smart")
         if ev.get("coin") and body.get("direction") in ("long", "short") and (body.get("conviction") or 0) >= 3:
             self.store.add_pick("alert", ev["coin"], body["direction"], body.get("conviction"),
                                 price_of(ev["coin"], snaps), body.get("headline", ""),
@@ -260,7 +260,7 @@ class Agent:
             if self.s.max_alerts_per_day - self.store.count_briefs("alert_sent", now - 86400) <= 0:
                 continue
             if "smart" in self.s.pushes:
-                await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+                await notify.push(self.s, self.store, text, "smart")
             self.store.add_brief("alert_sent", {"toxic": t["coin"]})
             sent += 1
         return sent
