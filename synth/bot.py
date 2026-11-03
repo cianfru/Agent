@@ -25,7 +25,7 @@ from . import notify
 log = logging.getLogger(__name__)
 
 HELP = """Outrider watches profitable traders on Hyperliquid and Derive's options, and tells you what it makes of them.
-Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position).
+Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position). Reply to any of my messages to ask about it.
 
 What I send you
 My morning read: what is happening and up to two setups worth a look, with what to see on the chart (each scored after 1, 3 and 7 days; /record shows how they did). At most two more a day when the market really changes.
@@ -47,6 +47,9 @@ Big money: accounts of $500K+ in profit all-time, one vote per owner.
 Scored after 14 and 30 days: the move since the alert, kept as a record.
 
 /read  my read of the market now
+/board  the market at a glance: the cycle, BTC and ETH, breadth, the z-score's extremes
+/map  every coin by its band and its z-score
+/chart SOL  a coin's daily chart with its band, 200-day, off level and z (/chart SOL short)
 /mine  a briefing on your positions and watch list
 /record  how my views and every other kind of pick did
 /watch  your watch list; /watch ENA long 0.09 5k adds one (side, entry and size optional)
@@ -63,6 +66,9 @@ MINE = ("Brief me on my positions and my watch list: for each, where it stands (
         "that matter), who is on which side and what changed lately. The picture, no instructions.")
 
 COMMANDS = [{"command": "read", "description": "Outrider's read of the market now"},
+            {"command": "board", "description": "The market at a glance"},
+            {"command": "map", "description": "Every coin by its band and its z-score"},
+            {"command": "chart", "description": "A coin's daily chart with its levels (/chart SOL)"},
             {"command": "mine", "description": "A briefing on your positions and watch list"},
             {"command": "watch", "description": "Your watch list (/watch ENA long 0.09 5k adds one)"},
             {"command": "unwatch", "description": "Take a coin off the watch list (/unwatch ENA)"},
@@ -198,8 +204,45 @@ async def handle(agent, update: dict) -> None:
         await notify.telegram(s.telegram_token, chat, text)
         return
     if cmd == ["/record"]:
-        from . import journal
-        await notify.telegram(s.telegram_token, chat, journal.text(journal.record(store), journal.reads(store)))
+        from . import journal, pictures
+        text = journal.text(journal.record(store), journal.reads(store))
+        png = await pictures.journal_png(store)
+        await notify.send_with_pictures(s.telegram_token, chat, text, [png] if png else [])
+        return
+    if cmd == ["/board"]:
+        from .analyst import board_text, scan
+        cur = await asyncio.to_thread(scan, agent)
+        await notify.telegram(s.telegram_token, chat, board_text(cur) or "The board fills once the levels are read "
+                                                                         "(daily after 00:30 UTC).")
+        return
+    if cmd == ["/map"]:
+        from . import pictures
+        m = await pictures.map_png(agent)
+        if m:
+            await notify.telegram_photo(s.telegram_token, chat, m[0], m[1])
+        else:
+            await notify.telegram(s.telegram_token, chat, "No map yet: the levels are read daily after 00:30 UTC.")
+        return
+    if cmd == ["/chart"]:
+        from . import pictures
+        words = reply_text.split()[1:]
+        if not words:
+            await notify.telegram(s.telegram_token, chat, "Which coin? /chart SOL (or /chart SOL short)")
+            return
+        coin = words[0].upper().lstrip("$")
+        want = words[1].lower() if len(words) > 1 and words[1].lower() in ("long", "short") else None
+        side, risk = await asyncio.to_thread(pictures.chart_frame, agent, coin, want)
+        png = await pictures.setup_png(agent, coin, side, "chart", risk)
+        if not png:
+            await notify.telegram(s.telegram_token, chat, f"No daily chart for {coin} on Hyperliquid.")
+            return
+        cap = f"{coin} {side}: where it would be wrong and the next level, from the screen."
+        if risk and risk.get("off"):
+            o = risk["off"]
+            cap = (f"{coin} {side} · off {'below' if side == 'long' else 'above'} {o['level']:g} ({o['name']}, "
+                   f"{o['pct']:+.1f}%)" + (f" · next {risk['next']['level']:g} ({risk['next']['name']})"
+                                           if risk.get("next") else ""))
+        await notify.telegram_photo(s.telegram_token, chat, png, cap)
         return
     if cmd == ["/draft"]:
         try:

@@ -230,13 +230,15 @@
 
   <section id="levels">
     <div class="kv" id="lvbreadth"></div>
+    <div class="panel" style="text-align:center"><img id="lvmap" alt="Market map" style="max-width:100%;width:600px;display:none"></div>
     <div class="panel scroll"><table id="lvtable"><thead><tr>
       <th data-s="coin">Coin</th><th data-s="price">Price</th><th data-s="band">Band</th><th data-s="bandpct">vs band</th>
       <th data-s="ma200">vs 200-day</th><th data-s="retrace">Gave back</th><th data-s="swing">Swing low</th>
-      <th data-s="oi">OI 24h</th><th data-s="funding">Funding</th><th data-s="z">Z 1d</th><th data-s="engine">Engine</th>
-      <th data-s="tracked">Tracked</th><th data-s="long">Long</th><th data-s="short">Short</th>
+      <th data-s="oi">OI 24h</th><th data-s="funding">Funding</th><th data-s="z">Z 1d</th><th data-s="atr">ATR</th>
+      <th data-s="rs">vs BTC 30d</th><th data-s="engine">Engine</th>
+      <th data-s="tracked">Tracked</th><th data-s="long">Long /100</th><th data-s="short">Short /100</th>
     </tr></thead><tbody></tbody></table>
-    <div class="muted" style="margin-top:8px">Every liquid coin against its bull market support band (20-week SMA and 21-week EMA), its 200-day average and its last leg, read once a day; prices from the last poll. Inside the band is testing it, a zone to watch; 15% or more over it is extended; under it the trend is lost until reclaimed. Z is the engine's daily z-score: 2.5 is its blow-off line, 3 it trims, -1 capitulation; stretched with shorts building is a short setup. Long and short are the setup scores the reads rank candidates by (a ranking, not a signal). Click a heading to sort.</div></div>
+    <div class="muted" style="margin-top:8px">Every liquid coin against its bull market support band (20-week SMA and 21-week EMA), its 200-day average and its last leg, read once a day; prices from the last poll. Inside the band is testing it, a zone to watch; 15% or more over it is extended; under it the trend is lost until reclaimed. Z is the engine's daily z-score against the owner's lines: 2.5 blow-off, 3 trim, 3.5 hard trim, -1 capitulation; stretched with shorts building is a short setup. ATR is the 14-day average true range: "near" a level means within one. vs BTC is the 30-day move against BTC's. Long and short are the setup scores the reads rank candidates by (a ranking, not a signal); hover a score for its reasons, where it would be wrong and the next level. Thin coins (under $3M a day or a wide book) are greyed. Click a heading to sort.</div></div>
   </section>
 
   <section id="journal">
@@ -830,12 +832,14 @@ let lvRows = [], lvSort = "bandpct", lvAsc = true;
 const LVKEY = { coin: (r) => r.coin, price: (r) => r.price, band: (r) => ["below", "inside", "just above", "above", "extended"].indexOf((r.band || {}).state),
   bandpct: (r) => r.band ? Math.abs(r.band.vs_pct) : null, ma200: (r) => r.vs_ma200d_pct ?? null, retrace: (r) => r.retraced_pct ?? null,
   swing: (r) => r.swing_low_pct ?? null, oi: (r) => r.oi_change_24h_pct ?? null, funding: (r) => r.funding_apr_pct ?? null,
-  z: (r) => r.z_1d ?? null, engine: (r) => r.engine || "~", tracked: (r) => r.tracked ? r.tracked.long - r.tracked.short : 0,
+  z: (r) => r.z_1d ?? null, atr: (r) => r.atr_pct ?? null, rs: (r) => r.rs_30d_pct ?? null, engine: (r) => r.engine || "~", tracked: (r) => r.tracked ? r.tracked.long - r.tracked.short : 0,
   long: (r) => r.score_long, short: (r) => r.score_short };
 document.querySelectorAll("#lvtable th").forEach((th) => th.onclick = () => {
   const k = th.dataset.s; lvAsc = lvSort === k ? !lvAsc : ["coin", "band", "bandpct", "engine"].includes(k); lvSort = k; renderLevels(); });
 async function loadLevels() {
   const d = await api("/screen?limit=200"); lvRows = d.rows || [];
+  fetch("/map.png", { headers: { "x-api-key": KEY } }).then((r) => r.ok ? r.blob() : null).then((b) => {
+    if (b) { const im = $("#lvmap"); im.src = URL.createObjectURL(b); im.style.display = ""; } }).catch(() => {});
   const b = d.breadth || {};
   $("#lvbreadth").innerHTML = d.coins ? `<span><b>Coins</b>${d.coins}</span><span><b>Over the band</b>${(b["just above"] || 0) + (b.above || 0) + (b.extended || 0)}</span>` +
     `<span><b>Inside</b>${b.inside || 0}</span><span><b>Under</b>${b.below || 0}</span><span><b>Extended</b>${b.extended || 0}</span>` +
@@ -849,17 +853,19 @@ function renderLevels() {
     return (ka > kb ? 1 : ka < kb ? -1 : 0) * (lvAsc ? 1 : -1); });
   const p = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : x < 0 ? "short" : ""}">${x > 0 ? "+" : ""}${x.toFixed(1)}%</span>`;
   const plain = (x) => x == null ? '<span class="muted">-</span>' : `${x > 0 ? "+" : ""}${x.toFixed(1)}%`;
-  const zc = (z) => z == null ? '<span class="muted">-</span>' : `<span class="${z >= 2.5 ? "short" : z <= -1 ? "long" : ""}" title="the engine's daily z-score: 2.5 blow-off, 3 trim, -1 capitulation">${z.toFixed(1)}</span>`;
+  const zc = (z) => z == null ? '<span class="muted">-</span>' : `<span class="${z >= 2.5 ? "short" : z <= -1 ? "long" : ""}" style="${z >= 3.5 ? "font-weight:700" : ""}" title="${z >= 3.5 ? "past hard trim (3.5)" : z >= 3 ? "past trim (3)" : z >= 2.5 ? "blow-off (2.5)" : z <= -1 ? "capitulation (-1)" : "the engine's daily z-score"}">${z.toFixed(1)}</span>`;
   const fund = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${Math.abs(x) >= 30 ? "acc" : ""}" title="a year's worth; above zero longs pay">${x > 0 ? "+" : ""}${x.toFixed(0)}%</span>`;
   const st = (r) => !r.band ? '<span class="muted">-</span>' : `<span class="${{ inside: "acc", below: "short", extended: "muted" }[r.band.state] || "long"}">${r.band.state}</span> <span class="muted">${px(r.band.low)}-${px(r.band.high)}</span>`;
-  const sc = (n, why) => `<span class="${n >= 60 ? "long" : n >= 40 ? "acc" : "muted"}" title="${esc((why || []).join(" · "))}">${n}</span>`;
+  const lvl = (f) => !f ? "" : (f.off ? ` · off ${px(f.off.level)} (${f.off.name}, ${f.off.pct > 0 ? "+" : ""}${f.off.pct}%)` : "") + (f.next ? ` · next ${px(f.next.level)} (${f.next.name})` : "") + (f.room_over_risk != null ? ` · room ${f.room_over_risk}x` : "");
+  const sc = (n, why, side, f, two) => `<span class="${n >= 40 ? side : "muted"}" style="${n >= 60 ? "font-weight:700" : ""}" title="${esc((why || []).join(" · ") + lvl(f) + (two != null ? ` · ${two} independent` : ""))}">${n}</span>`;
   $("#lvtable tbody").innerHTML = rows.length ? rows.map((r) => `<tr><td><b>${esc(r.coin)}</b></td><td class="n">${px(r.price)}</td>
     <td>${st(r)}</td><td class="n">${p(r.band ? r.band.vs_pct : null)}</td><td class="n">${p(r.vs_ma200d_pct)}</td>
     <td class="n">${r.retraced_pct == null ? '<span class="muted">-</span>' : r.retraced_pct + "%"}</td><td class="n">${plain(r.swing_low_pct)}</td>
-    <td class="n">${p(r.oi_change_24h_pct)}</td><td class="n">${fund(r.funding_apr_pct)}</td><td class="n">${zc(r.z_1d)}</td><td>${esc(r.engine || "-")}</td>
+    <td class="n">${p(r.oi_change_24h_pct)}</td><td class="n">${fund(r.funding_apr_pct)}</td><td class="n">${zc(r.z_1d)}</td>
+    <td class="n">${r.atr_pct == null ? '<span class="muted">-</span>' : r.atr_pct.toFixed(1) + "%"}</td><td class="n">${p(r.rs_30d_pct)}</td><td>${esc(r.engine || "-")}</td>
     <td class="n">${r.tracked ? r.tracked.long + "L / " + r.tracked.short + "S" : '<span class="muted">-</span>'}</td>
-    <td class="n">${sc(r.score_long, r.why_long)}</td><td class="n">${sc(r.score_short, r.why_short)}</td></tr>`).join("")
-    : '<tr><td colspan="14" class="empty">No levels yet.</td></tr>';
+    <td class="n">${sc(r.score_long, r.why_long, "long", r.levels_long, r.independent_long)}</td><td class="n">${sc(r.score_short, r.why_short, "short", r.levels_short, r.independent_short)}</td></tr>`.replace("<tr>", r.thin ? '<tr style="opacity:.5" title="thin: under $3M a day or a wide book">' : "<tr>")).join("")
+    : '<tr><td colspan="16" class="empty">No levels yet.</td></tr>';
 }
 
 function load(tab) {

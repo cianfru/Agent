@@ -83,7 +83,7 @@ MAJORS = ("BTC", "ETH")            # direction, not build-ups: shown on their ow
 def _cost(p: dict) -> float:
     """A position's size at its own average entry (dollars traded): the conviction rule's size, as S3's backtest
     sized positions at their fills. The mark value would let a price move in the first hours promote a position."""
-    return abs(p.get("size") or 0) * (p.get("entry_px") or 0) or p.get("notional") or 0
+    return abs(p.get("size") or 0) * (p.get("entry_px") or 0) or p.get("notional") or p.get("value") or 0
 
 
 def load_owners(path: Path = OWNERS, pairs: list[list[str]] | tuple = ()) -> dict[str, str]:
@@ -229,12 +229,37 @@ def record_line(t: dict, open_now: float | None = None) -> str:
     return "; ".join(p for p in parts if p)
 
 
-def conviction_text(t: dict, p: dict, lev: float | None) -> str:
-    x = p["value"] / t["median_size"] if t.get("median_size") else None
+def conviction_text(t: dict, p: dict, lev: float | None, where: str = "") -> str:
+    """The alert: the bet and its size against the trader's usual, who (codename, so the chat can be asked about
+    them), their record, and where the coin sits now (price, z-score, band, funding)."""
+    x = _cost(p) / t["median_size"] if t.get("median_size") else None
     head = f"Conviction · {p['coin']} {p['side']} {usd(p['value'])}" + (f" ({x:.1f}x their usual size)" if x else "")
-    who = short(t["address"]) + (f" · {lev:.1f}x leverage now" if lev is not None else "")
+    who = f"{codename(t['address'])} ({short(t['address'])})" + (f" · {lev:.1f}x leverage now" if lev is not None
+                                                                   else "")
     rec = record_line(t)
-    return f"{head}\n{who}\n{rec[0].upper()}{rec[1:]}\nLogged; scored after 14 and 30 days."
+    return f"{head}\n{who}\n{rec[0].upper()}{rec[1:]}" + (f"\n{where}" if where else "")
+
+
+def coin_now(store, coin: str) -> str:
+    """Where a coin sits now, in one line: price, the daily z-score against the owner's lines, the band, funding."""
+    from . import screen
+    ctx = ((store.get_snapshot("hl_ctx") or {}).get("c") or {}).get(coin) or {}
+    px = ctx.get("px")
+    if not px:
+        return ""
+    lv = (store.get_snapshot("trend_levels") or {}).get(coin) or {}
+    e = ((store.get_snapshot("engine_all") or {}).get("c") or {}).get(coin) or {}
+    row = screen.coin_row(coin, lv, px, None, {"z_1d": e.get("z_1d")} if e.get("z_1d") is not None else {})
+    bits = [f"{coin} {px:,.6g}"]
+    if row.get("z_1d") is not None:
+        bits.append(f"z {row['z_1d']:.1f}" + (f" {row['z_line'].split(' (')[0]}" if row.get("z_line") else ""))
+    b = row.get("band")
+    if b:
+        bits.append("inside its band" if b["state"] == "inside" else f"{abs(b['vs_pct']):.0f}% "
+                    f"{'over' if b['vs_pct'] > 0 else 'under'} its band")
+    if ctx.get("funding") is not None:
+        bits.append(f"funding {ctx['funding'] * 24 * 365 * 100:+.0f}% a year")
+    return " · ".join(bits)
 
 
 def build_text(b: dict) -> str:
@@ -429,7 +454,8 @@ class PositionTraders:
         capped = sum(1 for b in self.store.briefs_since("pt_alert", now - 86400)
                      if not b["body"].get("capped")) >= MAX_ALERTS_PER_DAY and not against
         if not capped and ("conviction" in self.s.pushes or against):   # one against his position always comes
-            await notify.push(self.s, self.store, conviction_text(t, p, lev) + against, "conviction", must=bool(against))
+            text = conviction_text(t, p, lev, coin_now(self.store, p["coin"])) + against
+            await notify.push(self.s, self.store, text, "conviction", must=bool(against))
         self.store.add_brief("pt_alert", {"address": t["address"], "coin": p["coin"], "side": p["side"],
                                           "value": round(p["value"]), "lev": round(lev, 1) if lev is not None else None,
                                           "x": round(_cost(p) / t["median_size"], 1) if t.get("median_size") else None,

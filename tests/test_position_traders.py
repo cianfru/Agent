@@ -169,9 +169,12 @@ def test_texts_and_bot_command(tmp_path, monkeypatch):
     assert "hardly any losses" in record_line({**PROVEN, "profit_factor": 208.73})
     assert "no losing trade" in record_line({**PROVEN, "profit_factor": None, "win_rate": 1})
     assert [leverage_band(x) for x in (None, 0.2, 3, 5, 7.5)] == [None, "low", "moderate", "moderate", "high"]
-    text = conviction_text(PROVEN, {"coin": "LIT", "side": "long", "value": 2_642_000}, 6.4)
-    assert text.splitlines()[:2] == ["Conviction · LIT long $2.6M (5.3x their usual size)", "0x5f94…4b96 · 6.4x leverage now"]
-    assert text.splitlines()[2].startswith("Proven: 28 trades") and text.endswith("scored after 14 and 30 days.")
+    from synth.wallet_names import codename
+    text = conviction_text(PROVEN, {"coin": "LIT", "side": "long", "value": 2_642_000}, 6.4,
+                           "LIT 2.61 · z 2.7 blow-off · 31% over its band · funding +60% a year")
+    assert text.splitlines()[:2] == ["Conviction · LIT long $2.6M (5.3x their usual size)",
+                                     f"{codename(PROVEN['address'])} (0x5f94…4b96) · 6.4x leverage now"]
+    assert text.splitlines()[2].startswith("Proven: 28 trades") and text.endswith("funding +60% a year")
     assert build_text({"coin": "ZRO", "side": "long", "traders": 4, "added_usd": 900_000, "move": None}).startswith(
         "Building · ZRO long: 4 tracked traders added $900K in 3 days · price n/a")
     xpl = build_text({"coin": "XPL", "side": "long", "traders": 3, "added_usd": 400_000, "move": -0.05,

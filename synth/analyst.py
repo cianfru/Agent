@@ -360,6 +360,13 @@ def scan(agent, now: float | None = None) -> dict:
             "turns": k.get("turns"),
             "reflex": snap.get("market"), "cowboy": cow.get("market"), "oi_funding": agent.levels.market(now),
             "breadth": {**table["breadth"], "coins": table["coins"]} if table["coins"] else None,
+            "z_extremes": {
+                "stretched": [[r["coin"], r["z_1d"]] for r in sorted(
+                    (r for r in table["rows"] if (r.get("z_1d") or 0) >= screen.Z_BLOWOFF and not r.get("thin")),
+                    key=lambda r: -r["z_1d"])[:6]],
+                "washed_out": [[r["coin"], r["z_1d"]] for r in sorted(
+                    (r for r in table["rows"] if r.get("z_1d") is not None and r["z_1d"] <= screen.Z_CAPITULATION
+                     and not r.get("thin")), key=lambda r: r["z_1d"])[:6]]} if table["coins"] else None,
         },
         "candidates": screen.candidates(table),
         "direction": direction,
@@ -380,6 +387,8 @@ def quant(row: dict) -> dict:
     """A screen row's figures a read needs beside a coin: volatility, strength against BTC, who is acting, liquidity,
     each side's score and risk frame."""
     out = {k: row[k] for k in QUANT_KEYS if row.get(k) is not None}
+    if row.get("band"):
+        out["band"] = row["band"]["state"]
     out["at"] = levels_at(row)
     for side in ("long", "short"):
         out[side] = {"score": row[f"score_{side}"], "independent": row[f"independent_{side}"],
@@ -683,9 +692,59 @@ def record_text(rec: dict) -> str | None:
 # --------------------------------------------------------------------- read --
 
 
-def format_read(r: dict, now: float, rec: dict | None = None, held: int = 0) -> str:
-    """Headline, the read, then the setups worth a look; the record only when `rec` is passed (the morning read)."""
-    lines = [f"Outrider · {time.strftime('%H:%M', time.gmtime(now))} UTC", r["headline"].strip(), "", r["read"].strip()]
+def board_text(cur: dict) -> str:
+    """The market at a glance, built in code (no model), the same lines in the same place every day: where the cycle
+    stands, BTC and ETH against their band with their z-score, the breadth, and the coins at the z-score's extremes."""
+    m = cur.get("market") or {}
+    lines = []
+    t = m.get("turns") or {}
+    if t.get("state"):
+        day = t.get("run_day") if t["state"] == "broad uptrend" else t.get("downturn_day")
+        head = t["state"][0].upper() + t["state"][1:] + (f" · day {day}" if day is not None else "")
+        if t.get("longer_than"):
+            head += f" (longer than {t['longer_than'].split(' past')[0]})"
+        lines.append(head)
+    for d in cur.get("direction") or []:
+        bits = [f"{d['coin']} {_fmt_px(d.get('price'))}" + (f" {d['change_24h_pct']:+.1f}%"
+                                                         if d.get("change_24h_pct") is not None else "")]
+        band = (d.get("screen") or {}).get("band")
+        if band:
+            bits.append(f"{band} band" if band in ("inside", "below") else f"{band} its band")
+        z = (d.get("engine") or {}).get("z_daily")
+        if z is not None:
+            bits.append(f"z {z:.1f}")
+        lines.append(" · ".join(bits))
+    b = m.get("breadth")
+    if b:
+        lines.append(f"Breadth: {b['above'] + b['just above'] + b['extended']} over the band · {b['inside']} inside · "
+                     f"{b['below']} under · {b['over_200d']} of {b['with_200d']} over the 200-day")
+    zx = m.get("z_extremes")
+    if zx:
+        word = lambda xs: ", ".join(f"{c} {z:.1f}" for c, z in xs) or "none"   # noqa: E731
+        lines.append(f"Stretched (z 2.5+): {word(zx['stretched'])} · Washed out (z -1 or lower): "
+                     f"{word(zx['washed_out'])}")
+    return "\n".join(lines)
+
+
+def header(now: float, reason: str, r: dict, ch: list[dict] | None = None) -> str:
+    """The read's first line: when, why it came (built in code) and the model's lean on the market, if any."""
+    why = {"morning": "morning", "asked": "you asked"}.get(reason)
+    if why is None:
+        top = sorted((c for c in ch or [] if not c.get("owner")), key=lambda c: -c["w"])
+        why = (f"market changed: {top[0]['text'][:60]}" if top else "market changed")
+    lean = r.get("market_lean")
+    return f"Outrider · {time.strftime('%H:%M', time.gmtime(now))} UTC · {why}" + (
+        f" · leaning {lean}" if lean in ("long", "short") else "")
+
+
+def format_read(r: dict, now: float, rec: dict | None = None, held: int = 0, reason: str = "",
+                ch: list[dict] | None = None, board: str = "") -> str:
+    """The header (why it came), the board on the morning read, the headline, the read, then the setups worth a look;
+    the record only when `rec` is passed (the morning read)."""
+    lines = [header(now, reason, r, ch)]
+    if board:
+        lines += [board, ""]
+    lines += [r["headline"].strip(), "", r["read"].strip()]
     if r.get("views"):
         lines += ["", "Setups to look at"]
         for i, v in enumerate(r["views"]):
@@ -799,7 +858,8 @@ class Analyst:
         out = self.clean(out, cur)
         send = bool(out["send"]) or reason == "morning" or force_send
         held = self.store.count_briefs("push_held", now - DAY) if reason == "morning" else 0
-        text = format_read(out, now, rec if reason == "morning" else None, held)
+        text = format_read(out, now, rec if reason == "morning" else None, held, reason, ch,
+                           board_text(cur) if reason == "morning" else "")
         logged = self.log_views(out["views"], now, reason, cur) if send else []
         if send:
             try:
@@ -811,9 +871,25 @@ class Analyst:
         self.store.add_brief("read", {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4),
                                       "changes": [c["text"] for c in ch], "logged": logged})
         if send:   # a read he asked for answers him: it does not count against the unprompted messages
+            pngs = await self.pictures(out["views"], now, reason)
             await notify.push(self.agent.s, self.store, text, "read", must=reason == "morning" or force_send,
-                              reply=reason == "asked")
+                              reply=reason == "asked", pngs=pngs)
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged}
+
+    async def pictures(self, views: list[dict], now: float, reason: str) -> list[bytes]:
+        """The read's pictures, sent with it as one message: each setup on its daily chart, and on the morning read the
+        market map. None of them holds the read up."""
+        from . import pictures
+        out: list[bytes] = []
+        for v in views[:2]:
+            png = await pictures.setup_png(self.agent, v["coin"], v["lean"], v["strength"], v.get("risk"), now)
+            if png:
+                out.append(png)
+        if reason == "morning":
+            m = await pictures.map_png(self.agent, now, [v["coin"] for v in views])
+            if m:
+                out.append(m[0])
+        return out
 
     async def fill_reflex(self, cur: dict) -> None:
         """From Reflex, only when a read runs: the engine reading for coins without a full one (outside the 40 its
