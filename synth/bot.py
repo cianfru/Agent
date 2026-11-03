@@ -188,8 +188,10 @@ async def handle(agent, update: dict) -> None:
         if not agent.analyst:
             await notify.telegram(s.telegram_token, chat, "Reads are off: no ANTHROPIC_API_KEY, or SYNTH_READS=off.")
             return
-        if agent.analyst.busy:
-            await notify.telegram(s.telegram_token, chat, "A read is running now; it comes in a moment.")
+        if agent.analyst.busy:          # yours follows unless the one running reaches you
+            agent.analyst.pending_ask = True
+            await notify.telegram(s.telegram_token, chat, "A read is running now; you get it, or a fresh one right "
+                                                          "after, in a moment.")
             return
         typing = asyncio.create_task(_typing(s.telegram_token, chat))
         try:
@@ -255,7 +257,7 @@ async def handle(agent, update: dict) -> None:
         return
     if cmd == ["/draft"]:
         try:
-            res = await agent.persona_post(publish=False)
+            res = await agent.persona_post(publish=False, reply=True)     # he asked: not an unprompted message
         except Exception as e:  # noqa: BLE001 - say why instead of going quiet
             log.warning("/draft failed: %s", e)
             res = {"status": "failed", "problems": [str(e)]}
@@ -325,7 +327,7 @@ async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> Non
     else:
         try:
             res = await agent.publish_post(pid)
-            done = res.get("status") in ("published", "running")
+            done = res.get("status") in ("published", "running", "posting")
             text = (f"Posted #{pid}" + (f": {res['url']}" if res.get("url") else ".")) if done else \
                 f"Not posted: {res.get('error')}"
         except ValueError as e:

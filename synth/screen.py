@@ -122,8 +122,8 @@ def frame(r: dict, side: str, route: str | None) -> dict:
                     "swing": ("swing low", r.get("swing_low"))}
         behind = [("band low", lo), ("band high", hi), ("swing low", r.get("swing_low")),
                   ("200-day average", r.get("ma200d"))]
-        ahead = [("swing high", r.get("swing_high")), ("recent high", r.get("high")), ("band low", lo),
-                 ("200-day average", r.get("ma200d"))]
+        ahead = [("swing high", r.get("swing_high")), ("recent high", r.get("high")), ("band high", hi),
+                 ("band low", lo), ("200-day average", r.get("ma200d"))]
         below = True
     else:
         by_route = {"band": ("band high", hi), "ma200d": ("200-day average", r.get("ma200d")),

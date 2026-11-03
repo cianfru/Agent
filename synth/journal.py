@@ -49,8 +49,9 @@ def _stats(vals: list[float]) -> dict:
     if not vals:
         return {"n": 0, "right": 0, "right_pct": None, "median_pct": None}
     right = sum(v > 0 for v in vals)
+    med = statistics.median(vals)
     return {"n": len(vals), "right": right, "right_pct": round(100 * right / len(vals)),
-            "median_pct": round(100 * statistics.median(vals), 2)}
+            "median_pct": round(100 * med, 2), "median": med}         # median unrounded: the verdict reads it
 
 
 def excess(p: dict, h: str) -> float | None:
@@ -63,9 +64,13 @@ def excess(p: dict, h: str) -> float | None:
 
 def verdict(a: dict, bar: dict = S5_BAR) -> str:
     """S5's verdict for a 3-day block: Useful only when all three declared conditions hold; else context."""
-    if a["n"] >= bar["n"] and (a["right_pct"] or 0) >= bar["right_pct"] and (a["median_pct"] or 0) >= bar["median_pct"]:
-        return "meets the declared bar"
-    return "context, not a signal"
+    return "meets the declared bar" if meets(a["n"], a["right"], a.get("median"), bar) else "context, not a signal"
+
+
+def meets(n: int, right: int, median: float | None, bar: dict = S5_BAR) -> bool:
+    """The declared bar, on unrounded figures (61.7% right is under a 62% bar, however it rounds)."""
+    return n >= bar["n"] and 100 * right >= bar["right_pct"] * n and median is not None and \
+        100 * median >= bar["median_pct"]
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[int, int] | None:

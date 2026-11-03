@@ -408,7 +408,7 @@ class Agent:
 
     # ---------------------------------------------------------- Outrider on X --
     async def persona_post(self, publish: bool | None = None, now: float | None = None,
-                           data: dict | None = None) -> dict | None:
+                           data: dict | None = None, reply: bool = False) -> dict | None:
         """One of Outrider's posts: the best story not told lately, written in the voice, checked, then sent to
         Telegram as a draft (Post or Skip) or published when SYNTH_PERSONA_MODE=live. None when there is no story."""
         if not self.persona:
@@ -444,7 +444,7 @@ class Agent:
         live = self.s.persona_mode == "live" if publish is None else publish
         if live:
             return await self.publish_post(pid)
-        await self.send_draft(pid)
+        await self.send_draft(pid, reply=reply)
         return {"id": pid, "status": "draft", "text": text, "story": story["key"]}
 
     async def send_draft(self, pid: int, reply: bool = False) -> None:
@@ -500,7 +500,7 @@ class Agent:
         p = self.store.get_post(post_id)
         if not p:
             raise KeyError(post_id)
-        if p["status"] in ("published", "running"):
+        if p["status"] in ("published", "running", "posting"):
             return p  # never post twice
         if p["kind"] == "persona":
             story = p.get("story") or {}
@@ -509,11 +509,16 @@ class Agent:
             problems = post.lint(p["text"])
         if problems:
             raise ValueError("; ".join(problems))
+        if not self.store.claim_post(post_id):          # a second tap while the first is sending: posted once
+            return self.store.get_post(post_id)
         try:
             res = await orbio.post_x(self.s.orbio_api_key, p["text"], self.s.orbio_max_cost)
         except orbio.OrbioError as e:
             self.store.update_post(post_id, status="failed", error=str(e))
             return {**p, "status": "failed", "error": str(e)}
+        except Exception as e:
+            self.store.update_post(post_id, status="failed", error=str(e)[:300])
+            raise
         status = "running" if res.get("status") == "running" else "published"
         self.store.update_post(post_id, status=status, orbio_post_id=res.get("post_id"), url=res.get("url"),
                                error=res.get("error"), published_ts=time.time())

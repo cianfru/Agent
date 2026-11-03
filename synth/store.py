@@ -675,6 +675,14 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
+    def claim_post(self, pid: int) -> bool:
+        """Mark a post as being sent, only if no one else has: True when this caller may send it."""
+        with self._lock:
+            cur = self._db.execute("UPDATE posts SET status='posting' WHERE id=? AND status IN ('draft','rejected',"
+                                   "'failed')", (pid,))
+            self._db.commit()
+            return cur.rowcount == 1
+
     def update_post(self, pid: int, **fields: Any) -> None:
         allowed = {"status", "orbio_post_id", "url", "error", "published_ts", "text", "story", "tg_msg"}
         cols = {k: (json.dumps(v) if k == "story" and v is not None else v) for k, v in fields.items() if k in allowed}

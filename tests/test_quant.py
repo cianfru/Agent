@@ -46,9 +46,8 @@ def test_a_setup_carries_where_it_is_wrong_the_next_level_and_the_room():
     r = screen.coin_row("SOL", {**LV, "atr14_pct": 2.0}, 93.0, {"volume_24h_usd": 5e8, "spread_bps": 2.0}, pos)
     fr = r["levels_long"]
     assert fr["off"] == {"level": 92.0, "name": "band low", "pct": -1.1, "atr": 0.6}
-    assert fr["next"] == {"level": 96.0, "name": "band low", "pct": 3.2, "atr": 1.6} or fr["next"]["name"] in (
-        "swing high", "recent high")
-    assert fr["room_over_risk"] == round(abs(fr["next"]["pct"]) / 1.1, 1)
+    assert fr["next"] == {"level": 96.0, "name": "band high", "pct": 3.2, "atr": 1.6}   # the band's top comes first
+    assert fr["room_over_risk"] == 2.9
     assert r["lined_up_long"].keys() == {"price", "positioning", "engine"} and r["independent_long"] == 3
     # the short fade's off level is the recent high
     hot = screen.coin_row("HYPE", {**LV, "ma200d": 60.0, "sma20w": 80.0, "ema21w": 84.0}, 105.0, None,
@@ -181,3 +180,40 @@ def test_the_engine_list_keeps_the_daily_context_it_already_carries():
     got = asyncio.run(reflex.engine_all(Rc()))["ENA"]
     assert got["sector"] == "DeFi" and got["atr_regime"] == "elevated" and got["rel_vol"] == 2.35
     assert got["exhaustion"] == "climax top" and got["climax"] and got["divergence"] == "bearish"
+
+
+def test_review_fixes_risk_frames_verdict_and_controls(tmp_path):
+    from synth import journal
+    # a candidate carries the engine's word, not a dict: a view on it reads its frame, on either side
+    pos = {"conviction_7d": {"long": 1}, "engine_code": "ACCUMULATE", "engine": "base forming", "z_1d": 0.4}
+    row = screen.coin_row("SOL", {**LV, "atr14_pct": 2.0}, 93.0, {"volume_24h_usd": 5e8, "spread_bps": 2.0}, pos)
+    cur = {"candidates": screen.candidates({"rows": [row]}), "direction": [], "coins": [], "my_positions": []}
+    assert cur["candidates"][0]["engine"] == "base forming"
+    views = [{"coin": "SOL", "lean": "long", "strength": 2, "why": "w", "chart": "c", "off_level": "band low",
+              "changes_if": "x"},
+             {"coin": "SOL", "lean": "short", "strength": 1, "why": "w", "chart": "c", "off_level": "event",
+              "changes_if": "x"}]
+    out = analyst.Analyst.clean({"views": views}, cur)
+    long_, short = (v["risk"] for v in out["views"])
+    assert long_["z"] == 0.4 and long_["off"]["name"] == "band low" and long_["next"]["name"] == "band high"
+    assert short["off"]["name"] == "band high" and short["next"]["name"] == "band low" and "room_over_risk" in short
+    # the bar on unrounded figures: 37 of 60 is 61.7%, under 62% however it rounds
+    a = journal._stats([0.03] * 37 + [-0.01] * 23)
+    assert a["right_pct"] == 62 and journal.verdict(a) == "context, not a signal"
+    assert journal.verdict(journal._stats([0.03] * 38 + [-0.01] * 22)) == "meets the declared bar"
+    assert journal.verdict(journal._stats([0.009951] * 40 + [-0.01] * 20)) == "context, not a signal"
+
+
+def test_one_random_control_per_logged_view_a_day(tmp_path):
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    store = Store(s.db_path)
+    agent = service.Agent(s, store)
+    now = time.time()
+    coins = ["SOL", "ETH", "ARB", "OP", "SUI", "TIA"]
+    agent.tracker.last_mids, agent.tracker.last_mids_ts = {c: 10.0 for c in coins}, now
+    an = analyst.Analyst(agent, "claude-sonnet-5-5", client=object())
+    liquid = {"volume_24h_usd": 5e8, "spread_bps": 2.0}
+    table = {"rows": [screen.coin_row(c, LV, 10.0, liquid, {}) for c in coins]}
+    for k in range(6):                                   # the same view in six reads that day
+        an.log_shadows([{"coin": "ETH", "lean": "short"}], now + k * 7200, table)
+    assert len(store.picks(origin="random")) == 1

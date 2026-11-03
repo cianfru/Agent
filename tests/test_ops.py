@@ -111,3 +111,49 @@ def test_a_backup_is_a_whole_copy(tmp_path):
     store.backup(str(tmp_path / "copy.db"))
     assert Store(str(tmp_path / "copy.db")).picks(origin="read")[0]["coin"] == "SOL"
     assert os.path.getsize(tmp_path / "copy.db") > 0
+
+
+def test_a_post_is_claimed_once(tmp_path):
+    store = Store(str(tmp_path / "t.db"))
+    pid = store.add_post("persona", "text", "draft")
+    assert store.claim_post(pid) and not store.claim_post(pid)          # a second tap finds it being sent
+    assert store.get_post(pid)["status"] == "posting"
+
+
+def test_a_failed_backup_leaves_no_file_and_is_tried_again(tmp_path, monkeypatch):
+    from synth import api
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    a = service.Agent(s, Store(s.db_path))
+    calls = []
+
+    def broken(path):
+        calls.append(path)
+        open(path, "wb").close()
+        raise OSError("disk full")
+
+    monkeypatch.setattr(a.store, "backup", broken)
+    api._daily_backup(a)
+    api._daily_backup(a)
+    assert len(calls) == 2 and not os.listdir(tmp_path / "backups")    # nothing kept, tried again
+    monkeypatch.undo()
+    api._daily_backup(a)
+    assert [f for f in os.listdir(tmp_path / "backups") if f.endswith(".db")]
+
+
+def test_a_read_he_asked_for_while_one_ran_follows_unless_that_one_reached_him(tmp_path, monkeypatch):
+    import json as _json
+    from tests.test_analyst import READ, make, seed
+    from tests.test_chat import response, text_block
+    agent, sent = make(tmp_path, monkeypatch, [response([text_block(_json.dumps({**READ, "send": False}))]),
+                                               response([text_block(_json.dumps(READ))])])
+    now = time.time()
+    seed(agent.store, now)
+
+    async def go():
+        agent.analyst.pending_ask = True                 # he asked while a market read was running
+        await agent.analyst.run("market changed", now)
+        await asyncio.gather(*agent.analyst._tasks)
+
+    asyncio.run(go())
+    reasons = [b["body"]["reason"] for b in agent.store.briefs_since("read", 0)]
+    assert reasons == ["market changed", "asked"] and len(sent) == 1   # the held-back read did not reach him
