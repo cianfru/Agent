@@ -82,15 +82,23 @@ def _daily_backup(agent: Agent, keep: int = 7) -> None:
     name = os.path.join(folder, time.strftime("outrider-%Y%m%d.db", time.gmtime()))
     if os.path.exists(name):
         return
+    tmp = name + ".tmp"
     try:
         os.makedirs(folder, exist_ok=True)
-        agent.store.backup(name)
-        for old in sorted(f for f in os.listdir(folder) if f.startswith("outrider-"))[:-keep]:
+        agent.store.backup(tmp)
+        os.replace(tmp, name)                 # only a finished copy takes the day's name
+        done = sorted(f for f in os.listdir(folder) if f.startswith("outrider-") and f.endswith(".db"))
+        for old in done[:-keep]:
             os.remove(os.path.join(folder, old))
         agent.mark("backup", True)
     except Exception as e:  # noqa: BLE001 - tried again the next poll
         log.warning("backup failed: %s", e)
         agent.mark("backup", False, e)
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
 
 
 async def _fill_market_gap(agent: Agent) -> None:

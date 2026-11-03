@@ -421,7 +421,8 @@ def journal_chart(picks: list[dict], bar: dict, since: float, label: str = "Setu
     mx.set_xlim(0, xmax)
     mx.set_ylabel("3-day move %", color=MUTED, fontsize=9)
     mx.set_xlabel("setup", color=MUTED, fontsize=9)
-    met = len(got) >= bar["n"] and right[-1] >= bar["right_pct"] and med[-1] >= bar["median_pct"]
+    from .journal import meets
+    met = meets(len(got), sum(p["ret_3d"] > 0 for p in got), statistics.median(p["ret_3d"] for p in got), bar)
     fig.text(0.03, 0.955, f"{label}: {len(got)} scored", color=TEXT, fontsize=13, fontweight="bold", va="center")
     fig.text(0.03, 0.905, "Meets the declared bar" if met else "Context, not a signal: under the declared bar",
              color=UP if met else MUTED, fontsize=9, va="center")

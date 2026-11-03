@@ -22,8 +22,9 @@ def test_record_by_kind_with_longs_shorts_and_the_market_apart(tmp_path):
     s3 = read["h"]["3d"]
     assert (s3["n"], s3["right"], s3["median_pct"]) == (4, 2, 0.5)
     # against the market: shorts made 4% and 3% while shorting the basket made 5%; the longs lost less than it, once
-    assert s3["short"]["vs_market"] == {"n": 2, "right": 0, "right_pct": 0, "median_pct": -1.5}
-    assert s3["long"]["vs_market"] == {"n": 2, "right": 1, "right_pct": 50, "median_pct": 0.0}
+    drop = lambda d: {k: v for k, v in d.items() if k != "median"}    # noqa: E731  (the unrounded median, for the bar)
+    assert drop(s3["short"]["vs_market"]) == {"n": 2, "right": 0, "right_pct": 0, "median_pct": -1.5}
+    assert drop(s3["long"]["vs_market"]) == {"n": 2, "right": 1, "right_pct": 50, "median_pct": 0.0}
     assert journal.text(rows[:1]).splitlines() == [
         "Outrider's setups (since 3 Nov): 4 since " + read["since"] + " (2 long, 2 short)",
         "  3d: 2 of 4 right (50%), median +0.5%; beat the market 1 of 4 (25%), median -1.5%",

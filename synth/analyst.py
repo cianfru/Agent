@@ -408,21 +408,22 @@ def risk_frame(cur: dict, coin: str, side: str, name: str | None) -> dict | None
     """The view's risk in code: the price, where it is wrong (the level the model named when the coin has it on the
     wrong side of the price, else the screen's own), the next level the other way, the room over the risk, and the
     coin's z-score and band state."""
-    row, frame = None, None
+    row, frame, at = None, None, {}
+    for r in (cur.get("direction") or []) + (cur.get("coins") or []):    # a scan row carries both sides' frames
+        if r["coin"] == coin and r.get("screen"):
+            row = r
+            frame = {k: v for k, v in r["screen"][side].items() if k in ("off", "next", "room_over_risk")}
+            at = r["screen"].get("at") or {}
+            break
     for c in cur.get("candidates") or []:
         if c["coin"] == coin:
-            row = c
             if c["side"] == side:
-                frame = {k: c[k] for k in ("off", "next", "room_over_risk") if c.get(k)}
+                row, frame = c, {k: c[k] for k in ("off", "next", "room_over_risk") if c.get(k)}
+            elif frame is None:                # the other side of a candidate: its frame from the same levels
+                row, frame = c, {k: v for k, v in screen.frame(c, side, None).items()
+                                 if k in ("off", "next", "room_over_risk")}
             at = levels_at(c)
             break
-    else:
-        for r in (cur.get("direction") or []) + (cur.get("coins") or []):
-            if r["coin"] == coin and r.get("screen"):
-                row = r
-                frame = {k: v for k, v in r["screen"][side].items() if k in ("off", "next", "room_over_risk")}
-                at = r["screen"].get("at") or {}
-                break
     if row is None:
         return None
     price = row.get("price")
@@ -435,7 +436,9 @@ def risk_frame(cur: dict, coin: str, side: str, name: str | None) -> dict | None
         out.pop("room_over_risk", None)
         if nxt and out["off"]["pct"]:
             out["room_over_risk"] = round(abs(nxt["pct"]) / abs(out["off"]["pct"]), 1)
-    z = (row.get("engine") or {}).get("z_daily", row.get("z_1d"))
+    eng = row.get("engine")                    # a dict on scan rows, the engine's word on candidates
+    z = eng.get("z_daily") if isinstance(eng, dict) else None
+    z = row.get("z_1d") if z is None else z
     if z is not None:
         out["z"] = z
     st = (row.get("band") or {}).get("state") or (((row.get("trend") or {}).get("bull_market_support_band") or {})
@@ -784,6 +787,8 @@ class Analyst:
         self.quiet = quiet_hours(quiet)
         self.client = client or anthropic.Anthropic(timeout=120, max_retries=1)   # a slow day never stalls the poll
         self.busy = False                     # a read is running: the poll and /read do not start a second
+        self.pending_ask = False              # he asked (/read) while one ran: his comes after unless that one reached him
+        self._tasks: set = set()
 
     # ------------------------------------------------------------- schedule --
     def spent_today(self, now: float | None = None) -> float:
@@ -841,10 +846,25 @@ class Analyst:
     async def run(self, reason: str, now: float | None = None, cur: dict | None = None,
                   ch: list[dict] | None = None, force_send: bool = False) -> dict:
         self.busy = True
+        delivered = False
         try:
-            return await self._run(reason, now, cur, ch, force_send)
+            out = await self._run(reason, now, cur, ch, force_send)
+            delivered = bool(out.get("delivered"))
+            return out
         finally:
             self.busy = False
+            if self.pending_ask:
+                self.pending_ask = False
+                if not delivered:             # the read that ran did not reach him: the one he asked for runs now
+                    t = asyncio.get_running_loop().create_task(self._asked())
+                    self._tasks.add(t)
+                    t.add_done_callback(self._tasks.discard)
+
+    async def _asked(self) -> None:
+        try:
+            await self.run("asked", force_send=True)
+        except Exception as e:  # noqa: BLE001 - logged; he can ask again
+            log.warning("the read he asked for failed: %s", e)
 
     async def _run(self, reason: str, now: float | None, cur: dict | None, ch: list[dict] | None,
                    force_send: bool) -> dict:
@@ -870,26 +890,36 @@ class Analyst:
                     await notify.push(self.agent.s, self.store, f"The morning read failed three times "
                                       f"({type(e).__name__}). /read tries again.", "read", must=True)
             raise
-        out = self.clean(out, cur)
-        send = bool(out["send"]) or reason == "morning" or force_send
-        held = self.store.count_briefs("push_held", now - DAY) if reason == "morning" else 0
-        text = format_read(out, now, rec if reason == "morning" else None, held, reason, ch,
-                           board_text(cur) if reason == "morning" else "")
+        try:
+            out = self.clean(out, cur)
+            send = bool(out["send"]) or reason == "morning" or force_send
+            held = self.store.count_briefs("push_held", now - DAY) if reason == "morning" else 0
+            text = format_read(out, now, rec if reason == "morning" else None, held, reason, ch,
+                               board_text(cur) if reason == "morning" else "")
+        except Exception as e:  # noqa: BLE001 - after the paid call: its cost and the error are kept all the same
+            log.warning("read failed after the model answered: %s", e)
+            self.store.add_brief("read", {"reason": reason, "sent": False, "error": f"after the answer: {e}"[:300],
+                                          "cost": round(cost, 4)})
+            raise
         logged = self.log_views(out["views"], now, reason, cur) if send else []
         if send:
             try:
                 table = await asyncio.to_thread(screen.build, self.agent, now)
-                self.log_shadows(out["views"], now, table)
+                done = {(p["coin"], p["direction"]) for p in self.store.picks(limit=10, origin="read", since=now - 60)
+                        if p["id"] in logged}
+                self.log_shadows([v for v in out["views"] if (v["coin"], v["lean"]) in done], now, table)
             except Exception as e:  # noqa: BLE001 - the controls never hold up a read
                 log.warning("shadow picks failed: %s", e)
         self.store.put_snapshot("read_scan", cur)
         self.store.add_brief("read", {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4),
                                       "changes": [c["text"] for c in ch], "logged": logged})
+        msg = None
         if send:   # a read he asked for answers him: it does not count against the unprompted messages
             pngs = await self.pictures(out["views"], now, reason)
-            await notify.push(self.agent.s, self.store, text, "read", must=reason == "morning" or force_send,
-                              reply=reason == "asked", pngs=pngs)
-        return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged}
+            msg = await notify.push(self.agent.s, self.store, text, "read", must=reason == "morning" or force_send,
+                                    reply=reason == "asked", pngs=pngs)
+        return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged,
+                "delivered": msg is not None}
 
     async def pictures(self, views: list[dict], now: float, reason: str) -> list[bytes]:
         """The read's pictures, sent with it as one message: each setup on its daily chart, and on the morning read the
@@ -1056,6 +1086,8 @@ class Analyst:
         rows = [r for r in table.get("rows") or [] if not r.get("thin") and r.get("price")]
         recent = {(p["origin"], p["coin"], p["direction"]) for o in ("screen", "random")
                   for p in self.store.picks(limit=500, origin=o, since=now - REPEAT_S)}
+        matched = {((p.get("state") or {}).get("matched_to"), p["direction"])
+                   for p in self.store.picks(limit=500, origin="random", since=now - REPEAT_S)}
         ids: list[int] = []
 
         def log_one(origin: str, coin: str, side: str, state: dict) -> None:
@@ -1069,9 +1101,12 @@ class Analyst:
         for i, c in enumerate(screen.candidates(table)[:2]):
             log_one("screen", c["coin"], c["side"], {"rank": i + 1, "score": c["score"], "why": c["why"][:4],
                                                      "risk": {k: c[k] for k in ("off", "next") if c.get(k)}})
-        rng = random.Random(int(now))
-        for v in views:
+        for v in views:                          # one control per logged view, like the view, once a day
+            if (v["coin"], v["lean"]) in matched:
+                continue
             pool = [r["coin"] for r in rows if r["coin"] != v["coin"]]
             if pool:
+                rng = random.Random(f"{int(now) // 3600}:{v['coin']}:{v['lean']}")
                 log_one("random", rng.choice(pool), v["lean"], {"matched_to": v["coin"]})
+                matched.add((v["coin"], v["lean"]))
         return ids
