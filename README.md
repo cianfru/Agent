@@ -162,7 +162,7 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
   deeper), `SYNTH_READ_EFFORT` (default `medium`), `SYNTH_READ_DAILY_USD` (default 0.5; the morning read still goes
-  out), `SYNTH_READS_PER_DAY` (default 6 sent). About 2 to 3 cents a read on Sonnet 5.5 (a prompt of about 4,000
+  out), `SYNTH_READS_PER_DAY` (default 3 sent: the morning read and at most two more). About 2 to 3 cents a read on Sonnet 5.5 (a prompt of about 4,000
   tokens). `/read` asks for one now; `/cost` shows talking and reads.
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
@@ -174,7 +174,7 @@ The brief has three short sections and is under 15 lines:
 - **Hyperliquid today:** where profitable traders are opening. Convergences from the last 24 hours come first, fastest at the top, then the busiest coins by new opens. Built in code.
 - **Open groups:** smart traders who converged and are still in, with how many are still in, their entry range, the price now, and the losing line. Built in code; there is no model in the brief.
 
-Only smart-money events ping you: convergences, big single-wallet moves, smart-cohort flips, the same move on both venues, and the crowded-market warning. There are at most 2 alerts per poll and `SYNTH_MAX_ALERTS_PER_DAY` (default 6) per 24 hours. Engine signals, skew shifts and Reflex's anomalies and setups only show on the dashboard and in the pulse.
+What pings Telegram (owner, 3 November 2026: only essential and important updates): the reads (the morning read, a read when a group turns against one of your positions, at most two more a day), conviction bets of proven traders, and updates on groups you follow. `SYNTH_PUSH` lists the alert kinds that ping (default `conviction`; add `build`, `smart`, `group`). A muted kind is still logged, scored, shown on the dashboard and read by Outrider. With `smart` on there are at most 2 alerts per poll and `SYNTH_MAX_ALERTS_PER_DAY` (default 6) per 24 hours.
 
 Reflex flags a convergence when 2+ profitable traders open the same side within 24 hours. The agent alerts only on fast ones, where all the opens came within `SYNTH_FAST_CONVERGENCE_HOURS` (default 6). Slower ones stay on the dashboard and in the pulse but don't ping you.
 
@@ -213,6 +213,8 @@ It posts and never replies; it never says what happens next (`synth/persona.py`)
 - **Checks in code:** at most 270 characters; no forecast or advice words, emojis, hashtags, links, addresses or other
   @mentions; never "Reflex" or "Larsson"; @derivexyz exactly once on Cowboy stories; every number must appear in the
   facts. A failing draft is retried once with the problems, then kept as rejected.
+- **Off for now** (owner, 3 November 2026): no X drafts (persona posts, the daily desk post, the Monday scorecard)
+  unless `SYNTH_X_DRAFTS=on`.
 - **Drafts on Telegram** at `SYNTH_PERSONA_HOURS_UTC` (default 9, 13, 17, 21; empty disables), with **Post** (published
   through Orbio) and **Skip**; reply to a draft with new text to replace it (checked the same way, except the numbers);
   `/draft` makes one now. `SYNTH_PERSONA_MODE=live` publishes without asking: only once the drafts have earned it.

@@ -406,7 +406,8 @@ class PositionTraders:
             self.store.set_pick_conviction(pick_id, 2)
         if self.store.count_briefs("pt_alert", time.time() - 86400) >= MAX_ALERTS_PER_DAY:
             return 1
-        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, conviction_text(t, p, lev))
+        if "conviction" in self.s.pushes:
+            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, conviction_text(t, p, lev))
         self.store.add_brief("pt_alert", {"address": t["address"], "coin": p["coin"], "side": p["side"],
                                           "value": round(p["value"]), "lev": round(lev, 1) if lev is not None else None,
                                           "x": round(p["value"] / t["median_size"], 1) if t.get("median_size") else None,
@@ -465,7 +466,8 @@ class PositionTraders:
             text = build_text({"coin": b["coin"], "side": b["side"], "traders": b["strong_adders"],
                                "added_usd": b["net_usd"], "move": move, "held_usd": held.get((b["coin"], b["side"])),
                                "against_usd": held.get((b["coin"], other)), "big_money": self.big_money().get(b["coin"])})
-            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+            if "build" in self.s.pushes:
+                await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
             self.store.add_brief("pt_build", {"key": key, "text": text, "coin": b["coin"], "side": b["side"],
                                               "traders": b["strong_adders"], "added_usd": b["net_usd"], "move": move})
             sent += 1

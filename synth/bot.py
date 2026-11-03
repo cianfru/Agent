@@ -6,7 +6,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /now        the live pulse: what smart traders opened and closed in the last 1h, 6h and 24h
   /positions  what the proven position traders hold now, by coin
   /help       what each alert means and the words in them
-  /draft      one of Outrider's X posts now, as a draft (Post or Skip; reply to a draft to change its text)
+  /draft      one of Outrider's X posts now, as a draft (off the menu while X drafts are off)
   /read       Outrider's read of the market now;  /record  how its past views did
   /watch      the watch list, or /watch ENA long 0.09 5k to add;  /unwatch ENA  to take it off
   /reset      start the conversation afresh;  /cost  what talking and reads have cost today
@@ -27,13 +27,16 @@ log = logging.getLogger(__name__)
 HELP = """Outrider watches profitable traders on Hyperliquid and Derive's options, and tells you what it makes of them.
 Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position).
 
-Reads
-Every morning, and when something worth your attention changes, I send my read: what I see, what I'd do with your positions and your watch list, and up to two views. Each view is scored after 1, 3 and 7 days; /record shows how they did. Nothing changed, no message.
+What I send you
+My morning read: what I see, what I'd do with your positions and watch list, and up to two views (each scored after 1, 3 and 7 days; /record shows how they did).
+A read when a group turns against one of your positions, and at most two more a day when the market really changes.
+Conviction: a proven trader opens a position at least 2x their usual size.
+Updates on groups you follow.
 
-Alerts
-Conviction: a tracked trader opens a position at least 2x their usual size.
+What I keep without pinging (in my reads, the dashboard and /record)
 Building: 3+ tracked traders add to one coin within 3 days while its price hardly moved.
-Group: several profitable traders open the same coin and side together. Tap Follow to hear as each one closes.
+Group: several profitable traders open the same coin and side together.
+Smart-money events and toxic flow.
 
 Words
 Proven: 5+ trades held 3+ days, in profit, winning at least $1.5 for every $1 lost.
@@ -51,7 +54,6 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /positions  what tracked traders hold
 /following  groups you follow
 /groups  latest groups
-/draft  an Outrider post for X now, as a draft
 /reset  start our conversation afresh
 /cost  what talking and reads have cost today"""
 
@@ -63,7 +65,6 @@ COMMANDS = [{"command": "read", "description": "Outrider's read of the market no
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
             {"command": "groups", "description": "Latest groups"},
-            {"command": "draft", "description": "An Outrider post for X, as a draft"},
             {"command": "reset", "description": "Start the conversation afresh"},
             {"command": "cost", "description": "What talking and reads have cost today"},
             {"command": "help", "description": "What the alerts and their words mean"}]

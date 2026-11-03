@@ -135,7 +135,8 @@ def test_agent_toxic_alert_once_and_only_when_aligned(tmp_path, monkeypatch):
         sent.append(text)
 
     monkeypatch.setattr(notify, "telegram", fake)
-    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1")
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1",
+                 pushes=frozenset({"conviction", "build", "smart", "group"}))
     agent = offline(service.Agent(s, Store(s.db_path)))
     assert asyncio.run(agent._toxic_alerts(TOXIC, set())) == 1  # PUMP (aligned, 74%); ZEC not aligned
     assert sent[0].startswith("PUMP: toxic buying flow")

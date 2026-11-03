@@ -268,6 +268,10 @@ class GroupTracker:
 
     # ------------------------------------------------------------ announce --
     async def _announce(self, g: dict, snaps: dict, mids: dict) -> None:
+        if "group" not in self.s.pushes:                     # muted: recorded and read by Outrider, no ping
+            self.store.update_group(g["id"], alerted=1)
+            self.store.add_brief("alert_sent", {"group_id": g["id"], "muted": True})
+            return
         members = self.store.members(g["id"])
         now_px = self._price(g, snaps, mids)
         text = G.caption(g, members, now_px)

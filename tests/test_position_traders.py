@@ -36,7 +36,8 @@ def setup(tmp_path, monkeypatch, books=None):
         sent.append(text)
 
     monkeypatch.setattr(notify, "telegram", fake)
-    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1")
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1",
+                 pushes=frozenset({"conviction", "build", "smart", "group"}))
     store = Store(s.db_path)
     hl = FakeHL(books)
     return PositionTraders(s, store, seed=SEED, hl=hl), store, hl, sent
@@ -99,6 +100,13 @@ def test_build_up_alert_when_three_traders_add_to_one_coin_and_price_is_flat(tmp
                       "$360K long\nAgainst: $0 short among tracked traders\nContext, not a signal."]
     asyncio.run(pt.step(now=now + 3600, mids={"GRASS": 0.62}))
     assert len([m for m in sent if m.startswith("Building")]) == 1    # cooldown
+
+    # muted (the default: only conviction bets ping): the build-up is still recorded for Outrider's reads
+    pt.s = Settings(db_path=pt.s.db_path)
+    store._db.execute("DELETE FROM briefs WHERE kind='pt_build'")
+    sent.clear()
+    asyncio.run(pt.step(now=now + 7200, mids={"GRASS": 0.62}))
+    assert not sent and store.latest_brief("pt_build")["coin"] == "GRASS"
 
 
 def test_no_build_up_alert_on_btc_or_eth(tmp_path, monkeypatch):
@@ -261,3 +269,12 @@ def test_daily_scan_flags_open_winners_in_small_accounts(tmp_path, monkeypatch):
     assert "winner" in cand["src"] and cand["live"]["positions"]["W"]["move"] == 2.0
     assert pt.refresh._due(1_790_000_000.0)[0] == S                 # read first by the refresh
     assert [w["coin"] for w in pt.open_winners(1_790_000_000.0)] == ["W"]
+
+
+def test_by_default_only_conviction_bets_ping_and_x_drafts_are_off(tmp_path, monkeypatch):
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    assert s.pushes == frozenset({"conviction"}) and not s.x_drafts and s.reads_per_day == 3
+    monkeypatch.setenv("SYNTH_PUSH", "Conviction, build")
+    monkeypatch.setenv("SYNTH_X_DRAFTS", "on")
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    assert s.pushes == frozenset({"conviction", "build"}) and s.x_drafts

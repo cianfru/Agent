@@ -256,3 +256,22 @@ def test_a_read_fills_the_engine_for_coins_the_feed_leaves_short(tmp_path, monke
     sui = next(r for r in json.loads(task.split("<scan>\n")[1].split("\n</scan>")[0])["coins"] if r["coin"] == "SUI")
     assert sui["engine"]["regime"] == "trending up" and sui["engine"]["heat"] == 82 and sui["engine"]["zscore"] == 1.71
     assert any("symbol=BTC" in p for p in agent.reflex.paths)            # BTC had no reading either: asked, 404, fine
+
+
+def test_his_position_comes_through_after_the_days_reads_are_used(tmp_path, monkeypatch):
+    agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))])], per_day=1)
+    now = time.time()
+    seed(agent.store, now)
+    agent.store.add_brief("read", {"reason": "morning", "sent": True})          # the day's one read is used
+    cur = analyst.scan(agent, now)
+    prev = json.loads(json.dumps(cur))
+    prev["market"]["crowd_long_pct"] = (cur["market"]["crowd_long_pct"] or 50) - 20      # the market moved a lot
+    prev["direction"][0]["price"] = cur["direction"][0]["price"] * 1.1
+    agent.store.put_snapshot("read_scan", prev)
+    later = now + 3 * 3600
+    reason, ch = agent.analyst.due(later, cur)
+    assert sum(c["w"] for c in ch) >= analyst.TRIGGER and reason is None   # a market change waits for tomorrow ...
+    prev["my_positions"][0]["against"] = []
+    agent.store.put_snapshot("read_scan", prev)
+    reason, ch = agent.analyst.due(later, cur)
+    assert reason == "your position"                    # ... a group turning against his SUI long does not
