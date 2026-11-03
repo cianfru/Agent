@@ -379,7 +379,10 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 
 | Route | |
 |---|---|
-| `GET /health` | Liveness and last poll stats (no auth) |
+| `GET /health` | Liveness and last poll stats (no auth); `?strict=1` answers 503 when the poll has stalled or Reflex has failed for 30 minutes, for an outside monitor |
+| `GET /status` | Every source and job: when it last worked, its last error, how old each reading is, Hyperliquid's weight budget |
+| `GET /backup` | A consistent copy of the database (the picks, the reads, the trader lists) |
+| `GET /map.png`, `/setup/{coin}.png`, `/journal.png` | The market map, a coin's setup chart, the record against S5's bar |
 | `GET /` | Dashboard |
 | `GET /pulse?hours=1` | Last hours' events by coin, with the pulse text |
 | `GET /board` | Smart money board: where the layers agree per coin |
@@ -404,6 +407,25 @@ browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/d
 | `POST /cycle` | Run one poll now |
 
 If `SYNTH_API_KEY` is set, every route except `/health` needs the header `X-API-Key`.
+
+## Keeping it running
+
+- **One Hyperliquid budget** (`synth/hyperliquid.py`): every read in the process (the poll, the trader refresh,
+  discovery, the levels, the market index, charts) draws on one weight budget of 900 a minute, under the info API's
+  1,200 per IP, so jobs that overlap never exceed it; a 429 pauses them all for half a minute.
+- **Status:** each source and job (Reflex, Derive, Hyperliquid, the levels refresh, discovery, the market index,
+  backups) keeps when it last worked and its last error. `/status` on Telegram and `GET /status` show them with the
+  age of every reading; a source down for two hours sends one message (counted against the daily cap), and none on
+  recovery. Point a free outside monitor (cron-job.org, as for Cowboy) at `GET /health?strict=1` to hear when the
+  service itself stops. Railway's deploy check keeps using the plain `/health`.
+- **Reads off the poll:** a read runs as its own task (the model's slowness never holds up the poll; client timeout 2
+  minutes, one retry), one at a time; `/read` while one runs says so. A morning read that fails three times says so
+  once. Telegram updates are handled as they come: a long answer never holds up a button or a command, and answers go
+  out in the order asked.
+- **Backups:** once a day a copy of the database goes beside it (`backups/outrider-YYYYMMDD.db`, the last 7 kept);
+  `GET /backup` takes one off the machine. The S5 record, the reads and the trader lists cannot be rebuilt.
+- **Missed market hours:** when the agent was down for more than two hours, the market index fills the gap from
+  hourly candles, bent to land on the readings around it, so picks in the gap get their market move.
 
 ## Run
 

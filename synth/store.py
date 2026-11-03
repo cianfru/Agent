@@ -266,6 +266,18 @@ class Store:
             self._db.execute("DELETE FROM series WHERE ts<?", (before,))
             self._db.commit()
 
+    def backup(self, path: str) -> None:
+        """A consistent copy of the whole database at `path` (SQLite's online backup, under the write lock)."""
+        import os
+        if os.path.exists(path):
+            os.remove(path)
+        dst = sqlite3.connect(path)
+        try:
+            with self._lock:
+                self._db.backup(dst)
+        finally:
+            dst.close()
+
     def series_last_ts(self, source: str) -> float | None:
         row = self._db.execute("SELECT MAX(ts) AS t FROM series WHERE source=?", (source,)).fetchone()
         return row["t"] if row else None
@@ -424,6 +436,10 @@ class Store:
             self._db.executemany("INSERT OR REPLACE INTO market_index(ts, btc, basket) VALUES(?,?,?)", rows)
             self._db.commit()
 
+    def market_rows(self, since: float) -> list[dict]:
+        return [dict(r) for r in self._db.execute("SELECT * FROM market_index WHERE ts>=? ORDER BY ts",
+                                                  (since,)).fetchall()]
+
     def market_first(self) -> dict | None:
         r = self._db.execute("SELECT * FROM market_index ORDER BY ts LIMIT 1").fetchone()
         return dict(r) if r else None
@@ -524,9 +540,9 @@ class Store:
 
     def chat_history(self, chat_id: str, limit: int) -> list[dict]:
         """The conversation's last messages, oldest first (a /reset hides what came before)."""
-        rows = self._db.execute("SELECT role, text FROM chat_messages WHERE chat_id=? AND cleared=0 "
+        rows = self._db.execute("SELECT role, text, ts FROM chat_messages WHERE chat_id=? AND cleared=0 "
                                 "ORDER BY id DESC LIMIT ?", (str(chat_id), limit)).fetchall()
-        return [{"role": r["role"], "text": r["text"]} for r in reversed(rows)]
+        return [{"role": r["role"], "text": r["text"], "ts": r["ts"]} for r in reversed(rows)]
 
     def chat_reset(self, chat_id: str) -> None:
         with self._lock:

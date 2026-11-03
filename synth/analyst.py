@@ -783,6 +783,7 @@ class Analyst:
         self.per_day = per_day
         self.quiet = quiet_hours(quiet)
         self.client = client or anthropic.Anthropic(timeout=120, max_retries=1)   # a slow day never stalls the poll
+        self.busy = False                     # a read is running: the poll and /read do not start a second
 
     # ------------------------------------------------------------- schedule --
     def spent_today(self, now: float | None = None) -> float:
@@ -839,6 +840,14 @@ class Analyst:
     # ----------------------------------------------------------------- read --
     async def run(self, reason: str, now: float | None = None, cur: dict | None = None,
                   ch: list[dict] | None = None, force_send: bool = False) -> dict:
+        self.busy = True
+        try:
+            return await self._run(reason, now, cur, ch, force_send)
+        finally:
+            self.busy = False
+
+    async def _run(self, reason: str, now: float | None, cur: dict | None, ch: list[dict] | None,
+                   force_send: bool) -> dict:
         now = now or time.time()
         if cur is None:
             cur = await asyncio.to_thread(scan, self.agent, now)
@@ -854,6 +863,12 @@ class Analyst:
             log.warning("read failed: %s", e)
             self.store.add_brief("read", {"reason": reason, "sent": False, "error": str(e)[:300],
                                           "cost": round(getattr(e, "cost", 0.0), 4)})
+            if reason == "morning":       # the third failed morning: say so once, instead of going quiet
+                failed = [b for b in self.store.briefs_since("read", _day_start(now))
+                          if b["body"].get("reason") == "morning" and b["body"].get("error")]
+                if len(failed) == 3:
+                    await notify.push(self.agent.s, self.store, f"The morning read failed three times "
+                                      f"({type(e).__name__}). /read tries again.", "read", must=True)
             raise
         out = self.clean(out, cur)
         send = bool(out["send"]) or reason == "morning" or force_send

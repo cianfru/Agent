@@ -51,6 +51,7 @@ class MarketIndex:
         self.ready = False
         self.building = False
         self.next_try = 0.0
+        self.gap_next_try = 0.0
 
     def coins(self) -> list[str]:
         return (self.store.get_snapshot("index_coins") or {}).get("coins") or []
@@ -80,8 +81,8 @@ class MarketIndex:
             hours: dict[float, dict[str, float]] = {}
             for c in dict.fromkeys(coins + ["BTC"]):
                 bars = await hl.candles(c, "1h", int((since - 2 * STEP_S) * 1000), int(end * 1000))
-                for t, _o, _h, _l, close in bars:
-                    hours.setdefault(t / 1000 + STEP_S, {})[c] = close
+                for b in bars:                      # [t, o, h, l, c, volume]: the close at the hour's end
+                    hours.setdefault(b[0] / 1000 + STEP_S, {})[c] = b[4]
                 await asyncio.sleep(pace_s)
             basket = {ts: {c: px for c, px in v.items() if c in coins} for ts, v in hours.items()}
             rows = [(ts, hours[ts].get("BTC"), level) for ts, level in chain(basket) if ts < end]
@@ -129,6 +130,64 @@ class MarketIndex:
         self.store.market_add([(now, mids.get("BTC"), level)])
         self.store.put_snapshot("index_mids", {"ts": now, "px": cur})
         return True
+
+    # ------------------------------------------------------------------- gaps --
+    def gap(self, now: float, window: float = 8 * 86400) -> tuple[float, float] | None:
+        """The latest stretch of the last 8 days with no reading for over two hours (the agent was down), not yet
+        filled: its picks would otherwise never get a market move."""
+        if not self.ready or self.building or now < self.gap_next_try:
+            return None
+        done = {tuple(x) for x in (self.store.get_snapshot("market_gaps_done") or {}).get("gaps") or []}
+        rows = self.store.market_rows(now - window)
+        for a, b in reversed(list(zip(rows, rows[1:]))):
+            if b["ts"] - a["ts"] > 2 * STEP_S + 600 and (a["ts"], b["ts"]) not in done:
+                return a["ts"], b["ts"]
+        return None
+
+    async def fill_gap(self, hl, now: float | None = None, pace_s: float = 0.5) -> int:
+        """Fill one gap from the basket's hourly candles: chain-linked from the reading before it and bent, evenly in
+        log terms, to end on the reading after it, so the kept readings are never changed. Returns the hours added."""
+        g = self.gap(now or time.time())
+        if not g:
+            return 0
+        t0, t1 = g
+        self.building = True
+        self.gap_next_try = (now or time.time()) + RETRY_S      # a failed fill waits half an hour
+        try:
+            a, b = self.store.market_near(t0, 60), self.store.market_near(t1, 60)
+            coins = self.coins()
+            await hl.mids()
+            hours: dict[float, dict[str, float]] = {}
+            for c in dict.fromkeys(coins + ["BTC"]):
+                try:
+                    bars = await hl.candles(c, "1h", int((t0 - STEP_S) * 1000), int(t1 * 1000))
+                except Exception as e:  # noqa: BLE001 - a coin missing leaves the rest
+                    log.warning("candles for %s failed: %s", c, e)
+                    continue
+                for bar in bars:
+                    hours.setdefault(bar[0] / 1000 + STEP_S, {})[c] = bar[4]
+                await asyncio.sleep(pace_s)
+            basket = {ts: {c: px for c, px in v.items() if c in coins} for ts, v in hours.items() if t0 - STEP_S
+                      <= ts <= t1 + STEP_S}
+            chained = chain(basket)
+            inside = [(ts, lvl) for ts, lvl in chained if t0 < ts < t1]
+            if not a or not b or not inside:     # chain() needs 10 coins priced in an hour to count it
+                raise RuntimeError("not enough candles to fill the gap")
+            start = next((lvl for ts, lvl in chained if ts <= t0 + STEP_S / 2 and ts >= t0 - STEP_S), chained[0][1])
+            end = next((lvl for ts, lvl in reversed(chained) if ts <= t1 + STEP_S / 2), chained[-1][1])
+            raw_end = (end / start) * a["basket"]
+            import math
+            bend = math.log(b["basket"] / raw_end) if raw_end else 0.0
+            rows = []
+            for ts, lvl in inside:
+                f = (ts - t0) / (t1 - t0)
+                rows.append((ts, hours.get(ts, {}).get("BTC"), a["basket"] * (lvl / start) * math.exp(bend * f)))
+            self.store.market_add(rows)
+            done = (self.store.get_snapshot("market_gaps_done") or {}).get("gaps") or []
+            self.store.put_snapshot("market_gaps_done", {"gaps": (done + [[t0, t1]])[-50:]})
+            return len(rows)
+        finally:
+            self.building = False
 
     # ------------------------------------------------------------------ moves --
     def move(self, t0: float, t1: float) -> float | None:

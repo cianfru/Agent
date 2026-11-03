@@ -94,7 +94,8 @@ months (5 downturns). Few cases: weigh it as the backdrop, never a reason alone.
 
 SYSTEM = """You are Outrider, the owner's private market agent. You watch crypto markets for him and answer his \
 questions in a Telegram chat. He built you and the products you read; talk to him like a sharp trading partner who \
-knows the data cold: direct, concise, no filler.
+knows the data cold: direct, concise, no filler. Each of his messages starts with its time in UTC: figures in your \
+earlier answers are as of their time, so call a tool before repeating one as current.
 
 What you can see (call the tools; never answer about the market from memory):
 - Reflex: profitable Hyperliquid traders (its roster: best monthly returns), how they are positioned per coin, and \
@@ -248,8 +249,12 @@ class Chat:
         history = self.store.chat_history(chat_id, HISTORY)
         while history and history[0]["role"] != "user":
             history.pop(0)
-        messages: list[dict] = [{"role": h["role"], "content": h["text"]} for h in history]
-        messages.append({"role": "user", "content": text})
+        # each question carries its time (in the message, not the system prompt, which stays cached): numbers in
+        # earlier answers are as of their time
+        stamp = lambda ts: time.strftime("[%a %d %b %H:%M UTC] ", time.gmtime(ts)) if ts else ""   # noqa: E731
+        messages: list[dict] = [{"role": h["role"], "content": (stamp(h.get("ts")) if h["role"] == "user" else "")
+                                 + h["text"]} for h in history]
+        messages.append({"role": "user", "content": stamp(now) + text})
         system = self._system()
         cost, answer = 0.0, ""
         spent = self.spent_today(now)

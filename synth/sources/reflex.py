@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections import OrderedDict
 from typing import Any
 
 import httpx
@@ -34,6 +35,7 @@ import httpx
 log = logging.getLogger(__name__)
 
 TOP_COINS = 40  # coins kept in the snapshot, by number of smart traders positioned
+PER_COIN = ("/api/scan/row", "/api/hyperlens/opens/", "/api/chart/")   # bodies kept only for the latest coins
 
 
 # The parts of a scan row a read or an answer uses (the full row also carries the conditions, setups and positioning).
@@ -53,6 +55,7 @@ class ReflexClient:
         self.token = token
         self.http = client or httpx.AsyncClient(timeout=30)
         self._etag: dict[str, tuple[str, Any]] = {}
+        self._per_coin: OrderedDict[str, None] = OrderedDict()   # per-coin paths, oldest first
 
     async def login(self) -> None:
         if not self.code:
@@ -62,12 +65,14 @@ class ReflexClient:
             raise ReflexAuthError(f"Reflex login failed: HTTP {r.status_code}")
         self.token = r.json().get("token") or ""
 
-    async def get(self, path: str) -> Any:
+    async def get(self, path: str, cache: bool = True) -> Any:
+        """GET with the stored ETag (a 304 costs Reflex almost no egress). `cache=False` for a body that changes on
+        every call (the chart): nothing is kept. Per-coin bodies are kept for the last 64 coins asked."""
         if not self.token and self.code:
             await self.login()
         for attempt in (0, 1):
             headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
-            cached = self._etag.get(path)
+            cached = self._etag.get(path) if cache else None
             if cached:
                 headers["If-None-Match"] = cached[0]
             r = await self.http.get(f"{self.base}{path}", headers=headers)
@@ -80,8 +85,13 @@ class ReflexClient:
                 raise ReflexAuthError("Reflex rejected the token (401)")
             r.raise_for_status()
             body = r.json()
-            if et := r.headers.get("etag"):
+            if cache and (et := r.headers.get("etag")):
                 self._etag[path] = (et, body)
+                if path.startswith(PER_COIN):
+                    self._per_coin[path] = None
+                    self._per_coin.move_to_end(path)
+                    while len(self._per_coin) > 64:
+                        self._etag.pop(self._per_coin.popitem(last=False)[0], None)
             return body
         raise ReflexAuthError("unreachable")
 
@@ -202,7 +212,7 @@ async def chart_patterns(rc: ReflexClient, coin: str, now: float | None = None) 
     import time
     now = now or time.time()
     try:
-        body = await rc.get(f"/api/chart/{coin.upper()}-USDT?timeframe=1d&limit=60")
+        body = await rc.get(f"/api/chart/{coin.upper()}-USDT?timeframe=1d&limit=60", cache=False)   # changes each call
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (404, 422):
             return []

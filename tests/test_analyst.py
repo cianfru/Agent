@@ -227,7 +227,7 @@ class FakeReflex:
     def __init__(self):
         self.paths = []
 
-    async def get(self, path):
+    async def get(self, path, cache=True):
         import httpx
         self.paths.append(path)
         if path.startswith("/api/chart/"):

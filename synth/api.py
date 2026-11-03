@@ -40,7 +40,8 @@ async def _loop(agent: Agent) -> None:
         try:
             await agent.cycle()
             if agent.analyst:
-                await _maybe_read(agent)          # the reasoned read replaces the code-built brief and pulse
+                if not agent.analyst.busy:        # its own task: a slow model never stalls the poll
+                    _spawn(_maybe_read(agent))
             else:
                 await _maybe_daily_brief(agent)
                 await _maybe_pulse(agent)
@@ -49,14 +50,62 @@ async def _loop(agent: Agent) -> None:
                 await _maybe_persona(agent)
             await _maybe_reflex_history(agent)
             if agent.positions.enabled and agent.positions.discover_due():
-                asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
+                _spawn(_discover(agent))          # daily, in the background (about 15 minutes)
             if agent.market.due(time.time()):
-                asyncio.create_task(_rebuild_market(agent))   # once: the market's hours back to the first pick
+                _spawn(_rebuild_market(agent))    # once: the market's hours back to the first pick
+            elif agent.market.gap(time.time()):
+                _spawn(_fill_market_gap(agent))   # hours missed while the agent was down
             if agent.levels.refresh_due(time.time()):
-                asyncio.create_task(_refresh_levels(agent))   # daily: every liquid coin's levels for the screen
+                _spawn(_refresh_levels(agent))    # daily: every liquid coin's levels for the screen
+            await asyncio.to_thread(_daily_backup, agent)
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
+
+
+TASKS: set = set()      # background jobs, kept referenced so none is collected mid-run
+
+
+def _spawn(coro) -> None:
+    t = asyncio.create_task(coro)
+    TASKS.add(t)
+    t.add_done_callback(TASKS.discard)
+
+
+def _daily_backup(agent: Agent, keep: int = 7) -> None:
+    """Once a day, a copy of the database beside it (backups/outrider-YYYYMMDD.db, the last 7 kept): the picks and
+    reads cannot be rebuilt. GET /backup takes one off the machine."""
+    db = agent.s.db_path
+    if not db or db == ":memory:":
+        return
+    folder = os.path.join(os.path.dirname(os.path.abspath(db)), "backups")
+    name = os.path.join(folder, time.strftime("outrider-%Y%m%d.db", time.gmtime()))
+    if os.path.exists(name):
+        return
+    try:
+        os.makedirs(folder, exist_ok=True)
+        agent.store.backup(name)
+        for old in sorted(f for f in os.listdir(folder) if f.startswith("outrider-"))[:-keep]:
+            os.remove(os.path.join(folder, old))
+        agent.mark("backup", True)
+    except Exception as e:  # noqa: BLE001 - tried again the next poll
+        log.warning("backup failed: %s", e)
+        agent.mark("backup", False, e)
+
+
+async def _fill_market_gap(agent: Agent) -> None:
+    from .hyperliquid import HL
+    hl = HL()
+    try:
+        n = await agent.market.fill_gap(hl, time.time())
+        if n:
+            log.info("market index: %d missed hours filled", n)
+        agent.mark("market index", True)
+    except Exception as e:  # noqa: BLE001 - tried again later
+        log.warning("market gap fill failed: %s", e)
+        agent.mark("market index", False, e)
+    finally:
+        await hl.aclose()
 
 
 async def _maybe_read(agent: Agent) -> None:
@@ -91,10 +140,14 @@ async def _refresh_levels(agent: Agent) -> None:
         extra = [w["coin"] for w in agent.store.watch_list()] + screen.trader_coins(agent, time.time())
         n = await agent.levels.refresh_all(hl, agent.levels.universe(extra))
         log.info("levels read for %d coins", n)
+        st = agent.store.get_snapshot("levels_refresh") or {}
+        agent.mark("levels refresh", bool(st.get("day")), None if st.get("day") else
+                   f"{st.get('errors')} of {st.get('tried')} coins failed")
         if (agent.store.get_snapshot("levels_refresh") or {}).get("day"):
             await asyncio.to_thread(screen.log_day, agent)        # the day's screen, kept for a later test of it
-    except Exception:  # noqa: BLE001 - tried again later
+    except Exception as e:  # noqa: BLE001 - tried again later
         log.exception("levels refresh failed")
+        agent.mark("levels refresh", False, e)
     finally:
         await hl.aclose()
 
@@ -113,9 +166,11 @@ async def _rebuild_market(agent: Agent) -> None:
 async def _discover(agent: Agent) -> None:
     try:
         await agent.positions.discover()
-    except Exception:  # noqa: BLE001 - tried again the next day
+        agent.mark("discovery", True)
+    except Exception as e:  # noqa: BLE001 - tried again the next day
         log.exception("trader discovery failed")
         agent.positions.discovering = False
+        agent.mark("discovery", False, e)
 
 
 async def _maybe_daily_brief(agent: Agent) -> None:
@@ -242,8 +297,36 @@ def pulse(hours: float = 4, min_score: float = 0):
 
 
 @app.get("/health")
-def health():
-    return {"ok": True, "llm": bool(agent.synth), "reflex": bool(agent.reflex), "last_cycle": agent.last_cycle}
+def health(strict: bool = False):
+    """Liveness for Railway's deploy check (always 200 while the app answers). `?strict=1` for an outside monitor
+    (cron-job.org can email on failure): 503 when the poll has stalled or Reflex has failed for 30 minutes."""
+    ok, problems = agent.healthy()
+    body = {"ok": ok, "problems": problems, "llm": bool(agent.synth), "reflex": bool(agent.reflex),
+            "last_cycle": agent.last_cycle}
+    if strict and not ok:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(body, status_code=503)
+    return body
+
+
+@app.get("/status", dependencies=[Depends(auth)])
+def status():
+    """Every source and job: when it last worked, its last error, how old each reading is, Hyperliquid's budget."""
+    return agent.status()
+
+
+@app.get("/backup", dependencies=[Depends(auth)])
+def backup():
+    """A consistent copy of the database (the picks, the reads, the trader lists): what cannot be rebuilt."""
+    import tempfile
+    from fastapi.responses import FileResponse as FR
+    from starlette.background import BackgroundTask
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    agent.store.backup(path)
+    name = time.strftime("outrider-%Y%m%d-%H%M.db", time.gmtime())
+    return FR(path, media_type="application/octet-stream", filename=name,
+              background=BackgroundTask(lambda: os.path.exists(path) and os.remove(path)))
 
 
 @app.get("/events", dependencies=[Depends(auth)])

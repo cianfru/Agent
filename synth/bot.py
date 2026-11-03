@@ -16,6 +16,7 @@ Any other message is a question for Outrider (synth/chat.py), answered from the 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 
@@ -60,7 +61,8 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /groups  latest groups
 /reset  start our conversation afresh
 /cost  what talking and reads have cost today, and messages sent
-/held  messages the daily cap of unprompted messages held back"""
+/held  messages the daily cap of unprompted messages held back
+/status  is everything running: sources, jobs, data age"""
 
 MINE = ("Brief me on my positions and my watch list: for each, where it stands (price against my entry and the levels "
         "that matter), who is on which side and what changed lately. The picture, no instructions.")
@@ -80,6 +82,7 @@ COMMANDS = [{"command": "read", "description": "Outrider's read of the market no
             {"command": "reset", "description": "Start the conversation afresh"},
             {"command": "cost", "description": "What talking and reads have cost today"},
             {"command": "held", "description": "Messages the daily cap held back"},
+            {"command": "status", "description": "Is everything running"},
             {"command": "help", "description": "What the alerts and their words mean"}]
 
 
@@ -154,6 +157,9 @@ async def handle(agent, update: dict) -> None:
         await notify.telegram(s.telegram_token, chat, "I read text messages (a picture with a question as its caption "
                                                       "works too).")
         return
+    if cmd == ["/status"]:
+        await notify.telegram(s.telegram_token, chat, status_text(agent))
+        return
     if cmd == ["/held"]:
         await notify.telegram(s.telegram_token, chat, notify.held_text(store))
         return
@@ -181,6 +187,9 @@ async def handle(agent, update: dict) -> None:
     if cmd == ["/read"]:
         if not agent.analyst:
             await notify.telegram(s.telegram_token, chat, "Reads are off: no ANTHROPIC_API_KEY, or SYNTH_READS=off.")
+            return
+        if agent.analyst.busy:
+            await notify.telegram(s.telegram_token, chat, "A read is running now; it comes in a moment.")
             return
         typing = asyncio.create_task(_typing(s.telegram_token, chat))
         try:
@@ -282,14 +291,16 @@ async def _talk(agent, chat: str, text: str) -> None:
     if not getattr(agent, "chat", None):
         await notify.telegram(s.telegram_token, chat, "I can't talk yet: add ANTHROPIC_API_KEY on Railway.\n\n" + HELP)
         return
-    typing = asyncio.create_task(_typing(s.telegram_token, chat))
-    try:
-        answer = await agent.chat.reply(chat, text)
-    except Exception as e:  # noqa: BLE001 - say what went wrong instead of going quiet
-        log.warning("chat failed: %s", e)
-        answer = f"Something went wrong reaching the model: {type(e).__name__}. Try again in a minute."
-    finally:
-        typing.cancel()
+    lock = getattr(agent, "talk_lock", None) or contextlib.nullcontext()
+    async with lock:
+        typing = asyncio.create_task(_typing(s.telegram_token, chat))
+        try:
+            answer = await agent.chat.reply(chat, text)
+        except Exception as e:  # noqa: BLE001 - say what went wrong instead of going quiet
+            log.warning("chat failed: %s", e)
+            answer = f"Something went wrong reaching the model: {type(e).__name__}. Try again in a minute."
+        finally:
+            typing.cancel()
     await notify.telegram(s.telegram_token, chat, answer)      # split into several messages when long
 
 
@@ -326,11 +337,48 @@ async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> Non
     await notify.telegram(s.telegram_token, str(s.telegram_chat_id), text)
 
 
+def status_text(agent) -> str:
+    """Is everything running: each source and job, when it last worked, its last error, and Hyperliquid's budget."""
+    st = agent.status()
+    ok, problems = agent.healthy()
+    lines = ["All running." if ok else "Problems: " + "; ".join(problems)]
+    if st.get("cycle_age_min") is not None:
+        lines.append(f"Last poll {st['cycle_age_min']:g} min ago ({st.get('cycle_secs')}s).")
+    for name, v in sorted((st.get("sources") or {}).items()):
+        line = f"{name}: " + (f"ok {v['ok_ago_min']} min ago" if v.get("ok_ago_min") is not None else "not yet ok")
+        if v.get("fails"):
+            line += f", failing {v['fails']}x: {v.get('error', '')[:80]}"
+        lines.append(line)
+    ages = {k: v for k, v in (st.get("data_age_min") or {}).items() if v is not None}
+    if ages:
+        lines.append("Data age (min): " + ", ".join(f"{k} {v}" for k, v in ages.items()))
+    hl = st.get("hyperliquid") or {}
+    lines.append(f"Hyperliquid: {hl.get('weight_last_min')} of {hl.get('budget_per_min'):g} weight in the last minute, "
+                 f"{hl.get('throttled_last_hour')} throttled in the hour")
+    lr = st.get("levels_refresh") or {}
+    lines.append(f"Levels: {lr.get('day') or 'not done today'}" + (f", {lr.get('errors')} failed" if lr.get("errors")
+                                                                    else ""))
+    lr2 = st.get("last_read") or {}
+    if lr2.get("ago_min") is not None:
+        lines.append(f"Last read {lr2['ago_min']} min ago ({lr2.get('reason')})" +
+                     (f", failed: {str(lr2['error'])[:80]}" if lr2.get("error") else ""))
+    return "\n".join(lines)
+
+
+async def _safe(agent, u: dict) -> None:
+    try:
+        await handle(agent, u)
+    except Exception:  # noqa: BLE001
+        log.exception("telegram update failed")
+
+
 async def run(agent) -> None:
     """Long-poll Telegram for button taps and commands until cancelled."""
     if not (agent.s.telegram_token and agent.s.telegram_chat_id):
         return
     await notify.tg(agent.s.telegram_token, "setMyCommands", commands=COMMANDS)  # the "/" menu in Telegram
+    agent.talk_lock = asyncio.Lock()           # answers one at a time, in the order asked
+    running: set = set()
     offset = None
     while True:
         try:
@@ -340,10 +388,9 @@ async def run(agent) -> None:
             updates = await notify.tg(agent.s.telegram_token, "getUpdates", http_timeout=35, **params)
             for u in updates or []:
                 offset = u["update_id"] + 1
-                try:
-                    await handle(agent, u)
-                except Exception:  # noqa: BLE001
-                    log.exception("telegram update failed")
+                t = asyncio.create_task(_safe(agent, u))   # a long answer never holds up a tap or a command
+                running.add(t)
+                t.add_done_callback(running.discard)
             if updates is None:
                 await asyncio.sleep(5)  # error (e.g. another instance polling during a deploy)
         except asyncio.CancelledError:

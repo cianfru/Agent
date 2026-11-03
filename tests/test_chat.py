@@ -1,3 +1,4 @@
+import time
 import asyncio
 import json
 from types import SimpleNamespace as NS
@@ -57,9 +58,10 @@ def test_answers_from_the_data_through_tools(tmp_path):
     agent.chat.client.responses = [response([text_block("Still 12.")])]
     agent.chat.run("1", "and now?", NOW + 60)
     msgs = agent.chat.client.calls[-1]["messages"]
-    assert msgs == [{"role": "user", "content": "how is HYPE?"},
+    stamp = lambda ts: time.strftime("[%a %d %b %H:%M UTC] ", time.gmtime(ts))   # noqa: E731  every question's time
+    assert msgs == [{"role": "user", "content": stamp(NOW) + "how is HYPE?"},
                     {"role": "assistant", "content": "HYPE: 12 profitable traders long, 3 short."},
-                    {"role": "user", "content": "and now?"}]
+                    {"role": "user", "content": stamp(NOW + 60) + "and now?"}]
     assert abs(agent.chat.spent_today(NOW) - 3 * (10_000 * 4 + 500 * 20) / 1e6) < 1e-9     # $0.05 per call here
 
 
