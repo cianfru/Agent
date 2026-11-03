@@ -180,6 +180,14 @@ and high, open interest change and funding, the engine's daily signal, what trac
 bet with conviction in 7 days, and a setup score for long and short with the reasons.
 - **The band** (owner, 3 November 2026): inside it is testing it, a zone to watch, not a block; just above (within 5%)
   is holding it; 15% or more above is extended, not an entry; under it the trend is lost until reclaimed.
+- **The z-score** (owner, 4 November 2026: the first thing for shorts): every coin's daily and 4-hour engine z-score,
+  read from Reflex's scan list once an hour. The engine's lines: 2.5 blow-off, 3 trim, 3.5 hard trim, -1
+  capitulation. A coin stretched past 2.5 is a short setup on its own route (35, 40 past 3, plus 10 when 15%+ over the
+  band, no downtrend needed: it fades a run), lifted by shorts building and longs paying funding; a long on a
+  stretched coin loses 15.
+- **Which coins:** the 100 most traded by 24-hour volume (re-picked daily, so it follows the market) plus every coin
+  where traders are: what tracked traders hold or added in 7 days, conviction bets in 7 days, coins 5+ profitable
+  traders hold, and the watch list (up to 180).
 - **The score** (a ranking of what is worth a look, not a tested signal): where the price sits with the trend (up to
   45: in or just over the band 35, at the 200-day 25, on a swing low 20, plus 10 for a 30-70% pullback of the last
   leg), who is positioning (up to 35: a conviction bet that side 20, two or more tracked traders adding 10, their lean

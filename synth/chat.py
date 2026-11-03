@@ -47,6 +47,11 @@ as closed: a trader up big on an open position matters.
 does not lead the next days. A crowd turning short after a rally is profit-taking, not a warning; never a reason alone.
 - Convergences of profitable traders opening together (S1): no better than one trader alone.
 - The engine (trend regime and setup per coin): the backdrop, whether a coin is trending, stretched or washed out.
+- The engine's z-score (daily, every coin): how far the price sits over its long-run trend in its own volatility. Its \
+own lines: 2.5 a blow-off, 3 it trims, 3.5 it trims hard, -1 capitulation. The owner reads it first for shorts: a \
+coin stretched past 2.5 while shorts build (a conviction bet short, tracked traders adding shorts, longs paying high \
+funding) is the short setup he watches most; buying a stretched coin is chasing. Context, not tested here beyond the \
+engine's own use of these lines.
 - Open interest, funding, the 200-day average and the bull market support band (the 20-week simple and 21-week \
 exponential averages): plain market context, not tested here. Read them with price: open interest rising with price \
 is new money behind the move, rising against it is a squeeze building; high funding means longs are crowded and pay \
