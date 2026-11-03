@@ -319,3 +319,19 @@ def test_hard_cap_on_unprompted_messages(tmp_path, monkeypatch):
     asyncio.run(notify.push(s, store, "the morning read", "read", must=True))
     assert sent == ["alert 0", "alert 1", "the morning read"]
     assert [b["body"]["text"] for b in store.briefs_since("push_held", 0)] == ["alert 2", "alert 3"]
+
+
+def test_a_read_carries_open_interest_funding_and_the_trend_levels(tmp_path, monkeypatch):
+    from tests.test_levels import FakeHL as LevelsHL
+    agent, _ = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))])])
+    monkeypatch.setattr(analyst, "HL", lambda: LevelsHL())
+    now = time.time()
+    seed(agent.store, now)
+    agent.store.put_snapshot("hl_ctx", {"ts": now, "c": {"SUI": {"px": 1.8, "oi": 2e7, "funding": -0.00002, "vol": 9e7}}})
+    agent.store.add_series("hl_ctx", {"c": {"SUI": [2.0, 1.6e7, 0.0]}}, ts=now - 86400)
+    asyncio.run(agent.analyst.step(now))
+    task = agent.analyst.client.calls[0]["messages"][0]["content"]
+    scan = json.loads(task.split("<scan>\n")[1].split("\n</scan>")[0])
+    sui = next(r for r in scan["coins"] if r["coin"] == "SUI")
+    assert sui["oi_funding"]["oi_change_24h_pct"] == 25.0 and sui["oi_funding"]["funding_apr_pct"] == -17.5
+    assert sui["trend"]["ma200d"] == 249.5 and sui["trend"]["bull_market_support_band"]["price_vs_band"] == "below"

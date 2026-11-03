@@ -29,6 +29,7 @@ from . import desk, journal, notify
 from .sources import reflex as reflex_src
 from .chat import EVIDENCE, PRICES, cost_of
 from .hyperliquid import HL
+from .levels import trend_view
 from .llm import FALLBACK_MODELS
 from .position_traders import MAJORS
 from .wallet_names import codename
@@ -56,7 +57,8 @@ TURN_MARKS = {"median_z_turned_down", "rolled_over", "median_z_turned_up", "turn
 SYSTEM = """You are Outrider, the owner's private market agent. Through the day the code scans the market and hands \
 you the scan: BTC and ETH as direction, the market's mood and where it stands in its cycle (market.turns: a broad \
 uptrend or a downturn, its day, its marks), the coins where something is happening (what each group of \
-traders holds and how it changed, the engine's reading, Derive's options), his positions (from his wallets and from \
+traders holds and how it changed, the engine's reading, open interest and funding, where the price sits against its \
+200-day average and its bull market support band, Derive's options), his positions (from his wallets and from \
 his watch list, positions he follows by hand; a watch-list coin with no side is a coin he wants followed) with what \
 each group does on those coins, and what changed since your last read. Think like a sharp desk analyst who knows this data cold: find \
 what matters, connect it, and tell him in a few lines what you see and what you would do in his place.
@@ -247,7 +249,8 @@ def scan(agent, now: float | None = None) -> dict:
         if coin in winners:
             w = winners[coin]
             r["open_winners"] = {**w, "long_upnl": round(w["long_upnl"]), "short_upnl": round(w["short_upnl"])}
-        for k, v in (("engine", _engine(snap, cow, coin)), ("options", _options(cow, coin)),
+        for k, v in (("engine", _engine(snap, cow, coin)), ("oi_funding", agent.levels.oi_funding(coin, now)),
+                     ("options", _options(cow, coin)),
                      ("alerts_24h", (alerts.get(coin) or [])[-2:])):
             if v:
                 r[k] = v
@@ -310,7 +313,7 @@ def scan(agent, now: float | None = None) -> dict:
             "cycle": {x: cy.get(x) for x in ("type", "age_days", "uptrend", "median_days", "reached_age",
                                              "lasted_30_more")} if cy else None,
             "turns": k.get("turns"),
-            "reflex": snap.get("market"), "cowboy": cow.get("market"),
+            "reflex": snap.get("market"), "cowboy": cow.get("market"), "oi_funding": agent.levels.market(now),
         },
         "direction": direction,
         "coins": coins,
@@ -630,6 +633,7 @@ class Analyst:
         if ch is None:
             ch = changes(self.store.get_snapshot("read_scan"), cur)
         await self.fill_engine(cur)
+        await self.fill_trend(cur, now)
         rec = record(self.store)
         task = self.task(reason, cur, ch, self.store.latest_brief("read"), rec)
         try:
@@ -669,6 +673,22 @@ class Analyst:
                 r["engine"] = engine_words(g)
             elif isinstance(g, Exception):
                 log.warning("engine row for %s failed: %s", r["coin"], g)
+
+    async def fill_trend(self, cur: dict, now: float) -> None:
+        """Each coin in the scan: where its price sits against its 200-day average and its bull market support band
+        (levels read once a day per coin), only when a read runs."""
+        hl = HL()
+        try:
+            for r in cur["direction"] + cur["coins"]:
+                try:
+                    view = trend_view(await self.agent.levels.trend(hl, r["coin"], now), r.get("price"))
+                except Exception as e:  # noqa: BLE001 - the read goes on without that coin's levels
+                    log.warning("trend levels for %s failed: %s", r["coin"], e)
+                    continue
+                if view:
+                    r["trend"] = view
+        finally:
+            await hl.aclose()
 
     def task(self, reason: str, cur: dict, ch: list[dict], last: dict | None, rec: dict) -> str:
         notes = self.store.chat_notes()

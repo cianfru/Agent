@@ -45,6 +45,10 @@ as closed: a trader up big on an open position matters.
 does not lead the next days. A crowd turning short after a rally is profit-taking, not a warning; never a reason alone.
 - Convergences of profitable traders opening together (S1): no better than one trader alone.
 - The engine (trend regime and setup per coin): the backdrop, whether a coin is trending, stretched or washed out.
+- Open interest, funding, the 200-day average and the bull market support band (the 20-week simple and 21-week \
+exponential averages): plain market context, not tested here. Read them with price: open interest rising with price \
+is new money behind the move, rising against it is a squeeze building; high funding means longs are crowded and pay \
+for it; a coin under its 200-day average or below its band is in a weak trend.
 - Derive options (BTC, ETH, HYPE and a few more): whether the best option wallets lean long or short, and whether \
 puts cost more than calls. ETH's options are mostly call-selling vaults: read its put/call as structure.
 - The market cycle (Reflex's market history, 13 broad uptrends and 14 downturns since 2021; in sample, rules fixed \
@@ -96,7 +100,8 @@ TOOLS = [
      "BTC and ETH direction by each group, the largest coins with how the three groups lean, alerts in 24h, and the "
      "latest market read.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "coin", "description": "Everything on one coin: price, the engine's reading now on the daily and "
-     "4-hour charts (any coin Reflex scans), profitable "
+     "4-hour charts (any coin Reflex scans), open interest and funding, the 200-day average and the bull market "
+     "support band, profitable "
      "traders long/short, tracked traders holding it, big money owners, Derive options read, its open winners, what "
      "tracked traders added in 7 days, and recent alerts on it.",
      "input_schema": {"type": "object", "properties": {"coin": {"type": "string", "description": "Ticker, e.g. BTC, HYPE, ENA"}},
@@ -258,7 +263,7 @@ class Chat:
                 "read_at": (read or {}).get("ts")}
 
     def t_coin(self, now: float, coin: str) -> dict:
-        from .service import coin_context    # service builds the chat: imported here, not at the top
+        from .service import coin_context, price_of    # service builds the chat: imported here, not at the top
         coin = coin.upper().lstrip("$")
         snaps = {n: s for n in ("cowboy", "reflex") if (s := self.store.get_snapshot(n))}
         ctx = coin_context(coin, snaps)
@@ -272,7 +277,9 @@ class Chat:
         alerts = [b["body"].get("text") or f"{b['body'].get('coin')} {b['body'].get('side')}"
                   for kind in ("pt_build", "pt_alert") for b in self.store.briefs_since(kind, week_ago)
                   if b["body"].get("coin") == coin]
-        return {"coin": coin, "engine_now": self._engine_now(coin), "sources": ctx,
+        return {"coin": coin, "engine_now": self._engine_now(coin),
+                "oi_funding": self.agent.levels.oi_funding(coin, now),
+                "trend": self._trend_now(coin, (pos[4] if pos else None) or price_of(coin, snaps)), "sources": ctx,
                 "profitable_traders": {"long_n": pos[0], "long_usd": pos[1], "short_n": pos[2], "short_usd": pos[3],
                                        "price": pos[4]} if pos else None,
                 "tracked_traders_holding": sorted(holders, key=lambda x: -(x["value"] or 0))[:12],
@@ -293,6 +300,27 @@ class Chat:
             log.warning("engine row for %s failed: %s", coin, e)
             return None
         return engine_words(rows) if rows else {"note": "Reflex does not scan this coin."}
+
+    def _trend_now(self, coin: str, price: float | None) -> dict | None:
+        """The coin's 200-day average and support band against its price (levels read once a day); None without the
+        service's loop."""
+        from .hyperliquid import HL
+        from .levels import trend_view
+        if not self.loop:
+            return None
+
+        async def read():
+            hl = HL()
+            try:
+                return await self.agent.levels.trend(hl, coin)
+            finally:
+                await hl.aclose()
+        try:
+            lv = asyncio.run_coroutine_threadsafe(read(), self.loop).result(timeout=30)
+        except Exception as e:  # noqa: BLE001 - the answer carries on without it
+            log.warning("trend levels for %s failed: %s", coin, e)
+            return None
+        return trend_view(lv, price) if lv else {"note": "no daily history on Hyperliquid"}
 
     def t_tracked_traders(self, now: float, tier: str = "all", coin: str | None = None, limit: int = 10) -> list[dict]:
         out = []
