@@ -13,6 +13,7 @@ Context, not a signal: none of these is tested in the studies.
 
 from __future__ import annotations
 
+import asyncio
 import bisect
 import logging
 import time
@@ -22,6 +23,8 @@ log = logging.getLogger(__name__)
 STEP_S = 3600          # one stored copy of every coin's context an hour
 NEAR_S = 3 * 3600      # a copy within three hours stands for the time asked
 DAY = 86400
+UNIVERSE = 100         # the most traded perps whose levels are read each day for the screen
+KEEP_S = 3 * DAY       # a coin's levels stand until read again, for up to 3 days
 
 
 def _sig(x: float | None) -> float | None:
@@ -72,6 +75,10 @@ def price_structure(bars: list[list[float]], window: int = 120) -> dict:
     before = bars[max(0, k - window):k + 1]
     leg = min(before, key=lambda b: b[3])
     since = bars[k:]
+    i_lo = min(range(len(recent)), key=lambda i: recent[i][3])          # the same for the last drop
+    lo = recent[i_lo]
+    j = len(bars) - len(recent) + i_lo
+    drop = max(bars[max(0, j - window):j + 1], key=lambda b: b[2])
     pivots_hi, pivots_lo = [], []
     for i in range(PIVOT_N, len(recent) - PIVOT_N):
         w = recent[i - PIVOT_N:i + PIVOT_N + 1]
@@ -79,8 +86,11 @@ def price_structure(bars: list[list[float]], window: int = 120) -> dict:
             pivots_hi.append([_sig(recent[i][2]), _day(recent[i][0])])
         if recent[i][3] == min(b[3] for b in w):
             pivots_lo.append([_sig(recent[i][3]), _day(recent[i][0])])
-    return {"high": _sig(hi[2]), "high_date": _day(hi[0]), "leg_low": _sig(leg[3]), "leg_low_date": _day(leg[0]),
-            "low_since_high": _sig(min(b[3] for b in since)), "swing_highs": pivots_hi[-6:], "swing_lows": pivots_lo[-6:]}
+    return {"high": _sig(hi[2]), "high_date": _day(hi[0]), "high_bars_ago": len(recent) - 1 - i_hi,
+            "leg_low": _sig(leg[3]), "leg_low_date": _day(leg[0]), "low_since_high": _sig(min(b[3] for b in since)),
+            "low": _sig(lo[3]), "low_date": _day(lo[0]), "low_bars_ago": len(recent) - 1 - i_lo,
+            "drop_high": _sig(drop[2]), "drop_high_date": _day(drop[0]),
+            "swing_highs": pivots_hi[-6:], "swing_lows": pivots_lo[-6:]}
 
 
 def price_action(lv: dict, price: float) -> dict | None:
@@ -94,6 +104,11 @@ def price_action(lv: dict, price: float) -> dict | None:
         out["leg_low"] = lo
         out["leg_low_date"] = lv.get("leg_low_date")
         out["retraced_of_last_leg_pct"] = round(100 * (hi - price) / (hi - lo))
+    low, top = lv.get("low"), lv.get("drop_high")
+    if low and top and top > low and (lv.get("low_bars_ago") or 0) < (lv.get("high_bars_ago") or 0):
+        out["recent_low"] = low                              # the last move was down: how much of the drop came back
+        out["recent_low_date"] = lv.get("low_date")
+        out["bounced_of_last_drop_pct"] = round(100 * (price - low) / (top - low))
     under = [p for p in lv.get("swing_lows") or [] if p[0] < price]
     over = [p for p in lv.get("swing_highs") or [] if p[0] > price]
     if under:
@@ -112,6 +127,18 @@ def price_action(lv: dict, price: float) -> dict | None:
     return out
 
 
+def band_state(price: float, lo: float, hi: float) -> str:
+    """Where the price sits against the bull market support band (owner, 3 November 2026): inside it is testing the
+    band, a zone to watch, not a block; under it the trend is lost until it is reclaimed; 15% or more over it is
+    extended, not an entry."""
+    if price < lo:
+        return "below"
+    if price <= hi:
+        return "inside"
+    over = 100 * (price / hi - 1)
+    return "just above" if over <= 5 else "above" if over < 15 else "extended"
+
+
 def trend_view(lv: dict, price: float | None) -> dict | None:
     """Where the price sits against the levels: above or below the 200-day average and by how much, and above, inside
     or below the bull market support band (and how far from its nearer edge)."""
@@ -126,7 +153,7 @@ def trend_view(lv: dict, price: float | None) -> dict | None:
         lo, hi = min(lo_hi), max(lo_hi)
         where = "above" if price > hi else "below" if price < lo else "inside"
         out["bull_market_support_band"] = {
-            "sma20w": lv["sma20w"], "ema21w": lv["ema21w"], "price_vs_band": where,
+            "sma20w": lv["sma20w"], "ema21w": lv["ema21w"], "price_vs_band": where, "state": band_state(price, lo, hi),
             "vs_band_pct": _pct(price, hi) if where == "above" else _pct(price, lo) if where == "below" else 0.0}
     pa = price_action(lv, price)
     if pa:
@@ -218,8 +245,46 @@ class Levels:
         weekly = await hl.candles(coin, "1w", end - 40 * 7 * DAY * 1000, end)
         if not daily:
             return None
-        lv = {**trend_levels([b[4] for b in daily], [b[4] for b in weekly]), **price_structure(daily), "day": day}
-        cache = {c: v for c, v in cache.items() if v.get("day") == day}
-        cache[coin] = lv
+        lv = {**trend_levels([b[4] for b in daily], [b[4] for b in weekly]), **price_structure(daily), "day": day,
+              "ts": now}
+        cache = {c: v for c, v in cache.items() if now - (v.get("ts") or 0) < KEEP_S}   # levels move slowly: kept
+        cache[coin] = lv                                                                # until read again
         self.store.put_snapshot("trend_levels", cache)
         return lv
+
+    # ------------------------------------------------------------ every coin --
+    def universe(self, extra: list[str] | tuple = ()) -> list[str]:
+        """The most traded perps by 24-hour volume (from the last context read), plus any extra coins."""
+        cur = (self.store.get_snapshot("hl_ctx") or {}).get("c") or {}
+        busy = sorted(cur, key=lambda c: -(cur[c].get("vol") or 0))[:UNIVERSE]
+        return list(dict.fromkeys(busy + [c.upper() for c in extra]))
+
+    def refresh_due(self, now: float) -> bool:
+        """Once a day after 00:30 UTC (yesterday's daily and weekly bars closed), and half an hour after a failure."""
+        st = self.store.get_snapshot("levels_refresh") or {}
+        day = time.strftime("%Y-%m-%d", time.gmtime(now))
+        return (not st.get("running") or now - (st.get("ts") or 0) > 3600) and st.get("day") != day \
+            and time.gmtime(now).tm_hour * 60 + time.gmtime(now).tm_min >= 30 and now - (st.get("failed") or 0) > 1800
+
+    async def refresh_all(self, hl, coins: list[str], now: float | None = None, pace_s: float = 6.0) -> int:
+        """Read the levels of every coin not read today, a few seconds apart (about 45 weight each of the 1,200 a
+        minute Hyperliquid allows an address). Returns how many were read."""
+        now = now or time.time()
+        day = time.strftime("%Y-%m-%d", time.gmtime(now))
+        self.store.put_snapshot("levels_refresh", {"day": None, "running": True, "ts": now})
+        read = 0
+        try:
+            for c in coins:
+                if ((self.store.get_snapshot("trend_levels") or {}).get(c) or {}).get("day") == day:
+                    continue
+                try:
+                    if await self.trend(hl, c, now):
+                        read += 1
+                except Exception as e:  # noqa: BLE001 - one coin failing leaves the rest
+                    log.warning("levels for %s failed: %s", c, e)
+                await asyncio.sleep(pace_s)
+            self.store.put_snapshot("levels_refresh", {"day": day, "running": False, "ts": time.time(), "read": read})
+        except Exception:
+            self.store.put_snapshot("levels_refresh", {"day": None, "running": False, "failed": time.time()})
+            raise
+        return read

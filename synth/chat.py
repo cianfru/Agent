@@ -51,6 +51,10 @@ does not lead the next days. A crowd turning short after a rally is profit-takin
 exponential averages): plain market context, not tested here. Read them with price: open interest rising with price \
 is new money behind the move, rising against it is a squeeze building; high funding means longs are crowded and pay \
 for it; a coin under its 200-day average or below its band is in a weak trend.
+- The bull market support band, by where the price sits (owner, 3 November 2026): inside it, the price is testing \
+the band, a zone to watch, not a block; just above it (within 5%), it is holding it; 15% or more above, it is \
+extended, not an entry; under it, the trend is lost until the band is reclaimed, and a bounce into it from under is \
+where shorts get interested. How many coins sit over and under their band is the market's breadth.
 - Price action: the recent high, where the leg up to it started, how much of that leg the price has given back, the \
 nearest swing low and swing high, and which of these levels (and the band, the 200-day average) sit within 3%. A \
 coin in an uptrend that has given back a third to two thirds of its last leg and sits on its band, its 200-day \
@@ -88,6 +92,9 @@ wins at least 1.5x losses) and "riding a winner" (big open profit, or a position
 - Open winners: the biggest unrealised profits among everyone the agent reads, with time held, move on price and \
 return on margin.
 - His own positions (when his wallets are connected) and your latest read with its record.
+- The screen: the 100 most traded coins in one table, each against its band, its 200-day average and its last leg, \
+with positioning and a setup score. For any question across coins ("which sit on their band", "best setups"), use \
+it, not one coin at a time.
 
 """ + EVIDENCE + """
 
@@ -145,6 +152,17 @@ TOOLS = [
     {"name": "recent_alerts", "description": "Alerts the agent sent (build-ups, conviction bets, convergences, smart "
      "money events) in the last hours.",
      "input_schema": {"type": "object", "properties": {"hours": {"type": "integer", "minimum": 1, "maximum": 168}}}},
+    {"name": "screen", "description": "Every one of the 100 most traded coins in one table, with where its price sits "
+     "against its bull market support band (state and distance), its 200-day average, how much of its last leg it has "
+     "given back, its nearest swing low and high, open interest change and funding, the engine's daily signal, what "
+     "tracked traders hold, added and bet, and a setup score for long and short with the reasons; plus the market's "
+     "breadth. Use it for any question across coins (closest to the band, pulled back to the 200-day, best setups).",
+     "input_schema": {"type": "object", "properties": {
+         "sort": {"type": "string", "enum": ["score", "band", "ma200", "retrace", "oi", "funding"]},
+         "band": {"type": "string", "enum": ["any", "near", "inside", "just above", "above", "extended", "below"]},
+         "trend": {"type": "string", "enum": ["any", "up", "down"], "description": "over or under the 200-day"},
+         "side": {"type": "string", "enum": ["any", "long", "short"], "description": "for the score sort"},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 40}}}},
     {"name": "studies", "description": "The studies with their findings and verdicts, and the live forward record "
      "of tracked traders' new positions (14 and 30 days).", "input_schema": {"type": "object", "properties": {}}},
     {"name": "my_positions", "description": "His positions: from his connected Hyperliquid wallets (value, open "
@@ -423,6 +441,15 @@ class Chat:
                 out.append({"when": time.strftime("%d %b %H:%M", time.gmtime(g["ts"])), "kind": "convergence",
                             "text": f"{g['coin']} {g['side']}, {(g['meta'] or {}).get('n') or ''} traders, {g['status']}"})
         return sorted(out, key=lambda x: x["when"])[-30:]
+
+    def t_screen(self, now: float, sort: str = "score", band: str = "any", trend: str = "any", side: str = "any",
+                 limit: int = 15) -> dict:
+        from . import screen
+        table = screen.build(self.agent, now)
+        if not table["coins"]:
+            return {"note": "The levels are read once a day after 00:30 UTC; none yet."}
+        return {"coins_in_table": table["coins"], "breadth": table["breadth"],
+                "rows": screen.pick(table["rows"], sort, band, trend, side, limit)}
 
     def t_studies(self, now: float) -> dict:
         r = desk.research(self.agent)

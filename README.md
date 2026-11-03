@@ -171,6 +171,24 @@ With a model key, Outrider reads the market instead of posting the same numbers 
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
 
+### The screen: every liquid coin against its levels
+
+`synth/screen.py`, from what the agent keeps (no model): the 100 most traded Hyperliquid perps (their levels read once
+a day after 00:30 UTC, a few seconds apart; prices from the last poll), each with its band state and distance, its
+200-day average, how much of its last leg it has given back (or of its last drop it has bounced), its nearest swing low
+and high, open interest change and funding, the engine's daily signal, what tracked traders hold, added in 24 hours and
+bet with conviction in 7 days, and a setup score for long and short with the reasons.
+- **The band** (owner, 3 November 2026): inside it is testing it, a zone to watch, not a block; just above (within 5%)
+  is holding it; 15% or more above is extended, not an entry; under it the trend is lost until reclaimed.
+- **The score** (a ranking of what is worth a look, not a tested signal): where the price sits with the trend (up to
+  45: in or just over the band 35, at the 200-day 25, on a swing low 20, plus 10 for a 30-70% pullback of the last
+  leg), who is positioning (up to 35: a conviction bet that side 20, two or more tracked traders adding 10, their lean
+  5), the engine (15, or -10 against), crowded funding (-5). Shorts are the mirror.
+- **Where it is used:** each read gets the 6 best candidates (40 points or more) and the market's breadth (coins under,
+  inside and over their band, over their 200-day) and picks its setups mostly from them; the chat's `screen` tool
+  answers any question across coins in one look; the dashboard's **Levels** tab shows the table, sortable by any
+  column; `GET /screen?sort=band&band=inside`.
+
 ### Open interest, funding, the 200-day average and the support band
 
 `synth/levels.py`, from Hyperliquid's public API (no key, no cost):

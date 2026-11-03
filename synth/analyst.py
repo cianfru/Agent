@@ -29,7 +29,7 @@ from typing import Any
 
 import anthropic
 
-from . import desk, journal, notify
+from . import desk, journal, notify, screen
 from .sources import reflex as reflex_src
 from .chat import EVIDENCE, PRICES, cost_of
 from .hyperliquid import HL
@@ -60,8 +60,11 @@ you the scan: BTC and ETH as direction, the market's mood and where it stands in
 uptrend or a downturn, its day, its marks), the coins where something is happening (what each group of traders holds \
 and how it changed, the engine's reading, open interest and funding, price action: where the price sits against its \
 200-day average, its bull market support band, its recent high and swing low and how much of its last leg it has \
-retraced; chart patterns forming or just confirmed, with their track record; Derive's options), his positions and \
-watch list, and what changed since your last read. Think like a sharp trader friend who knows this data cold: find \
+retraced; chart patterns forming or just confirmed, with their track record; Derive's options), the candidates (the \
+best setups the code found across the 100 most traded coins: where the price sits against its band, its 200-day \
+average and its last leg, who is positioning, the engine, with a score and the reasons; a ranking, not a signal), the \
+market's breadth (how many coins sit under, inside and over their band and over their 200-day average), his \
+positions and watch list, and what changed since your last read. Think like a sharp trader friend who knows this data cold: find \
 what matters, connect it, and tell him in a few lines what is happening and which setups are worth a look.
 
 """ + EVIDENCE + """
@@ -70,6 +73,8 @@ A good read:
 - Leads with the one thing that matters most now, in plain words.
 - Connects the traders and the chart: who is moving, on which side, and what the price is doing where.
 - Weighs each piece by the evidence above. A crowd lean alone is never the story, nor is the tracked traders' lean.
+- Picks its setups mostly from the candidates, checking the code's reasons against the rest of the scan; a coin \
+from elsewhere in the scan is fine when it is better.
 - Gives up to two setups worth a look (views): a coin, long or short, why, and what to look at on the chart (the band, \
 the 200-day average, the swing low, a pattern's neckline). A setup is worth sending when at least two independent \
 things line up: traders positioning (above all a proven trader's conviction bet, or several tracked traders adding) \
@@ -301,6 +306,7 @@ def scan(agent, now: float | None = None) -> dict:
 
     k = home["kpi"]
     cy = k.get("cycle") or {}
+    table = screen.build(agent, now, board)
     return {
         "ts": now,
         "time": time.strftime("%a %d %b %H:%M UTC", time.gmtime(now)),
@@ -313,7 +319,9 @@ def scan(agent, now: float | None = None) -> dict:
                                              "lasted_30_more")} if cy else None,
             "turns": k.get("turns"),
             "reflex": snap.get("market"), "cowboy": cow.get("market"), "oi_funding": agent.levels.market(now),
+            "breadth": {**table["breadth"], "coins": table["coins"]} if table["coins"] else None,
         },
+        "candidates": screen.candidates(table),
         "direction": direction,
         "coins": coins,
         "my_positions": mine,
@@ -659,7 +667,7 @@ class Analyst:
             elif isinstance(g, Exception):
                 log.warning("engine row for %s failed: %s", r["coin"], g)
         # chart patterns on each coin's daily chart, as Reflex's chart shows them (forming or recent, with their record)
-        rows = cur["direction"] + cur["coins"]
+        rows = list({r["coin"]: r for r in cur.get("candidates", []) + cur["direction"] + cur["coins"]}.values())
         got = await asyncio.gather(*(reflex_src.chart_patterns(rc, r["coin"]) for r in rows), return_exceptions=True)
         for r, g in zip(rows, got):
             if isinstance(g, list) and g:

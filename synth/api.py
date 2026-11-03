@@ -52,6 +52,8 @@ async def _loop(agent: Agent) -> None:
                 asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)
             if agent.market.due(time.time()):
                 asyncio.create_task(_rebuild_market(agent))   # once: the market's hours back to the first pick
+            if agent.levels.refresh_due(time.time()):
+                asyncio.create_task(_refresh_levels(agent))   # daily: every liquid coin's levels for the screen
         except Exception:  # noqa: BLE001 - keep the loop alive
             log.exception("cycle failed")
         await asyncio.sleep(agent.s.poll_seconds)
@@ -79,6 +81,19 @@ async def _maybe_reflex_history(agent: Agent) -> None:
         return
     agent.store.put_snapshot("reflex_history", {**desk.compact_history(body), "turns": turns.turns(body),
                                                 "fetched": time.time()})
+
+
+async def _refresh_levels(agent: Agent) -> None:
+    from .hyperliquid import HL
+    hl = HL()
+    try:
+        extra = [w["coin"] for w in agent.store.watch_list()]
+        n = await agent.levels.refresh_all(hl, agent.levels.universe(extra))
+        log.info("levels read for %d coins", n)
+    except Exception:  # noqa: BLE001 - tried again later
+        log.exception("levels refresh failed")
+    finally:
+        await hl.aclose()
 
 
 async def _rebuild_market(agent: Agent) -> None:
@@ -294,6 +309,15 @@ def list_reads(days: float = 3):
     """Outrider's recent reads, sent or held back, and the record of its views."""
     from .analyst import record
     return {"reads": agent.store.briefs_since("read", time.time() - days * 86400), "record": record(agent.store)}
+
+
+@app.get("/screen", dependencies=[Depends(auth)])
+def get_screen(sort: str = "band", band: str = "any", trend: str = "any", side: str = "any", limit: int = 120):
+    """Every liquid coin against its band, its 200-day average and its last leg, with positioning and setup scores."""
+    from . import screen
+    table = screen.build(agent)
+    return {**{k: table[k] for k in ("ts", "coins", "breadth")},
+            "rows": screen.pick(table["rows"], sort, band, trend, side, limit)}
 
 
 @app.get("/picks", dependencies=[Depends(auth)])
