@@ -79,8 +79,42 @@ async def telegram(token: str, chat_id: str, text: str, buttons: dict | None = N
     return first
 
 
+async def telegram_album(token: str, chat_id: str, pngs: list[bytes], caption: str = "",
+                         reply_to: int | None = None, silent: bool = False) -> list | None:
+    """Two to ten pictures as one album (Telegram's sendMediaGroup); the caption goes on the first, up to 1,024
+    characters."""
+    if not (token and chat_id) or len(pngs) < 2:
+        return None
+    media = [{"type": "photo", "media": f"attach://p{i}", **({"caption": caption[:1024]} if i == 0 and caption
+                                                            else {})} for i in range(len(pngs[:10]))]
+    params: dict = {"chat_id": chat_id, "media": media}
+    if reply_to:
+        params["reply_to_message_id"] = reply_to
+    if silent:
+        params["disable_notification"] = True
+    return await tg(token, "sendMediaGroup", http_timeout=60,
+                    files={f"p{i}": (f"p{i}.png", p, "image/png") for i, p in enumerate(pngs[:10])}, **params)
+
+
+async def send_with_pictures(token: str, chat_id: str, text: str, pngs: list[bytes],
+                             buttons: dict | None = None) -> dict | None:
+    """Text with its pictures, as one thing he notices: a short text rides as the caption; a long one (or one with
+    buttons, which an album cannot carry) goes first, and the pictures follow silently under it."""
+    pngs = [p for p in pngs if p][:10]
+    if not pngs:
+        return await telegram(token, chat_id, text, buttons)
+    if len(pngs) == 1:
+        return await telegram_photo(token, chat_id, pngs[0], text, buttons)
+    if len(text) <= 1024 and not buttons:
+        got = await telegram_album(token, chat_id, pngs, text)
+        return got[0] if isinstance(got, list) and got else None
+    msg = await telegram(token, chat_id, text, buttons)
+    await telegram_album(token, chat_id, pngs, reply_to=(msg or {}).get("message_id"), silent=True)
+    return msg
+
+
 async def push(s, store, text: str, kind: str, buttons: dict | None = None, png: bytes | None = None,
-               must: bool = False, reply: bool = False) -> dict | None:
+               must: bool = False, reply: bool = False, pngs: list[bytes] | None = None) -> dict | None:
     """An unprompted message (anything but a reply to him): at most SYNTH_MAX_PUSHES_PER_DAY in 24 hours. Past that
     it is kept as held (briefs 'push_held', listed by /held and counted in the morning read), not sent. `must` (the
     morning read, a note against his position) always goes and counts; `reply` (a read he asked for) goes and does
@@ -89,8 +123,9 @@ async def push(s, store, text: str, kind: str, buttons: dict | None = None, png:
     if not reply and not must and store.count_briefs("push", time.time() - 86400) >= s.max_pushes_per_day:
         store.add_brief("push_held", {"kind": kind, "text": text[:1500]})
         return None
-    if png is not None:
-        msg = await telegram_photo(s.telegram_token, s.telegram_chat_id, png, text, buttons)
+    pics = [p for p in ([png] if png is not None else []) + list(pngs or []) if p]
+    if pics:     # pictures with it still count as one message
+        msg = await send_with_pictures(s.telegram_token, s.telegram_chat_id, text, pics, buttons)
     else:
         msg = await telegram(s.telegram_token, s.telegram_chat_id, text, buttons)
     configured = bool(s.telegram_token and s.telegram_chat_id)

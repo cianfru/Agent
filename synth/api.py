@@ -387,6 +387,34 @@ def get_flow(hours: float = 1):
     return agent.flow(max(0.25, min(hours, 192)))
 
 
+@app.get("/map.png", dependencies=[Depends(auth)])
+async def map_png():
+    from . import pictures
+    m = await pictures.map_png(agent)
+    if not m:
+        raise HTTPException(404, "no levels read yet")
+    return Response(m[0], media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/setup/{coin}.png", dependencies=[Depends(auth)])
+async def setup_png(coin: str, side: str = ""):
+    from . import pictures
+    side_, risk = await asyncio.to_thread(pictures.chart_frame, agent, coin, side if side in ("long", "short") else None)
+    png = await pictures.setup_png(agent, coin, side_, "chart", risk)
+    if not png:
+        raise HTTPException(404, f"no daily chart for {coin}")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/journal.png", dependencies=[Depends(auth)])
+async def journal_png():
+    from . import pictures
+    png = await pictures.journal_png(agent.store)
+    if not png:
+        raise HTTPException(404, "no setup scored yet")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/flow.png", dependencies=[Depends(auth)])
 def flow_png():
     """The pulse picture sent to Telegram."""

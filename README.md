@@ -178,6 +178,31 @@ With a model key, Outrider reads the market instead of posting the same numbers 
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
 
+### Pictures, at no cost
+
+`synth/chart.py` and `synth/pictures.py` draw in code (matplotlib, no paid service), sized for a phone: 1,200 px
+wide, the long side under Telegram's 1,280, no text under 8.5 points; rendered off the poll in a worker thread with no
+shared plotting state.
+- **A setup on its daily chart**, with every read that carries one: the last 120 days of candles, the support band as
+  it stood each day, the 200-day average, where the setup is wrong (orange) and the next level (dotted), tracked
+  traders' entries, and under it the daily z-score against the owner's lines once enough of its history is kept (from
+  the daily screen log, so it fills over the weeks). One candle request per coin. `/chart SOL` (or `/chart SOL
+  short`) for any coin.
+- **The market map**, with the morning read: every screened coin by where it sits against its band and its daily
+  z-score, the owner's lines drawn, long candidates green and short red, sized by open interest. `/map`.
+- **The record against its bar**, with `/record`: the setups' running share right and share that beat the market
+  against S5's 62% and 60 needed, and each setup's 3-day move with the running median against +1%. Never a summed
+  return curve.
+- A read's text and its pictures go as one message (an album; a long text first, the pictures silently under it), and
+  count once against the daily cap. Dashboard: `GET /map.png`, `/setup/{coin}.png`, `/journal.png`.
+
+### The board and why a read came
+
+The morning read opens with the board, built in code and the same lines every day: where the market cycle stands, BTC
+and ETH against their band with their z-score, the breadth, and the coins at the z-score's extremes (`/board` any
+time). Every read's first line says why it came (morning, asked, or the market change that brought it) and the model's
+lean on the market.
+
 ### The screen: every liquid coin against its levels
 
 `synth/screen.py`, from what the agent keeps (no model): the most traded Hyperliquid perps and wherever traders are
