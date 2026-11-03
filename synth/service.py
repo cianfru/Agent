@@ -59,6 +59,67 @@ class Agent:
         self.levels = Levels(store)         # open interest, funding, 200-day average, support band (synth/levels.py)
         self.last_cycle: dict[str, Any] = {}
         self._pruned = 0.0
+        self.sources: dict[str, dict] = {}   # per source: last success, last error, failures in a row (status)
+
+    def mark(self, name: str, ok: bool, err: Exception | str | None = None, now: float | None = None) -> None:
+        """Remember how a source or job last went, for /status and /health."""
+        now = now or time.time()
+        st = self.sources.setdefault(name, {"fails": 0})
+        if ok:
+            st.update({"ok_ts": now, "fails": 0, "down_since": None})
+        else:
+            st["fails"] = st.get("fails", 0) + 1
+            st["error"] = str(err)[:200]
+            st["error_ts"] = now
+            st["down_since"] = st.get("down_since") or now
+
+    def status(self, now: float | None = None) -> dict:
+        """Every source's state and every job's, with how old each reading is: what /status and /health show."""
+        from .hyperliquid import BUDGET
+        now = now or time.time()
+        snaps = {}
+        for name in ("reflex", "cowboy", "hl_ctx", "engine_all", "owner_positions", "trend_levels"):
+            row = self.store._db.execute("SELECT ts FROM snapshots WHERE source=?", (name,)).fetchone()
+            snaps[name] = round((now - row["ts"]) / 60) if row else None
+        last_read = self.store.latest_brief("read") or {}
+        lr = self.store.get_snapshot("levels_refresh") or {}
+        mlast = self.store.market_last()
+        return {"ts": now, "cycle_age_min": round((now - self.last_cycle["ts"]) / 60, 1) if self.last_cycle else None,
+                "cycle_secs": self.last_cycle.get("secs"), "data_age_min": snaps,
+                "sources": {k: {**v, "ok_ago_min": round((now - v["ok_ts"]) / 60) if v.get("ok_ts") else None}
+                            for k, v in self.sources.items()},
+                "hyperliquid": BUDGET.stats(),
+                "levels_refresh": {k: lr.get(k) for k in ("day", "read", "tried", "errors", "attempt")},
+                "market_index": {"ready": self.market.ready,
+                                 "last_age_min": round((now - mlast["ts"]) / 60) if mlast else None},
+                "last_read": {"ago_min": round((now - last_read["ts"]) / 60) if last_read.get("ts") else None,
+                              **{k: last_read.get(k) for k in ("reason", "sent", "error", "cost")}}}
+
+    def healthy(self, now: float | None = None) -> tuple[bool, list[str]]:
+        """Down when the poll has not run for three polls, or Reflex has not answered for 30 minutes."""
+        now = now or time.time()
+        bad = []
+        if self.last_cycle and now - self.last_cycle["ts"] > 3 * self.s.poll_seconds + 120:
+            bad.append(f"no poll for {round((now - self.last_cycle['ts']) / 60)} minutes")
+        r = self.sources.get("reflex") or {}
+        if self.reflex and r.get("down_since") and now - r["down_since"] > 1800:
+            bad.append(f"Reflex failing since {time.strftime('%H:%M UTC', time.gmtime(r['down_since']))}: "
+                       f"{r.get('error', '')[:80]}")
+        return not bad, bad
+
+    async def incidents(self, now: float | None = None) -> None:
+        """One message per outage that lasts (a source down two hours), counted against the daily cap; none when it
+        recovers, the next read says so if it matters."""
+        now = now or time.time()
+        for name, st in self.sources.items():
+            down = st.get("down_since")
+            if down and now - down >= 2 * 3600 and not st.get("told"):
+                st["told"] = True
+                await notify.push(self.s, self.store, f"{name.capitalize()} has not answered since "
+                                  f"{time.strftime('%H:%M UTC', time.gmtime(down))} ({st.get('error', '')[:120]}). "
+                                  "Reads and alerts go on without it; /status shows the rest.", "status")
+            elif not down:
+                st["told"] = False
 
     # ------------------------------------------------------------ collect --
     async def collect(self) -> dict[str, dict]:
@@ -66,13 +127,17 @@ class Agent:
         try:
             async with httpx.AsyncClient(timeout=30) as http:
                 snaps["cowboy"] = await cowboy.fetch(self.s.cowboy_base_url, http)
+            self.mark("cowboy", True)
         except Exception as e:  # noqa: BLE001 - one source down must not stop the other
             log.warning("cowboy fetch failed: %s", e)
+            self.mark("cowboy", False, e)
         if self.reflex:
             try:
                 snaps["reflex"] = await reflex.fetch(self.reflex)
+                self.mark("reflex", True)
             except Exception as e:  # noqa: BLE001
                 log.warning("reflex fetch failed: %s", e)
+                self.mark("reflex", False, e)
         if self.s.coins:
             keep = set(self.s.coins)
             for snap in snaps.values():
@@ -148,8 +213,10 @@ class Agent:
             hl = HL(http)
             try:
                 await self.levels.step(hl, started)              # every coin's open interest and funding
+                self.mark("hyperliquid", True)
             except Exception as e:  # noqa: BLE001 - the last reading stands until the next poll
                 log.warning("open interest and funding read failed: %s", e)
+                self.mark("hyperliquid", False, e)
             try:
                 mids = self.tracker.fresh_mids(started)
                 if self.market.ready and mids:
@@ -168,6 +235,11 @@ class Agent:
             **tracked,
         }
         log.info("cycle %s", self.last_cycle)
+        try:
+            self.store.put_snapshot("status", self.status())
+            await self.incidents()
+        except Exception as e:  # noqa: BLE001 - the status never stops the poll
+            log.warning("status failed: %s", e)
         return {**self.last_cycle, "events": new_events, "alert_bodies": alerts}
 
     async def _alert(self, ev: dict, snaps: dict[str, dict]) -> dict:

@@ -8,11 +8,75 @@ dozen tracked wallets every 5 minutes is far inside it. Coin names: Reflex upper
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
+from collections import deque
 from typing import Any
 
 import httpx
 
 INFO_URL = "https://api.hyperliquid.xyz/info"
+LIGHT = {"allMids", "clearinghouseState", "l2Book", "orderStatus", "spotClearinghouseState", "exchangeStatus"}
+
+
+class Budget:
+    """One weight budget for every Hyperliquid read in the process (the info API allows about 1,200 weight a minute
+    per IP): the poll, the trader refresh, discovery, the levels and the market index all draw on it, so together they
+    never exceed it, and a 429 pauses them all for half a minute instead of each retrying on its own. Synchronous
+    bookkeeping: callers sleep the wait it returns."""
+
+    def __init__(self, per_min: float = 900):
+        self.per_min = per_min
+        self.level = per_min
+        self.t = time.monotonic()
+        self.resume = 0.0
+        self.spent: deque = deque()          # (time, weight) over the last minute
+        self.hits: deque = deque()           # 429s over the last hour
+        self._lock = threading.Lock()
+
+    def _refill(self, now: float) -> None:
+        self.level = min(self.per_min, self.level + (now - self.t) * self.per_min / 60)
+        self.t = now
+
+    def reserve(self, w: float) -> float:
+        """Take `w` and return how long to wait before sending."""
+        with self._lock:
+            now = time.monotonic()
+            self._refill(now)
+            self.level -= w
+            self.spent.append((now, w))
+            return max(0.0, -self.level * 60 / self.per_min, self.resume - now)
+
+    def charge(self, w: float) -> None:
+        """Weight known only after the answer (fills and candles weigh by how many came back)."""
+        if w > 0:
+            with self._lock:
+                self.level -= w
+                self.spent.append((time.monotonic(), w))
+
+    def throttled(self, pause_s: float = 30.0) -> None:
+        with self._lock:
+            now = time.monotonic()
+            self.resume = max(self.resume, now + pause_s)
+            self.hits.append(now)
+
+    def stats(self) -> dict:
+        with self._lock:
+            now = time.monotonic()
+            while self.spent and now - self.spent[0][0] > 60:
+                self.spent.popleft()
+            while self.hits and now - self.hits[0] > 3600:
+                self.hits.popleft()
+            return {"weight_last_min": round(sum(w for _, w in self.spent)), "budget_per_min": self.per_min,
+                    "throttled_last_hour": len(self.hits), "paused_s": round(max(0.0, self.resume - now))}
+
+
+BUDGET = Budget()
+
+
+def weight(body: dict) -> float:
+    """What a request weighs before its answer, as Hyperliquid documents it."""
+    return 2 if body.get("type") in LIGHT else 20
 
 
 def _num(x: Any) -> float | None:
@@ -46,15 +110,26 @@ class HL:
         self._names: dict[str, str] = {}
 
     async def _post(self, body: dict, tries: int = 3) -> Any:
-        """POST with backoff on 429/5xx (the info API rate-limits per IP)."""
+        """POST within the shared weight budget; a 429 pauses every reader for half a minute, a 5xx is retried."""
         for i in range(tries):
+            wait = BUDGET.reserve(weight(body))
+            if wait:
+                await asyncio.sleep(wait)
             r = await self.http.post(self.url, json=body)
+            if r.status_code == 429:
+                BUDGET.throttled()
             if r.status_code == 429 or r.status_code >= 500:
                 if i < tries - 1:
                     await asyncio.sleep(2 ** (i + 1))
                     continue
             r.raise_for_status()
-            return r.json()
+            out = r.json()
+            kind = body.get("type")
+            if isinstance(out, list) and kind in ("userFills", "userFillsByTime", "userTwapSliceFillsByTime"):
+                BUDGET.charge(len(out) // 20)
+            elif isinstance(out, list) and kind == "candleSnapshot":
+                BUDGET.charge(len(out) // 60)
+            return out
 
     async def mids(self) -> dict[str, float]:
         """Mid price per coin, keyed by UPPER-case name (also refreshes the name map)."""
