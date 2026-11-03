@@ -143,6 +143,7 @@
     <button data-tab="desk" class="on">Desk</button>
     <button data-tab="traders">Traders</button>
     <button data-tab="groups">Groups</button>
+    <button data-tab="levels">Levels</button>
     <button data-tab="research">Research</button>
     <button data-tab="journal">Journal</button>
     <button data-tab="ask">Ask</button>
@@ -225,6 +226,17 @@
     <div class="kv" id="gscore"></div>
     <div class="panel" id="gstudy" style="margin-bottom:14px"></div>
     <div id="glist"></div>
+  </section>
+
+  <section id="levels">
+    <div class="kv" id="lvbreadth"></div>
+    <div class="panel scroll"><table id="lvtable"><thead><tr>
+      <th data-s="coin">Coin</th><th data-s="price">Price</th><th data-s="band">Band</th><th data-s="bandpct">vs band</th>
+      <th data-s="ma200">vs 200-day</th><th data-s="retrace">Gave back</th><th data-s="swing">Swing low</th>
+      <th data-s="oi">OI 24h</th><th data-s="funding">Funding</th><th data-s="engine">Engine</th>
+      <th data-s="tracked">Tracked</th><th data-s="long">Long</th><th data-s="short">Short</th>
+    </tr></thead><tbody></tbody></table>
+    <div class="muted" style="margin-top:8px">Every liquid coin against its bull market support band (20-week SMA and 21-week EMA), its 200-day average and its last leg, read once a day; prices from the last poll. Inside the band is testing it, a zone to watch; 15% or more over it is extended; under it the trend is lost until reclaimed. Long and short are the setup scores the reads rank candidates by (a ranking, not a signal). Click a heading to sort.</div></div>
   </section>
 
   <section id="journal">
@@ -813,8 +825,41 @@ $("#askbtn").onclick = async () => {
 
 
 
+// ---- levels: every liquid coin against its band, its 200-day average and its last leg
+let lvRows = [], lvSort = "bandpct", lvAsc = true;
+const LVKEY = { coin: (r) => r.coin, price: (r) => r.price, band: (r) => ["below", "inside", "just above", "above", "extended"].indexOf((r.band || {}).state),
+  bandpct: (r) => r.band ? Math.abs(r.band.vs_pct) : 1e9, ma200: (r) => r.vs_ma200d_pct ?? 1e9, retrace: (r) => r.retraced_pct ?? 1e9,
+  swing: (r) => r.swing_low_pct ?? -1e9, oi: (r) => r.oi_change_24h_pct ?? -1e9, funding: (r) => r.funding_apr_pct ?? -1e9,
+  engine: (r) => r.engine || "~", tracked: (r) => r.tracked ? r.tracked.long - r.tracked.short : 0,
+  long: (r) => r.score_long, short: (r) => r.score_short };
+document.querySelectorAll("#lvtable th").forEach((th) => th.onclick = () => {
+  const k = th.dataset.s; lvAsc = lvSort === k ? !lvAsc : ["coin", "band", "bandpct", "engine"].includes(k); lvSort = k; renderLevels(); });
+async function loadLevels() {
+  const d = await api("/screen?limit=200"); lvRows = d.rows || [];
+  const b = d.breadth || {};
+  $("#lvbreadth").innerHTML = d.coins ? `<span><b>Coins</b>${d.coins}</span><span><b>Over the band</b>${(b["just above"] || 0) + (b.above || 0) + (b.extended || 0)}</span>` +
+    `<span><b>Inside</b>${b.inside || 0}</span><span><b>Under</b>${b.below || 0}</span><span><b>Extended</b>${b.extended || 0}</span>` +
+    `<span><b>Over 200-day</b>${b.over_200d || 0}/${b.with_200d || 0}</span>` : '<span class="muted">The levels are read once a day after 00:30 UTC.</span>';
+  renderLevels();
+}
+function renderLevels() {
+  const k = LVKEY[lvSort], rows = [...lvRows].sort((a, b) => (k(a) > k(b) ? 1 : k(a) < k(b) ? -1 : 0) * (lvAsc ? 1 : -1));
+  const p = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : x < 0 ? "short" : ""}">${x > 0 ? "+" : ""}${x.toFixed(1)}%</span>`;
+  const plain = (x) => x == null ? '<span class="muted">-</span>' : `${x > 0 ? "+" : ""}${x.toFixed(1)}%`;
+  const fund = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${Math.abs(x) >= 30 ? "acc" : ""}" title="a year's worth; above zero longs pay">${x > 0 ? "+" : ""}${x.toFixed(0)}%</span>`;
+  const st = (r) => !r.band ? '<span class="muted">-</span>' : `<span class="${{ inside: "acc", below: "short", extended: "muted" }[r.band.state] || "long"}">${r.band.state}</span> <span class="muted">${px(r.band.low)}-${px(r.band.high)}</span>`;
+  const sc = (n, why) => `<span class="${n >= 60 ? "long" : n >= 40 ? "acc" : "muted"}" title="${esc((why || []).join(" · "))}">${n}</span>`;
+  $("#lvtable tbody").innerHTML = rows.length ? rows.map((r) => `<tr><td><b>${esc(r.coin)}</b></td><td class="n">${px(r.price)}</td>
+    <td>${st(r)}</td><td class="n">${p(r.band ? r.band.vs_pct : null)}</td><td class="n">${p(r.vs_ma200d_pct)}</td>
+    <td class="n">${r.retraced_pct == null ? '<span class="muted">-</span>' : r.retraced_pct + "%"}</td><td class="n">${plain(r.swing_low_pct)}</td>
+    <td class="n">${p(r.oi_change_24h_pct)}</td><td class="n">${fund(r.funding_apr_pct)}</td><td>${esc(r.engine || "-")}</td>
+    <td class="n">${r.tracked ? r.tracked.long + "L / " + r.tracked.short + "S" : '<span class="muted">-</span>'}</td>
+    <td class="n">${sc(r.score_long, r.why_long)}</td><td class="n">${sc(r.score_short, r.why_short)}</td></tr>`).join("")
+    : '<tr><td colspan="13" class="empty">No levels yet.</td></tr>';
+}
+
 function load(tab) {
-  const f = { desk: loadDesk, research: loadResearch, groups: loadGroups, traders: loadTraders, journal: loadJournal }[tab];
+  const f = { desk: loadDesk, research: loadResearch, groups: loadGroups, traders: loadTraders, journal: loadJournal, levels: loadLevels }[tab];
   if (f) f().catch((e) => console.warn(e));
 }
 function refresh() { loadStatus(); load(document.querySelector("#tabs .on").dataset.tab); }
