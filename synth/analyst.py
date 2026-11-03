@@ -19,6 +19,7 @@ import bisect
 import datetime as dt
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -39,6 +40,8 @@ TOP_COINS = 10               # coins in a scan besides BTC, ETH and the owner's 
 TRIGGER = 4                  # change points that make a read worth running
 MIN_GAP_S = 2 * 3600         # between reads on market changes
 OWNER_GAP_S = 30 * 60        # a group turning against one of his positions may come sooner
+OWNER_PER_DAY = 3            # reads on his positions a day, beside the others
+OWNER_AGAIN_S = DAY          # the same reason against the same position brings a read once a day at most
 REPEAT_S = DAY               # the same view (coin and side) is logged once a day, so repeats do not pad the record
 
 SIGNAL = {"STRONG_LONG": "strong up-setup", "LIGHT_LONG": "leaning up", "ACCUMULATE": "base forming",
@@ -392,6 +395,12 @@ def watch_text(agent, now: float | None = None) -> str:
 # ------------------------------------------------------------------- changes --
 
 
+def _kind(reason: str) -> str:
+    """What a reason against a position is about, without its counts: '4 tracked traders added shorts in 24h' and
+    '5 tracked traders added shorts in 24h' are the same reason, so a count moving does not bring a new read."""
+    return re.sub(r"\d[\d.,]*", "#", reason)
+
+
 def _lean_word(x: str | None) -> str:
     return x or "no lean"
 
@@ -402,8 +411,8 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
         return [{"w": TRIGGER, "text": "first read", "owner": False}]
     out: list[dict] = []
 
-    def add(w: int, text: str, owner: bool = False) -> None:
-        out.append({"w": w, "text": text, "owner": owner})
+    def add(w: int, text: str, owner: bool = False, **more) -> None:
+        out.append({"w": w, "text": text, "owner": owner, **more})
 
     pm, cm = prev.get("market") or {}, cur.get("market") or {}
     for key, label, step in (("crowd_long_pct", "profitable traders", 5), ("big_money_long_pct", "big money", 8),
@@ -459,10 +468,10 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
     for k in mine0.keys() - mine1.keys():
         add(1, f"you {'closed' if k[2] == 'wallet' else 'stopped watching'} {name(k)}", owner=True)
     for k, m in mine1.items():
-        old = set((mine0.get(k) or {}).get("against") or [])
-        fresh = [a for a in m.get("against") or [] if a not in old]
+        old = {_kind(a) for a in (mine0.get(k) or {}).get("against") or []}
+        fresh = [a for a in m.get("against") or [] if _kind(a) not in old]
         if fresh:
-            add(4, f"your {name(k)}: " + "; ".join(fresh), owner=True)
+            add(4, f"your {name(k)}: " + "; ".join(fresh), owner=True, pos=name(k), kinds=[_kind(a) for a in fresh])
         m0 = mine0.get(k) or {}
         if m.get("move_pct") is not None and m0.get("move_pct") is not None:
             d = m["move_pct"] - m0["move_pct"]
@@ -571,7 +580,11 @@ class Analyst:
             return None, ch
         last = self.store.latest_brief("read")
         gap = now - last["ts"] if last else float("inf")
-        if any(c["owner"] and c["w"] >= 4 for c in ch) and gap >= OWNER_GAP_S:
+        told = (self.store.get_snapshot("owner_told") or {}).get("at") or {}
+        new_against = [c for c in ch if c["owner"] and c["w"] >= 4 and any(
+            now - told.get(f"{c.get('pos')}|{k}", 0) >= OWNER_AGAIN_S for k in c.get("kinds") or [""])]
+        owner_today = sum(1 for b in today if b["body"].get("reason") == "your position" and b["body"].get("sent"))
+        if new_against and gap >= OWNER_GAP_S and owner_today < OWNER_PER_DAY:
             return "your position", ch                       # his positions come through whatever the day's count
         if sum(1 for b in today if b["body"].get("sent")) >= self.per_day:
             return None, ch
@@ -633,7 +646,14 @@ class Analyst:
         self.store.add_brief("read", {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4),
                                       "changes": [c["text"] for c in ch], "logged": logged})
         if send:
-            await notify.telegram(self.agent.s.telegram_token, self.agent.s.telegram_chat_id, text)
+            await notify.push(self.agent.s, self.store, text, "read", must=reason in ("morning", "asked") or force_send)
+        if reason == "your position":                        # each reason is told once a day per position
+            told = (self.store.get_snapshot("owner_told") or {}).get("at") or {}
+            told = {k: t for k, t in told.items() if now - t < OWNER_AGAIN_S}
+            for c in ch:
+                for k in c.get("kinds") or []:
+                    told[f"{c.get('pos')}|{k}"] = now
+            self.store.put_snapshot("owner_told", {"at": told})
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged}
 
     async def fill_engine(self, cur: dict) -> None:

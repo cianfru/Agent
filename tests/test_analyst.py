@@ -275,3 +275,47 @@ def test_his_position_comes_through_after_the_days_reads_are_used(tmp_path, monk
     agent.store.put_snapshot("read_scan", prev)
     reason, ch = agent.analyst.due(later, cur)
     assert reason == "your position"                    # ... a group turning against his SUI long does not
+
+
+def test_a_count_moving_is_not_a_new_reason_and_a_reason_is_told_once_a_day(tmp_path, monkeypatch):
+    mine = lambda reasons: {"my_positions": [{"source": "wallet 0x9", "coin": "SUI", "side": "long",  # noqa: E731
+                                              "against": reasons}]}
+    ch = analyst.changes(mine(["4 tracked traders added shorts in 24h"]), mine(["6 tracked traders added shorts in 24h"]))
+    assert not [c for c in ch if c["owner"]]                                    # 4 -> 6: the same reason
+    ch = analyst.changes(mine([]), mine(["6 tracked traders added shorts in 24h"]))
+    assert ch[0]["w"] == 4 and ch[0]["kinds"] == ["# tracked traders added shorts in #h"]
+
+    agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))]) for _ in range(3)])
+    now = time.time()
+    seed(agent.store, now)
+    cur = analyst.scan(agent, now)
+    prev = json.loads(json.dumps(cur))
+    prev["my_positions"][0]["against"] = []
+    agent.store.put_snapshot("read_scan", prev)
+    out = asyncio.run(agent.analyst.run("your position", now, cur, analyst.changes(prev, cur)))
+    assert out["sent"]
+    agent.store.put_snapshot("read_scan", prev)          # as if the reasons had gone and come back an hour later
+    reason, _ = agent.analyst.due(now + 3600, cur)
+    assert reason is None                                # told once today already
+    reason, _ = agent.analyst.due(now + 86400 + 3600, cur)
+    assert reason == "your position"                     # a day later it may come again
+
+
+def test_hard_cap_on_unprompted_messages(tmp_path, monkeypatch):
+    from synth import notify
+    from synth.config import Settings
+    from synth.store import Store
+    sent = []
+
+    async def fake(token, chat_id, text, buttons=None):
+        sent.append(text)
+        return {"message_id": 1}
+
+    monkeypatch.setattr(notify, "telegram", fake)
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1", max_pushes_per_day=2)
+    store = Store(s.db_path)
+    for i in range(4):
+        asyncio.run(notify.push(s, store, f"alert {i}", "conviction"))
+    asyncio.run(notify.push(s, store, "the morning read", "read", must=True))
+    assert sent == ["alert 0", "alert 1", "the morning read"]
+    assert [b["body"]["text"] for b in store.briefs_since("push_held", 0)] == ["alert 2", "alert 3"]

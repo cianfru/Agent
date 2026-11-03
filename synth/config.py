@@ -76,6 +76,9 @@ class Settings:
     # conviction (a proven trader's 2x-size bet), build (several tracked traders adding to one coin), smart
     # (smart-money events and toxic flow), group (profitable traders opening together). A muted kind is still logged,
     # scored and read by Outrider; updates on a group you follow always come.
+    # A hard cap on unprompted messages (everything but replies to him), over any 24 hours; past it they are kept as
+    # held, not sent. The morning read and a read he asks for always go.
+    max_pushes_per_day: int = field(default_factory=lambda: int(_float("SYNTH_MAX_PUSHES_PER_DAY", 6)))
     pushes: frozenset = field(default_factory=lambda: frozenset(
         p.lower() for p in _list("SYNTH_PUSH", "conviction")))
     # Outrider's X drafts (persona posts, the daily desk post, the Monday scorecard): off until wanted (owner,

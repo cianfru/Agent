@@ -107,7 +107,7 @@ class GroupTracker:
             else:
                 left = sum(1 for x in members if x["status"] in ("open", "reduced"))
                 text = G.change_text(g, m, change, left, len(members))
-            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+            await notify.push(self.s, self.store, text, "followed group")
         return {"groups_created": len(created), "groups_announced": announced, "member_changes": len(changes)}
 
     def _room(self) -> int:
@@ -276,7 +276,7 @@ class GroupTracker:
         now_px = self._price(g, snaps, mids)
         text = G.caption(g, members, now_px)
         buttons = notify.follow_buttons(g["id"])
-        sent = None
+        png = None
         if g["venue"] == "hyperliquid":
             try:
                 end = int(time.time() * 1000)
@@ -284,11 +284,9 @@ class GroupTracker:
                 lv = G.levels(g, members)
                 png = group_chart(g["coin"], g["side"], candles, members, lv.get("all_losing"),
                                   text.splitlines()[0])
-                sent = await notify.telegram_photo(self.s.telegram_token, self.s.telegram_chat_id, png, text, buttons)
             except Exception as e:  # noqa: BLE001 - fall back to text
                 log.warning("group chart failed: %s", e)
-        if sent is None:
-            sent = await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text, buttons)
+        await notify.push(self.s, self.store, text, "group", buttons, png)
         self.store.update_group(g["id"], alerted=1)
         self.store.add_brief("alert_sent", {"group_id": g["id"]})
 
