@@ -567,12 +567,14 @@ class Analyst:
         mornings = [b["body"] for b in today if b["body"].get("reason") == "morning"]
         if hour >= self.agent.s.brief_hour_utc and not any(not m.get("error") for m in mornings) and len(mornings) < 3:
             return "morning", ch
-        if self.spent_today(now) >= self.daily_usd or sum(1 for b in today if b["body"].get("sent")) >= self.per_day:
+        if self.spent_today(now) >= self.daily_usd:
             return None, ch
         last = self.store.latest_brief("read")
         gap = now - last["ts"] if last else float("inf")
         if any(c["owner"] and c["w"] >= 4 for c in ch) and gap >= OWNER_GAP_S:
-            return "your position", ch
+            return "your position", ch                       # his positions come through whatever the day's count
+        if sum(1 for b in today if b["body"].get("sent")) >= self.per_day:
+            return None, ch
         if hour not in self.quiet and sum(c["w"] for c in ch) >= TRIGGER and gap >= MIN_GAP_S:
             return "market changed", ch
         return None, ch
