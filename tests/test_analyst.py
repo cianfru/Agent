@@ -32,7 +32,7 @@ def make(tmp_path, monkeypatch, responses, brief_hour=24, **kw):
     agent = service.Agent(s, store)
     agent.positions = PositionTraders(s, store, seed={"as_of": "2026-10-10", "traders": []})
     agent.positions.enabled = False
-    agent.tracker.last_mids = {"SUI": 1.8, "BTC": 98_000.0}
+    agent.tracker.last_mids, agent.tracker.last_mids_ts = {"SUI": 1.8, "BTC": 98_000.0}, time.time()
     client = FakeClient(responses)
     agent.chat = chat.Chat(agent, "claude-opus-5-5", client=client)
     agent.analyst = analyst.Analyst(agent, "claude-opus-5-5", client=client, quiet="", **kw)
@@ -145,7 +145,7 @@ def test_held_back_when_the_model_sees_nothing_worth_saying(tmp_path, monkeypatc
 def test_budget_and_quiet_hours_hold_reads_but_never_the_morning_read(tmp_path, monkeypatch):
     agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps({**READ, "send": False}))])],
                        brief_hour=0, daily_usd=0.01)
-    now = time.time()
+    now = analyst._day_start(time.time()) + 12 * 3600 if time.gmtime().tm_hour < 20 else time.time() - 6 * 3600
     seed(agent.store, now)
     out = asyncio.run(agent.analyst.step(now))
     assert out["reason"] == "morning" and out["sent"] and len(sent) == 1      # the morning read always goes out
@@ -163,7 +163,17 @@ def test_record_counts_views_their_way(tmp_path, monkeypatch):
     a = rec["3d"]["all"]
     assert (a["n"], a["right"], a["median_pct"], a["vs_market"]["n"]) == (6, 4, 1.5, 0)   # no market move yet
     assert rec["3d"]["firm_or_strong"]["n"] == 3 and (rec["shorts"], rec["3d"]["short"]["right"]) == (6, 4)
-    assert analyst.record_text(rec) == "Record: 4 of 6 views right after 3 days (67%), median +1.5% their way."
+    assert analyst.record_text(rec) == ("Setups since 3 Nov (S5): 6 scored at 3 days, 60 needed · 4 right (67%, bar 62%)"
+                                        " · median +1.5% (bar +1%) · context, not a signal.")
+    # views logged before Amendment 2 (3 November 2026) are reported apart, never mixed into the setups' record
+    old = agent.store.add_pick("read", "ENA", "long", 1, 0.9, "why", {})
+    agent.store.set_pick_return(old, "3d", -0.04)
+    with agent.store._lock:
+        agent.store._db.execute("UPDATE picks SET ts=? WHERE id=?", (analyst.journal.S5_SETUPS_FROM - 86400, old))
+        agent.store._db.commit()
+    rec = analyst.record(agent.store)
+    assert rec["3d"]["all"]["n"] == 6 and rec["views_before_3_nov"]["n"] == 1
+    assert analyst.record_text(rec).endswith("context, not a signal. Views before 3 Nov: 0 of 1 right.")
 
 
 def test_chat_sees_his_positions_and_the_latest_read(tmp_path, monkeypatch):

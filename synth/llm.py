@@ -59,7 +59,7 @@ class Synthesizer:
     def __init__(self, model: str, effort: str = "low", client: anthropic.Anthropic | None = None):
         self.model = model
         self.effort = effort
-        self.client = client or anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic(timeout=120, max_retries=1)
 
     def _parse(self, schema: type[BaseModel], task: str, payload: dict, max_tokens: int = 4000):
         response = self.client.messages.parse(
@@ -138,7 +138,7 @@ class PersonaWriter:
     def __init__(self, model: str, effort: str = "medium", client: anthropic.Anthropic | None = None):
         self.model = model
         self.effort = effort
-        self.client = client or anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic(timeout=120, max_retries=1)
 
     def write(self, system: str, task: str) -> tuple[str, dict]:
         params = {

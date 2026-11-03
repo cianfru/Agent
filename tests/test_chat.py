@@ -103,7 +103,11 @@ def test_telegram_plain_messages_are_questions(tmp_path, monkeypatch):
     monkeypatch.setattr(notify, "tg", fake_tg)
     agent = make(tmp_path, [response([text_block("x" * 5000)])])
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "what's moving?"}}))
-    assert sent[0] == "sendChatAction" and sent[1] == "x" * 3900 and sent[2] == "x" * 1100
+    assert sent[0] == "sendChatAction" and sent[1] == "x" * 5000          # whole: notify.telegram splits it
+    assert notify.split_text("x" * 5000) == ["x" * 3900, "x" * 1100]
+    lines = "\n".join(f"line {i:04d}" for i in range(800))                  # cut at a line end, nothing lost
+    parts = notify.split_text(lines)
+    assert all(len(p) <= 3900 for p in parts) and "\n".join(parts) == lines
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/cost"}}))
     assert sent[-1].startswith("Talking today: $0.") and "claude-opus-5-5" in sent[-1]
     asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/reset"}}))

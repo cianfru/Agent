@@ -77,10 +77,10 @@ def test_first_look_is_the_starting_point_then_adds_new_positions_and_conviction
     # a flip closes one and opens another; a coin gone is closed (cuts recorded)
     hl.books[A]["ZEC"] = pos("long", 50_000, 166, entry=290.0)
     del hl.books[A]["LIT"]
-    out = asyncio.run(pt.step(now=1_790_100_000.0, mids={"ZEC": 300.0, "LIT": 2.6}))
+    out = asyncio.run(pt.step(now=1_790_007_800.0, mids={"ZEC": 300.0, "LIT": 2.6}))
     assert out["pt_closed"] == 2 and out["pt_new"] == 1
     assert [p["coin"] + " " + p["side"] for p in pt.board()["traders"][0]["positions"]] == ["ZEC long"]
-    adding = {(r["coin"], r["side"]): r for r in pt.adding(48, now=1_790_100_000.0)}
+    adding = {(r["coin"], r["side"]): r for r in pt.adding(48, now=1_790_007_800.0)}
     assert adding[("LIT", "long")]["cut_usd"] == 2_600_000   # net per trader: +520K then -3.12M and adding[("ZEC", "long")]["added_usd"] == 50_000
     assert "ZEC 1 long $50K / 0 short $0" in pt.coins_text()
 
@@ -196,18 +196,25 @@ def test_position_picks_score_at_14_and_30_days_never_late(tmp_path):
     s = Settings(db_path=str(tmp_path / "t.db"))
     store = Store(s.db_path)
     a = service.Agent(s, store)
-    a.tracker.last_mids = {"ZEC": 110.0}
+    now = time.time()
+    a.tracker.last_mids, a.tracker.last_mids_ts = {"ZEC": 110.0}, now
     pid = store.add_pick("position", "ZEC", "long", 1, 100.0, "pt", {})
     late = store.add_pick("position", "ZEC", "long", 1, 100.0, "pt", {})
+    old = store.add_pick("position", "ZEC", "long", 1, 100.0, "pt", {})
     with store._lock:
-        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (time.time() - 30 * 86400 - 3600, pid))
-        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (time.time() - 30 * 86400 - 2 * 86400, late))
+        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (now - 30 * 86400 - 3600, pid))
+        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (now - 30 * 86400 - 2 * 86400, late))
+        store._db.execute("UPDATE picks SET ts=? WHERE id=?", (now - 14 * 86400 - 3 * 86400, old))
         store._db.commit()
+    # the hourly copy of every coin's price holds ZEC at 95 three days ago: the 14-day price of `old`
+    store.add_series("hl_ctx", {"c": {"ZEC": [95.0, 1000, 0.0001]}}, now - 3 * 86400 + 600)
     a.score_picks({})
     got = {p["id"]: p for p in store.picks(origin="position")}
-    assert got[pid]["ret_30d"] == 0.1 and got[pid]["ret_14d"] is None   # 14d was due long ago: left empty
-    assert got[late]["ret_30d"] is None                                 # missed its day: never scored late
-    assert got[pid]["ret_7d"] == 0.1                                    # older horizons as before
+    assert got[pid]["ret_30d"] == 0.1                                   # an hour past 30 days: the price now
+    assert got[pid]["ret_14d"] is None and got[pid]["ret_7d"] is None   # long past, no copy that old: left empty
+    assert got[late]["ret_30d"] is None                                 # two days late, no copy: never a later price
+    assert got[old]["ret_14d"] == -0.05                                 # three days late, priced at its own hour
+    assert got[old]["ret_30d"] is None
 
 
 def test_big_money_counts_owners_not_dollars():

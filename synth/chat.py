@@ -219,7 +219,7 @@ class Chat:
         self.model = model
         self.effort = effort
         self.daily_usd = daily_usd
-        self.client = client or anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic(timeout=120, max_retries=1)
         self.loop: asyncio.AbstractEventLoop | None = None   # the service's loop, for Reflex reads from a tool
 
     # ---------------------------------------------------------------- talking --
@@ -241,26 +241,35 @@ class Chat:
         messages.append({"role": "user", "content": text})
         system = self._system()
         cost, answer = 0.0, ""
-        for rnd in range(MAX_ROUNDS):
-            resp = self._create(system, messages)
-            cost += cost_of(resp.model if resp.model in PRICES else self.model, resp.usage)
-            if resp.stop_reason == "refusal":
-                answer = "I can't answer that one."
+        spent = self.spent_today(now)
+        try:
+            for rnd in range(MAX_ROUNDS):
+                last = rnd == MAX_ROUNDS - 2 or spent + cost >= self.daily_usd   # the budget ends the tools too
+                resp = self._create(system, messages)
+                cost += cost_of(resp.model if resp.model in PRICES else self.model, resp.usage)
+                if resp.stop_reason == "refusal":
+                    answer = "I can't answer that one."
+                    break
+                if resp.stop_reason == "tool_use":
+                    messages.append({"role": "assistant", "content": resp.content})
+                    results: list[dict] = [{"type": "tool_result", "tool_use_id": b.id,
+                                            "content": self.execute(b.name, b.input, now)}
+                                           for b in resp.content if b.type == "tool_use"]
+                    if last or spent + cost >= self.daily_usd:
+                        results.append({"type": "text", "text": "Answer now with what you have; no more tools."})
+                    messages.append({"role": "user", "content": results})
+                    continue
+                answer = "\n".join(b.text for b in resp.content if b.type == "text").strip()
+                if resp.stop_reason == "max_tokens":
+                    answer += "\n(cut short)"
                 break
-            if resp.stop_reason == "tool_use":
-                messages.append({"role": "assistant", "content": resp.content})
-                results: list[dict] = [{"type": "tool_result", "tool_use_id": b.id, "content": self.execute(b.name, b.input, now)}
-                                       for b in resp.content if b.type == "tool_use"]
-                if rnd == MAX_ROUNDS - 2:
-                    results.append({"type": "text", "text": "Answer now with what you have; no more tools."})
-                messages.append({"role": "user", "content": results})
-                continue
-            answer = "\n".join(b.text for b in resp.content if b.type == "text").strip()
-            if resp.stop_reason == "max_tokens":
-                answer += "\n(cut short)"
-            break
-        else:
-            answer = answer or "That took too many steps; ask it more narrowly."
+            else:
+                answer = answer or "That took too many steps; ask it more narrowly."
+        except Exception:
+            # what the failed answer cost still counts against the day's budget
+            self.store.chat_add(chat_id, "user", text, now, 0.0)
+            self.store.chat_add(chat_id, "assistant", "(no answer: the model call failed)", now, round(cost, 5))
+            raise
         answer = answer or "No answer came back; try again."
         self.store.chat_add(chat_id, "user", text, now, 0.0)
         self.store.chat_add(chat_id, "assistant", answer, now, round(cost, 5))
@@ -431,21 +440,29 @@ class Chat:
 
     def t_recent_alerts(self, now: float, hours: int = 24) -> list[dict]:
         since, out = now - hours * 3600, []
+
+        def add(ts: float, kind: str, text: str, **more) -> None:
+            out.append({"ts": ts, "when": time.strftime("%d %b %H:%M UTC", time.gmtime(ts)), "kind": kind,
+                        "text": text, **more})
+
+        held = {(b["body"].get("kind"), b["ts"] // 600) for b in self.store.briefs_since("push_held", since)}
         for kind, label in (("pt_build", "build-up"), ("pt_alert", "conviction")):
             for b in self.store.briefs_since(kind, since):
-                out.append({"when": time.strftime("%d %b %H:%M", time.gmtime(b["ts"])), "kind": label,
-                            "text": b["body"].get("text") or f"{b['body'].get('coin')} {b['body'].get('side')} "
-                                                            f"{b['body'].get('record') or ''}".strip()})
+                capped = b["body"].get("capped") or ({"pt_alert": "conviction", "pt_build": "build"}[kind],
+                                                     b["ts"] // 600) in held
+                add(b["ts"], label, b["body"].get("text") or f"{b['body'].get('coin')} {b['body'].get('side')} "
+                                                             f"{b['body'].get('record') or ''}".strip(),
+                    **({"not_sent": "held by the daily cap"} if capped else {}))
         for b in self.store.briefs_since("alert_sent", since):
             ev = self.store.event(b["body"].get("event_id"))
             if ev:
-                out.append({"when": time.strftime("%d %b %H:%M", time.gmtime(b["ts"])), "kind": "smart money",
-                            "text": ev["title"]})
+                add(b["ts"], "smart money", ev["title"])
         for g in self.store.groups(limit=20):
             if g["ts"] >= since:
-                out.append({"when": time.strftime("%d %b %H:%M", time.gmtime(g["ts"])), "kind": "convergence",
-                            "text": f"{g['coin']} {g['side']}, {(g['meta'] or {}).get('n') or ''} traders, {g['status']}"})
-        return sorted(out, key=lambda x: x["when"])[-30:]
+                add(g["ts"], "convergence", f"{g['coin']} {g['side']}, {(g['meta'] or {}).get('n') or ''} traders, "
+                                            f"{g['status']}")
+        out.sort(key=lambda x: x["ts"])          # by time, not by the date's text (which sorts '01 Dec' before '30 Nov')
+        return [{k: v for k, v in x.items() if k != "ts"} for x in out[-30:]]
 
     def t_screen(self, now: float, sort: str = "score", band: str = "any", trend: str = "any", side: str = "any",
                  limit: int = 15) -> dict:

@@ -44,7 +44,14 @@ class GroupTracker:
         self._hl = hl  # injected in tests; otherwise a client per step (one event loop per step is safe)
         self.hl: HL | None = None
         self.last_mids: dict[str, float] = {}  # Hyperliquid mids from the last step, to score picks on any coin
+        self.last_mids_ts = 0.0                # when they were read: a mid older than two polls is not a price now
         self._purge_v1_derive_groups()
+
+    def fresh_mids(self, now: float | None = None) -> dict[str, float]:
+        """The last mids when read within two polls (at least 15 minutes), else none: a pick is never logged, scored
+        or benchmarked on an hours-old price."""
+        age = (now or time.time()) - self.last_mids_ts
+        return self.last_mids if age <= max(2 * self.s.poll_seconds, 900) else {}
 
     def _purge_v1_derive_groups(self) -> None:
         """Remove Derive groups that cannot be right: the old top-4-legs detector's, and every Derive group
@@ -75,7 +82,7 @@ class GroupTracker:
             log.warning("hyperliquid mids failed: %s", e)
             mids = {}
         if mids:
-            self.last_mids = mids
+            self.last_mids, self.last_mids_ts = mids, now
         created: list[dict] = []
         if "reflex" in snaps and self.reflex:
             created += await self._hl_groups(snaps["reflex"], mids, now)

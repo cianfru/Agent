@@ -9,7 +9,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /draft      one of Outrider's X posts now, as a draft (off the menu while X drafts are off)
   /read       Outrider's read of the market now;  /record  how its past views did;  /mine  his positions, briefed
   /watch      the watch list, or /watch ENA long 0.09 5k to add;  /unwatch ENA  to take it off
-  /reset      start the conversation afresh;  /cost  what talking and reads have cost today
+  /reset      start the conversation afresh;  /cost  what talking and reads have cost today;  /held  held back
 Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
 """
 
@@ -56,7 +56,8 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /following  groups you follow
 /groups  latest groups
 /reset  start our conversation afresh
-/cost  what talking and reads have cost today"""
+/cost  what talking and reads have cost today, and messages sent
+/held  messages the daily cap of unprompted messages held back"""
 
 MINE = ("Brief me on my positions and my watch list: for each, where it stands (price against my entry and the levels "
         "that matter), who is on which side and what changed lately. The picture, no instructions.")
@@ -72,6 +73,7 @@ COMMANDS = [{"command": "read", "description": "Outrider's read of the market no
             {"command": "groups", "description": "Latest groups"},
             {"command": "reset", "description": "Start the conversation afresh"},
             {"command": "cost", "description": "What talking and reads have cost today"},
+            {"command": "held", "description": "Messages the daily cap held back"},
             {"command": "help", "description": "What the alerts and their words mean"}]
 
 
@@ -125,18 +127,29 @@ async def handle(agent, update: dict) -> None:
     msg = update.get("message") or {}
     if str((msg.get("chat") or {}).get("id")) != chat:
         return
-    reply_to = (msg.get("reply_to_message") or {}).get("message_id")
-    reply_text = (msg.get("text") or "").strip()
+    replied = msg.get("reply_to_message") or {}
+    reply_to = replied.get("message_id")
+    reply_text = (msg.get("text") or msg.get("caption") or "").strip()
     if reply_to and reply_text and not reply_text.startswith("/") and (draft := store.post_by_tg(reply_to)):
-        problems = agent.edit_post(draft["id"], msg["text"])
+        problems = agent.edit_post(draft["id"], reply_text)
         if problems:
             await notify.telegram(s.telegram_token, chat, "Not saved: " + "; ".join(problems))
         else:
-            await agent.send_draft(draft["id"])
+            await agent.send_draft(draft["id"], reply=True)
         return
-    cmd = [c.split("@")[0] for c in (msg.get("text") or "").strip().split()[0:1]]
+    cmd = [c.split("@")[0] for c in reply_text.split()[0:1]]
     if reply_text and not reply_text.startswith("/"):
+        quoted = (replied.get("text") or replied.get("caption") or "").strip()
+        if quoted:      # a reply to one of Outrider's messages: say which, so the answer knows what "this" is
+            reply_text = f'He is replying to your message: "{quoted[:800]}"\n\n{reply_text}'
         await _talk(agent, chat, reply_text)
+        return
+    if not reply_text and not cmd:
+        await notify.telegram(s.telegram_token, chat, "I read text messages (a picture with a question as its caption "
+                                                      "works too).")
+        return
+    if cmd == ["/held"]:
+        await notify.telegram(s.telegram_token, chat, notify.held_text(store))
         return
     if cmd == ["/mine"]:                                  # his positions, on request only (owner, 3 November 2026)
         await _talk(agent, chat, MINE)
@@ -150,6 +163,10 @@ async def handle(agent, update: dict) -> None:
             await notify.telegram(s.telegram_token, chat, "Talking is off: no ANTHROPIC_API_KEY on Railway.")
         else:
             text = f"Talking today: ${agent.chat.spent_today():.2f} of ${agent.chat.daily_usd:.2f} ({agent.chat.model})."
+            sent = store.count_briefs("push", time.time() - 86400)
+            held = store.count_briefs("push_held", time.time() - 86400)
+            text += f"\nUnprompted messages in 24h: {sent} of {s.max_pushes_per_day}" + (
+                f", {held} held back (/held)" if held else "") + "."
             if agent.analyst:
                 text += (f"\nReads today: ${agent.analyst.spent_today():.2f} of ${agent.analyst.daily_usd:.2f} "
                          f"({agent.analyst.model}).")
@@ -159,12 +176,14 @@ async def handle(agent, update: dict) -> None:
         if not agent.analyst:
             await notify.telegram(s.telegram_token, chat, "Reads are off: no ANTHROPIC_API_KEY, or SYNTH_READS=off.")
             return
-        await notify.tg(s.telegram_token, "sendChatAction", chat_id=chat, action="typing")
+        typing = asyncio.create_task(_typing(s.telegram_token, chat))
         try:
             await agent.analyst.run("asked", force_send=True)
         except Exception as e:  # noqa: BLE001 - say why instead of going quiet
             log.warning("/read failed: %s", e)
             await notify.telegram(s.telegram_token, chat, f"The read failed: {type(e).__name__}. Try again in a minute.")
+        finally:
+            typing.cancel()
         return
     if cmd in (["/watch"], ["/unwatch"]):
         from .analyst import parse_watch, watch_text
@@ -220,14 +239,22 @@ async def _talk(agent, chat: str, text: str) -> None:
     if not getattr(agent, "chat", None):
         await notify.telegram(s.telegram_token, chat, "I can't talk yet: add ANTHROPIC_API_KEY on Railway.\n\n" + HELP)
         return
-    await notify.tg(s.telegram_token, "sendChatAction", chat_id=chat, action="typing")
+    typing = asyncio.create_task(_typing(s.telegram_token, chat))
     try:
         answer = await agent.chat.reply(chat, text)
     except Exception as e:  # noqa: BLE001 - say what went wrong instead of going quiet
         log.warning("chat failed: %s", e)
         answer = f"Something went wrong reaching the model: {type(e).__name__}. Try again in a minute."
-    for i in range(0, len(answer), 3900):     # Telegram's limit is 4,096 characters a message
-        await notify.telegram(s.telegram_token, chat, answer[i:i + 3900])
+    finally:
+        typing.cancel()
+    await notify.telegram(s.telegram_token, chat, answer)      # split into several messages when long
+
+
+async def _typing(token: str, chat: str) -> None:
+    """'typing...' while an answer is being written (Telegram shows it for 5 seconds at a time)."""
+    while True:
+        await notify.tg(token, "sendChatAction", chat_id=chat, action="typing")
+        await asyncio.sleep(4)
 
 
 async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> None:

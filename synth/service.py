@@ -56,6 +56,7 @@ class Agent:
         self.market = MarketIndex(store)    # the market's move beside every pick's (synth/market.py)
         self.levels = Levels(store)         # open interest, funding, 200-day average, support band (synth/levels.py)
         self.last_cycle: dict[str, Any] = {}
+        self._pruned = 0.0
 
     # ------------------------------------------------------------ collect --
     async def collect(self) -> dict[str, dict]:
@@ -87,7 +88,6 @@ class Agent:
         rec = flow.record(snaps.get("reflex"))
         if rec:
             self.store.add_series("reflex", rec, started)
-            self.store.prune_series(started - SERIES_KEEP_S)
         for name, cur in snaps.items():
             prev = prevs[name]
             if prev is None:
@@ -121,7 +121,7 @@ class Agent:
             log.exception("group tracking failed: %s", e)
             tracked = {}
         try:
-            tracked.update(await self.positions.step(mids=self.tracker.last_mids))
+            tracked.update(await self.positions.step(mids=self.tracker.fresh_mids(started)))
         except Exception as e:  # noqa: BLE001 - position traders must not stop the poll
             log.warning("position traders failed: %s", e)
         try:
@@ -130,6 +130,10 @@ class Agent:
             log.warning("toxic flow check failed: %s", e)
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
+        self.store.prune_series(started - SERIES_KEEP_S)          # every poll, whether or not Reflex answered
+        if started - self._pruned > 86400:
+            self.store.prune_old(started)
+            self._pruned = started
         scored = self.score_picks(snaps)
         if self.reflex:                                           # every coin's z-score, once an hour
             try:
@@ -145,8 +149,9 @@ class Agent:
             except Exception as e:  # noqa: BLE001 - the last reading stands until the next poll
                 log.warning("open interest and funding read failed: %s", e)
             try:
-                if self.market.ready:
-                    await self.market.step(self.tracker.last_mids, started, hl)
+                mids = self.tracker.fresh_mids(started)
+                if self.market.ready and mids:
+                    await self.market.step(mids, started, hl)
                     self.market.fill()
             except Exception as e:  # noqa: BLE001 - the market move waits for the next poll
                 log.warning("market index step failed: %s", e)
@@ -199,7 +204,7 @@ class Agent:
         self.store.add_brief("daily", body)
         text = brief_mod.format_brief(body)
         if push:
-            await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id, text)
+            await notify.push(self.s, self.store, text, "brief")
         return {**body, "text": text}
 
     # ------------------------------------------------------------ market read --
@@ -323,8 +328,8 @@ class Agent:
         live = self.s.post_mode == "live" if publish is None else publish
         if live:
             return await self.publish_post(pid)
-        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                              f"Draft desk post (approve it in the dashboard, Posts tab)\n\n{text}")
+        await notify.push(self.s, self.store, f"Draft desk post (approve it in the dashboard, Posts tab)\n\n{text}",
+                          "desk_draft")
         return {"id": pid, "status": "draft", "text": text, "pick_id": pick_id}
 
     # ---------------------------------------------------------- Outrider on X --
@@ -368,14 +373,13 @@ class Agent:
         await self.send_draft(pid)
         return {"id": pid, "status": "draft", "text": text, "story": story["key"]}
 
-    async def send_draft(self, pid: int) -> None:
+    async def send_draft(self, pid: int, reply: bool = False) -> None:
         """A draft on Telegram with Post and Skip; replying to it with new text replaces the text."""
         p = self.store.get_post(pid)
         s = p.get("story") or {}
         head = f"Outrider draft #{pid} · {s.get('kind', '')}{' ' + s['coin'] if s.get('coin') else ''} · {len(p['text'])} chars"
-        msg = await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                                    f"{head}\n\n{p['text']}\n\nReply with new text to change it.",
-                                    buttons=notify.post_buttons(pid))
+        msg = await notify.push(self.s, self.store, f"{head}\n\n{p['text']}\n\nReply with new text to change it.",
+                                "persona_draft", buttons=notify.post_buttons(pid), reply=reply)
         if msg and msg.get("message_id"):
             self.store.update_post(pid, tg_msg=msg["message_id"])
 
@@ -406,8 +410,8 @@ class Agent:
         live = self.s.post_mode == "live" if publish is None else publish
         if live:
             return await self.publish_post(pid)
-        await notify.telegram(self.s.telegram_token, self.s.telegram_chat_id,
-                              f"Draft scorecard (approve it in the dashboard, Posts tab)\n\n{text}")
+        await notify.push(self.s, self.store, f"Draft scorecard (approve it in the dashboard, Posts tab)\n\n{text}",
+                          "scorecard_draft")
         return {"id": pid, "status": "draft", "text": text}
 
     def _public_numbers(self) -> dict[int, int]:
@@ -442,27 +446,53 @@ class Agent:
         return self.store.get_post(post_id)
 
     # ------------------------------------------------------------- journal --
+    def price_now(self, coin: str, now: float | None = None) -> float | None:
+        """Hyperliquid's price for a coin now: the poll's mid when fresh, else the context read this poll (mark)."""
+        now = now or time.time()
+        c = coin.upper()
+        px = self.tracker.fresh_mids(now).get(c)
+        if px:
+            return px
+        snap = self.store.get_snapshot("hl_ctx") or {}
+        if now - (snap.get("ts") or 0) <= max(2 * self.s.poll_seconds, 900):
+            return ((snap.get("c") or {}).get(c) or {}).get("px")
+        return None
+
     def score_picks(self, snaps: dict[str, dict]) -> int:
-        """Fill 1d/3d/7d returns for logged picks once each horizon has passed (and 14d/30d for position traders')."""
+        """Fill 1d/3d/7d returns for logged picks once each horizon has passed (and 14d/30d for position traders').
+
+        Each horizon is priced at its own time: from the hourly copy of every coin's price (levels.py, kept 8 days)
+        nearest the horizon, or from the price now while the horizon is under two hours old. A pick whose horizon
+        price is in neither (an outage longer than the copy's 8 days, a coin Hyperliquid does not list) stays
+        unscored and is counted as such; it is never scored at a later price as if it were the horizon's."""
         now, n = time.time(), 0
         for p in self.store.open_picks():
-            hl_px = self.tracker.last_mids.get(p["coin"].upper())
-            # group, position and read picks were entered at Hyperliquid's mid, so they are scored on it too
-            hl_entry = p.get("origin") in ("group", "position", "read")
-            px = (hl_px or price_of(p["coin"], snaps)) if hl_entry else (price_of(p["coin"], snaps) or hl_px)
-            if not px or not p["entry_price"]:
+            if not p["entry_price"]:
                 continue
             horizons = dict(HORIZONS)
             if p.get("origin") == "position":
-                # scored within a day of the horizon, never late (a late price is not the 14- or 30-day price)
-                horizons.update({h: s for h, s in LONG_HORIZONS.items() if now - p["ts"] < s + 86400})
+                horizons.update(LONG_HORIZONS)
+            hl_entry = p.get("origin") in ("group", "position", "read")
             for h, secs in horizons.items():
-                if p[f"ret_{h}"] is None and now - p["ts"] >= secs:
-                    ret = px / p["entry_price"] - 1
-                    if p["direction"] == "short":
-                        ret = -ret
-                    self.store.set_pick_return(p["id"], h, round(ret, 5))
-                    n += 1
+                at = p["ts"] + secs
+                if p[f"ret_{h}"] is not None or now < at:
+                    continue
+                def live() -> float | None:
+                    return (self.price_now(p["coin"], now) or price_of(p["coin"], snaps)) if hl_entry else \
+                        (price_of(p["coin"], snaps) or self.price_now(p["coin"], now))
+                late = now - at
+                px = live() if late <= max(2 * self.s.poll_seconds, 900) else None   # on time: the price now
+                if px is None:
+                    px = self.levels.price_at(p["coin"].upper(), at, within=90 * 60, now=now)
+                if px is None and late <= 2 * 3600:          # no copy near it yet: the price now, under 2 hours late
+                    px = live()
+                if not px:
+                    continue
+                ret = px / p["entry_price"] - 1
+                if p["direction"] == "short":
+                    ret = -ret
+                self.store.set_pick_return(p["id"], h, round(ret, 5))
+                n += 1
         return n
 
 

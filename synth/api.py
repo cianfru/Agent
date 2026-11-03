@@ -171,21 +171,16 @@ async def _maybe_pulse(agent: Agent) -> None:
 
 
 async def send_pulse(agent: Agent, text: str | None = None) -> None:
-    """The pulse picture with the read as its caption (or the picture, then the read, if it is too long)."""
-    tok, chat = agent.s.telegram_token, agent.s.telegram_chat_id
+    """The pulse picture with the read as its caption (a long read goes whole under the picture). One unprompted
+    message, counted against the daily cap like any other."""
     try:
         p = await asyncio.to_thread(agent.pulse)
     except Exception as e:  # noqa: BLE001 - the text still goes out without the picture
         log.warning("pulse picture failed: %s", e)
         if text:
-            await notify.telegram(tok, chat, text)
+            await notify.push(agent.s, agent.store, text, "pulse")
         return
-    if text and len(text) <= 1024:
-        await notify.telegram_photo(tok, chat, p["png"], text)
-        return
-    await notify.telegram_photo(tok, chat, p["png"], p["summary"])
-    if text:
-        await notify.telegram(tok, chat, text)
+    await notify.push(agent.s, agent.store, text or p["summary"], "pulse", png=p["png"])
 
 
 def _snaps() -> dict:
