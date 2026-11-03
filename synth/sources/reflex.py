@@ -12,6 +12,8 @@ Endpoints read each poll (all unrate-limited GETs; ETag/304 keeps egress low):
   /api/notifications/market-setups              OI-vs-price divergence setups
   /api/notifications/exhaustion-opportunities   exhaustion floors / climax reversals
   /api/market-pulse?timeframe=1d                consensus, BTC regime, funding mood, ETF flows
+Once an hour:
+  /api/scan?timeframe=1d|4h&view=list           every coin's engine reading, z-score included (for the screen)
 On demand (a question about a coin, or a read's coins):
   /api/scan/row?symbol=X&timeframe=1d|4h        one coin's full engine row, for any coin Reflex scans
   /api/chart/X-USDT?timeframe=1d&limit=60       the chart patterns on its daily chart (only the patterns are kept)
@@ -158,6 +160,24 @@ RECENT_PATTERN_S = 30 * 86400   # confirmed or failed within this long ago still
 
 def _sig(x: float | None) -> float | None:
     return float(f"{x:.5g}") if x else x
+
+
+async def engine_all(rc: ReflexClient) -> dict[str, dict]:
+    """Every perp Reflex scans, with its daily and 4-hour engine reading (z-score, regime, signal; heat on the daily),
+    from the scan's list view: one request a timeframe, so the screen has every coin's z-score."""
+    out: dict[str, dict] = {}
+    for tf in ("1d", "4h"):
+        body = await rc.get(f"/api/scan?timeframe={tf}&view=list")
+        for row in (body or {}).get("results") or []:
+            if (row.get("market_kind") or "perpetual") != "perpetual" or not row.get("symbol"):
+                continue
+            d = out.setdefault(_coin(row["symbol"]), {})
+            if row.get("zscore") is not None:
+                d[f"z_{tf}"] = round(float(row["zscore"]), 2)
+            d[f"signal_{tf}"], d[f"regime_{tf}"] = row.get("signal"), row.get("regime")
+            if tf == "1d" and row.get("heat") is not None:
+                d["heat_1d"] = row["heat"]
+    return out
 
 
 async def chart_patterns(rc: ReflexClient, coin: str, now: float | None = None) -> list[dict]:

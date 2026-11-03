@@ -131,6 +131,13 @@ class Agent:
         for name, cur in snaps.items():
             self.store.put_snapshot(name, cur)
         scored = self.score_picks(snaps)
+        if self.reflex:                                           # every coin's z-score, once an hour
+            try:
+                snap = self.store.get_snapshot("engine_all") or {}
+                if started - (snap.get("ts") or 0) >= 3600:
+                    self.store.put_snapshot("engine_all", {"ts": started, "c": await reflex.engine_all(self.reflex)})
+            except Exception as e:  # noqa: BLE001 - the last reading stands
+                log.warning("engine readings for every coin failed: %s", e)
         async with httpx.AsyncClient(timeout=20) as http:
             hl = HL(http)
             try:

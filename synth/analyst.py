@@ -142,12 +142,16 @@ def _move(side: str | None, price: float | None, entry: float | None) -> float |
     return round(100 * (price / entry - 1) * (1 if side == "long" else -1), 1)
 
 
-def _engine(snap: dict, cow: dict, coin: str) -> dict | None:
+def _engine(snap: dict, cow: dict, coin: str, every: dict | None = None) -> dict | None:
     r = (snap.get("coins") or {}).get(coin) or (cow.get("coins") or {}).get(coin) or {}
     e = (snap.get("engine") or {}).get(coin) or {}
+    a = (every or {}).get(coin) or {}                       # every coin's reading, hourly: the z-score above all
     out = {"daily": SIGNAL.get(r.get("signal_1d") or e.get("1d") or "", None),
            "4h": SIGNAL.get(r.get("signal_4h") or e.get("4h") or "", None),
-           "regime": REGIME.get(r.get("regime_1d") or "", None), "heat": r.get("heat_1d")}
+           "regime": REGIME.get(r.get("regime_1d") or a.get("regime_1d") or "", None),
+           "heat": r.get("heat_1d") if r.get("heat_1d") is not None else a.get("heat_1d"),
+           "z_daily": r.get("z_1d") if r.get("z_1d") is not None else a.get("z_1d"),
+           "z_4h": r.get("z_4h") if r.get("z_4h") is not None else a.get("z_4h")}
     out = {k: v for k, v in out.items() if v is not None}
     return out or None
 
@@ -210,6 +214,7 @@ def scan(agent, now: float | None = None) -> dict:
     day = (_at(rows, tss, now - DAY) or {}).get("c") or {}
     week = (_at(rows, tss, now - 7 * DAY) or {}).get("c") or {}
     mids = getattr(agent.tracker, "last_mids", {}) or {}
+    every = (store.get_snapshot("engine_all") or {}).get("c") or {}
 
     board = pt.board(now)
     home = desk.home(agent, now, board)
@@ -253,7 +258,7 @@ def scan(agent, now: float | None = None) -> dict:
         if coin in winners:
             w = winners[coin]
             r["open_winners"] = {**w, "long_upnl": round(w["long_upnl"]), "short_upnl": round(w["short_upnl"])}
-        for k, v in (("engine", _engine(snap, cow, coin)), ("oi_funding", agent.levels.oi_funding(coin, now)),
+        for k, v in (("engine", _engine(snap, cow, coin, every)), ("oi_funding", agent.levels.oi_funding(coin, now)),
                      ("options", _options(cow, coin)),
                      ("alerts_24h", (alerts.get(coin) or [])[-2:])):
             if v:

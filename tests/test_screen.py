@@ -65,10 +65,43 @@ def test_levels_for_every_liquid_coin_are_read_once_a_day(tmp_path):
     store = Store(str(tmp_path / "t.db"))
     lv = levels.Levels(store)
     store.put_snapshot("hl_ctx", {"ts": 1, "c": {"BTC": {"vol": 9e9}, "SOL": {"vol": 3e8}, "TINY": {"vol": 1.0}}})
-    assert lv.universe(["hype"])[:3] == ["BTC", "SOL", "TINY"] and lv.universe(["hype"])[-1] == "HYPE"
+    assert lv.universe(["hype"]) == ["BTC", "SOL", "TINY"]               # not listed on Hyperliquid: left out
+    store.put_snapshot("hl_ctx", {"ts": 1, "c": {"BTC": {"vol": 9e9}, "SOL": {"vol": 3e8}, "TINY": {"vol": 1.0},
+                                                 "HYPE": {"vol": 5e8}}})
+    assert lv.universe(["tiny"]) == ["BTC", "HYPE", "SOL", "TINY"]
     now = time.mktime(time.strptime("2026-11-03 06:00", "%Y-%m-%d %H:%M")) - time.timezone
     assert lv.refresh_due(now)
     hl = FakeHL()
     assert asyncio.run(lv.refresh_all(hl, ["BTC", "SOL"], now, pace_s=0)) == 2 and hl.calls == 4
     assert not lv.refresh_due(now + 60)                                  # done for today
     assert asyncio.run(lv.refresh_all(hl, ["BTC", "SOL"], now + 60, pace_s=0)) == 0 and hl.calls == 4
+
+
+def test_a_stretched_z_score_with_shorts_building_is_a_short_setup_even_in_an_uptrend():
+    lv = {**LV, "ma200d": 60.0, "sma20w": 80.0, "ema21w": 84.0}            # far over the 200-day, 25% over the band
+    pos = {"z_1d": 2.8, "conviction_7d": {"short": 1}, "tracked": {"lean": "short"}, "engine_code": "TRIM"}
+    r = screen.coin_row("HYPE", lv, 105.0, {"funding_apr_pct": 40.0}, pos)
+    assert r["band"]["state"] == "extended" and r["z_1d"] == 2.8
+    assert r["score_short"] == 35 + 10 + 20 + 5 + 5
+    assert r["why_short"] == ["stretched: daily z 2.8 (the engine's blow-off line is 2.5)", "25% over its band",
+                              "1 conviction bet short in 7 days", "tracked traders lean short", "longs paying 40% a year"]
+    assert r["score_long"] == 0 and "stretched: daily z 2.8, buying here is chasing" in r["why_long"]
+    past_trim = screen.coin_row("HYPE", lv, 105.0, None, {"z_1d": 3.2})
+    assert past_trim["score_short"] == 50 and past_trim["why_short"][0].endswith("(the engine trims from 3)")
+    calm = screen.coin_row("HYPE", lv, 105.0, None, {"z_1d": 1.2})
+    assert calm["score_short"] == 0                                     # not stretched, not under the 200-day
+
+
+def test_every_coins_engine_reading_comes_from_one_list_per_timeframe():
+    from synth.sources import reflex
+
+    class Rc:
+        async def get(self, path):
+            tf = path.split("timeframe=")[1].split("&")[0]
+            return {"results": [{"symbol": "HYPE/USDT", "market_kind": "perpetual", "zscore": 2.81234 if tf == "1d" else 1.5,
+                                 "signal": "TRIM", "regime": "BLOWOFF", "heat": 88},
+                                {"symbol": "HYPE/USDC", "market_kind": "spot", "zscore": 9.9}]}
+
+    got = asyncio.run(reflex.engine_all(Rc()))
+    assert got == {"HYPE": {"z_1d": 2.81, "signal_1d": "TRIM", "regime_1d": "BLOWOFF", "heat_1d": 88,
+                            "z_4h": 1.5, "signal_4h": "TRIM", "regime_4h": "BLOWOFF"}}

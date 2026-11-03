@@ -6,6 +6,10 @@ interest and funding now, the engine's daily signal, and what tracked traders ho
 conviction in 7 days. So a question like "which coins sit closest to their band" is one look at one table, not one
 coin at a time, and a read chooses its setups from the whole market, not only from where traders were busy.
 
+The z-score (owner, 4 November 2026: "for shorting, one of the most important aspects"): the engine's daily z-score,
+how far the price sits above its long-run trend in its own volatility, read for every coin once an hour. The engine's
+own lines: 2.5 a blow-off, 3 it trims, 3.5 it trims hard, -1 capitulation.
+
 The band (owner, 3 November 2026): inside it, the price is testing it, a zone to watch, not a block; up to 5% over it is
 just above; 15% or more over it is extended, not an entry; under it the trend is lost until the band is reclaimed.
 
@@ -16,11 +20,14 @@ the setups a read sends are what study S5 scores.
                                   200-day, on a swing low (within 3% over it) 20; plus 10 when it has given back 30% to
                                   70% of its last leg.
                                   short: the mirror (under the 200-day, inside the band or just under it, a bounce of
-                                  30% to 70% of the last drop). Extended (long) or far under the band (short): 0.
+                                  30% to 70% of the last drop), or stretched: a daily z-score at the engine's blow-off
+                                  line (2.5) 35, at its trim line (3) 40, plus 10 when 15%+ over the band; this route
+                                  fades a run, so it needs no downtrend. Extended (long) or far under the band: 0.
   who is positioning, up to 35    a proven trader's conviction bet that side in 7 days 20, two or more tracked traders
                                   adding that side in 24 hours 10, tracked traders leaning that side 5
-  the engine, up to 15            its daily setup that way 15; the other way -10
-  crowding, -5                    funding over 50% a year (long) or under -50% (short)
+  the engine, up to 15            its daily setup that way 15; the other way -10; a long on a stretched z (2.5+) -15
+  crowding, -5 or +5              funding over 50% a year against a long, under -50% against a short; over 30% a
+                                  year (longs paying up) +5 for a short
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ from typing import Any
 
 from . import desk
 from .levels import NEAR_PCT, band_state
+
+Z_BLOWOFF, Z_TRIM, Z_CAPITULATION = 2.5, 3.0, -1.0     # the engine's own lines (Reflex rcce_engine.py)
 
 UP = {"STRONG_LONG", "LIGHT_LONG", "ACCUMULATE", "REVIVAL_SEED", "REVIVAL_SEED_CONFIRMED"}
 DOWN = {"RISK_OFF", "LIGHT_SHORT", "TRIM_HARD", "NO_LONG"}
@@ -71,7 +80,7 @@ def coin_row(coin: str, lv: dict, price: float, ctx: dict | None, pos: dict) -> 
         r["swing_high"], r["swing_high_pct"] = min(highs), _pct(min(highs), price)
     if ctx:
         r.update({k: ctx[k] for k in ("oi_change_24h_pct", "funding_apr_pct") if ctx.get(k) is not None})
-    r.update({k: v for k, v in pos.items() if v})
+    r.update({k: v for k, v in pos.items() if v not in (None, {}, "")})
     r["score_long"], r["why_long"] = score(r, "long")
     r["score_short"], r["why_short"] = score(r, "short")
     return r
@@ -103,8 +112,20 @@ def score(r: dict, side: str) -> tuple[int, list[str]]:
     if pts and back is not None and 30 <= back <= 70:
         pts += 10
         why.append(f"gave back {back}% of its last leg" if long else f"bounced {back}% of its last drop")
+    z = r.get("z_1d")
+    if not long and z is not None and z >= Z_BLOWOFF:      # the fade: stretched, whatever the trend
+        stretch = 40 if z >= Z_TRIM else 35
+        if stretch >= pts:
+            line = "the engine trims from 3" if z >= Z_TRIM else "the engine's blow-off line is 2.5"
+            pts, why = stretch, [f"stretched: daily z {z:.1f} ({line})"]
+            if st == "extended":
+                pts += 10
+                why.append(f"{r['band']['vs_pct']:.0f}% over its band")
     if long and st == "extended":
         pts, why = 0, ["extended over its band"]
+    if long and z is not None and z >= Z_BLOWOFF:
+        pts -= 15
+        why.append(f"stretched: daily z {z:.1f}, buying here is chasing")
     conv = (r.get("conviction_7d") or {}).get(side, 0)
     if conv:
         pts += 20
@@ -127,6 +148,9 @@ def score(r: dict, side: str) -> tuple[int, list[str]]:
     if f is not None and (f > 50 if long else f < -50):
         pts -= 5
         why.append(f"crowded: funding {f:+.0f}% a year")
+    elif f is not None and not long and f >= 30:
+        pts += 5
+        why.append(f"longs paying {f:.0f}% a year")
     return max(0, pts), why
 
 
@@ -150,7 +174,27 @@ def positioning(agent, now: float, board: dict | None = None) -> dict[str, dict]
         if e.get("1d"):
             out.setdefault(c, {})["engine_code"] = e["1d"]
             out[c]["engine"] = SIGNAL_WORD.get(e["1d"], e["1d"])
+    for c, e in ((store.get_snapshot("engine_all") or {}).get("c") or {}).items():   # every coin, hourly
+        d = out.setdefault(c, {})
+        if e.get("signal_1d"):
+            d["engine_code"], d["engine"] = e["signal_1d"], SIGNAL_WORD.get(e["signal_1d"], e["signal_1d"])
+        for k in ("z_1d", "z_4h", "heat_1d"):
+            if e.get(k) is not None:
+                d[k] = e[k]
     return out
+
+
+def trader_coins(agent, now: float, min_crowd: int = 5) -> list[str]:
+    """Coins where traders are, whatever their volume: what tracked traders hold or added in 7 days, conviction bets in
+    7 days, and coins at least `min_crowd` profitable traders hold. Read daily beside the most traded."""
+    pt, store = agent.positions, agent.store
+    out = {c["coin"] for c in pt.board(now)["coins"]}
+    out |= {a["coin"] for a in pt.adding(168, now) if a["adders"]}
+    out |= {b["body"]["coin"] for b in store.briefs_since("pt_alert", now - 7 * 86400) if b["body"].get("coin")}
+    for c, v in ((store.get_snapshot("reflex") or {}).get("positions") or {}).items():
+        if v[0] + v[2] >= min_crowd:
+            out.add(c)
+    return sorted(out)
 
 
 def build(agent, now: float | None = None, board: dict | None = None) -> dict:

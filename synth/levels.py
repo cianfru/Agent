@@ -253,11 +253,13 @@ class Levels:
         return lv
 
     # ------------------------------------------------------------ every coin --
-    def universe(self, extra: list[str] | tuple = ()) -> list[str]:
-        """The most traded perps by 24-hour volume (from the last context read), plus any extra coins."""
+    def universe(self, extra: list[str] | tuple = (), cap: int = 180) -> list[str]:
+        """The most traded perps by 24-hour volume (from the last context read, so it changes with the market each
+        day), plus the extra coins (where traders are, his watch list) that are listed on Hyperliquid."""
         cur = (self.store.get_snapshot("hl_ctx") or {}).get("c") or {}
         busy = sorted(cur, key=lambda c: -(cur[c].get("vol") or 0))[:UNIVERSE]
-        return list(dict.fromkeys(busy + [c.upper() for c in extra]))
+        more = [c.upper() for c in extra if not cur or c.upper() in cur]
+        return list(dict.fromkeys(busy + more))[:cap]
 
     def refresh_due(self, now: float) -> bool:
         """Once a day after 00:30 UTC (yesterday's daily and weekly bars closed), and half an hour after a failure."""

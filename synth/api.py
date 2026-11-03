@@ -87,7 +87,8 @@ async def _refresh_levels(agent: Agent) -> None:
     from .hyperliquid import HL
     hl = HL()
     try:
-        extra = [w["coin"] for w in agent.store.watch_list()]
+        from . import screen
+        extra = [w["coin"] for w in agent.store.watch_list()] + screen.trader_coins(agent, time.time())
         n = await agent.levels.refresh_all(hl, agent.levels.universe(extra))
         log.info("levels read for %d coins", n)
     except Exception:  # noqa: BLE001 - tried again later
