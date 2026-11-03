@@ -278,3 +278,20 @@ def test_by_default_only_conviction_bets_ping_and_x_drafts_are_off(tmp_path, mon
     monkeypatch.setenv("SYNTH_X_DRAFTS", "on")
     s = Settings(db_path=str(tmp_path / "t.db"))
     assert s.pushes == frozenset({"conviction", "build"}) and s.x_drafts
+
+
+def test_a_build_up_against_his_position_comes_even_when_build_ups_are_muted(tmp_path, monkeypatch):
+    B, C = "0x" + "b" * 40, "0x" + "c" * 40
+    pt, store, hl, sent = setup(tmp_path, monkeypatch, books={A: {}, B: {}, C: {}})
+    pt.s = Settings(db_path=pt.s.db_path, telegram_token="t", telegram_chat_id="1")      # default: builds muted
+    pt.seed_traders.update({B: {**PROVEN, "address": B}, C: {**PROVEN, "address": C}})
+    store.watch_add("GRASS", "short", 0.70, None, None, 1.0)                           # he is short GRASS
+    now = 1_790_000_000.0
+    store.add_series("reflex", {"w": 600, "stale": False, "c": {"GRASS": [0, 0, 0, 0, 0.60]}}, ts=now - 72 * 3600 + 600)
+    asyncio.run(pt.step(now=now, mids={"GRASS": 0.62}))
+    for i, a in enumerate((A, B, C)):
+        hl.books[a]["GRASS"] = pos("long", 120_000, 200_000, entry=0.61)
+        asyncio.run(pt.step(now=now + 600 * (i + 1), mids={"GRASS": 0.62}))
+    builds = [m for m in sent if m.startswith("Building")]
+    assert len(builds) == 1 and builds[0].endswith("This goes against your GRASS short. Ask me if you want the full picture.")
+    assert pt.against_his("GRASS", "short") == "" and pt.against_his("SOL", "long") == ""

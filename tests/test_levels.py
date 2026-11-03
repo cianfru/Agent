@@ -68,3 +68,17 @@ def test_trend_levels_are_read_once_a_day(tmp_path):
     a = asyncio.run(lv.trend(hl, "SOL", now))
     b = asyncio.run(lv.trend(hl, "SOL", now + 60))
     assert a["ma200d"] == 249.5 and a == b and hl.calls == 2           # daily and weekly, once
+
+
+def test_price_action_says_how_much_of_the_last_leg_is_given_back_and_what_is_near():
+    # a leg up from 50 (day 30) to 150 (day 80), then a pullback; swing lows on the way
+    closes = [60.0] * 30 + [50 + 2 * i for i in range(51)] + [150 - 1.5 * i for i in range(40)]
+    bars = [[i * 86_400_000, c, c * 1.01, c * 0.99, c] for i, c in enumerate(closes)]
+    st = levels.price_structure(bars)
+    assert st["high"] == 151.5 and st["leg_low"] == 49.5
+    lv = {**st, "ma200d": None, "sma20w": 92.0, "ema21w": 95.0}
+    pa = levels.price_action(lv, 93.0)
+    assert pa["retraced_of_last_leg_pct"] == 57 and pa["from_recent_high_pct"] == -38.6
+    assert pa["near"] == ["20-week SMA 92 (-1.1%)", "21-week EMA 95 (+2.2%)"]
+    view = levels.trend_view(lv, 93.0)
+    assert view["bull_market_support_band"]["price_vs_band"] == "inside" and view["price_action"] == pa

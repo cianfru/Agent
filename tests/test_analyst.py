@@ -15,9 +15,8 @@ RECORD = {"tier": "proven", "swing_positions": 12, "swing_pnl": 900_000, "realiz
 READ = {"send": True, "headline": "Tracked traders are shorting SUI into the bounce",
         "read": "Four proven traders added SUI shorts in the last day while the crowd bought.",
         "market_lean": "neutral",
-        "positions": [{"coin": "sui", "side": "long", "take": "trim", "why": "Four proven traders are short against you."}],
         "views": [{"coin": "SUI", "lean": "short", "strength": 2, "why": "Proven traders adding, engine stretched.",
-                   "changes_if": "they cut those shorts"}]}
+                   "chart": "back under the 20-week SMA at 1.95", "changes_if": "they cut those shorts"}]}
 
 
 def make(tmp_path, monkeypatch, responses, brief_hour=24, **kw):
@@ -100,7 +99,7 @@ def test_changes_weigh_what_moved_and_mark_his_positions():
     assert got["you are now watching ENA long"] == (1, True)
 
 
-def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_path, monkeypatch):
+def test_a_read_goes_out_with_setups_then_waits_for_change(tmp_path, monkeypatch):
     agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))])])
     now = time.time()
     seed(agent.store, now)
@@ -108,8 +107,9 @@ def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_
     assert out["reason"] == "market changed" and out["sent"] and len(sent) == 1
     text = sent[0]
     assert text.splitlines()[1] == READ["headline"]
-    assert "Yours\nSUI long · trim: Four proven traders are short against you." in text
-    assert "Views\nSUI short · firm: Proven traders adding, engine stretched. Off if they cut those shorts." in text
+    assert "Yours" not in text                                        # his positions are his: on request only
+    assert ("Setups to look at\nSUI short · firm: Proven traders adding, engine stretched. Chart: back under the "
+            "20-week SMA at 1.95. Off if they cut those shorts.") in text
     assert "Record" not in text                                       # the record rides on the morning read only
     first, = agent.analyst.client.calls                                # one call, no tools: the scan holds it all
     assert first["output_config"]["effort"] == "medium" and first["output_config"]["format"]["type"] == "json_schema"
@@ -123,14 +123,13 @@ def test_a_read_goes_out_with_his_positions_and_views_then_waits_for_change(tmp_
     # nothing changed: no read, no model call
     assert asyncio.run(agent.analyst.step(now + 600)) is None and len(agent.analyst.client.calls) == 1
 
-    # big money turns against his long: a new reason against him, but within 30 minutes of the last read it waits
+    # big money turns against his long: no read of its own (his positions are his decisions)
     agent.store.add_brief("pt_bigmoney", {"coins": {"SUI": {"long_n": 1, "short_n": 5, "long_usd": 1e5, "short_usd": 9e5}}})
-    assert asyncio.run(agent.analyst.step(now + 900)) is None
+    assert asyncio.run(agent.analyst.step(now + 1900)) is None and len(agent.analyst.client.calls) == 1
+    # a later read repeating the same setup does not log it twice in a day
     agent.analyst.client.responses = [response([text_block(json.dumps({**READ, "views": READ["views"] * 2}))])]
-    out = asyncio.run(agent.analyst.step(now + 1900))
-    assert out["reason"] == "your position" and out["sent"]
-    assert "your SUI long: big money leans short" in agent.store.latest_brief("read")["changes"]
-    assert len(agent.store.picks(origin="read")) == 1                # the same view within a day is not logged again
+    asyncio.run(agent.analyst.run("asked", now + 2000))
+    assert len(agent.store.picks(origin="read")) == 1
 
 
 def test_held_back_when_the_model_sees_nothing_worth_saying(tmp_path, monkeypatch):
@@ -220,6 +219,15 @@ class FakeReflex:
     async def get(self, path):
         import httpx
         self.paths.append(path)
+        if path.startswith("/api/chart/"):
+            if path.startswith("/api/chart/SUI-USDT"):
+                return {"patterns": [
+                    {"kind": "ihs", "name": "Inv H&S", "status": "forming", "direction": 1, "levels": [2.0412],
+                     "invalidation": 1.5, "formed": time.time() - 5 * 86400, "end": time.time(),
+                     "track_record": "Confirms 36%, fails 21%, expires 43%."},
+                    {"kind": "rect", "status": "expired", "direction": 0, "levels": [2.2, 1.6], "invalidation": 1.6}]}
+            req = httpx.Request("GET", "http://x" + path)
+            raise httpx.HTTPStatusError("404", request=req, response=httpx.Response(404, request=req))
         coin = path.split("symbol=")[1].split("&")[0]
         tf = path.split("timeframe=")[1]
         if coin not in self.ROWS:
@@ -256,49 +264,32 @@ def test_a_read_fills_the_engine_for_coins_the_feed_leaves_short(tmp_path, monke
     sui = next(r for r in json.loads(task.split("<scan>\n")[1].split("\n</scan>")[0])["coins"] if r["coin"] == "SUI")
     assert sui["engine"]["regime"] == "trending up" and sui["engine"]["heat"] == 82 and sui["engine"]["zscore"] == 1.71
     assert any("symbol=BTC" in p for p in agent.reflex.paths)            # BTC had no reading either: asked, 404, fine
+    # the chart patterns Reflex finds, with their record; expired ones left out
+    assert sui["patterns"] == [{"pattern": "inverse head and shoulders", "status": "forming", "direction": "up",
+                                "break_level": [2.0412], "fails_beyond": 1.5, "formed": sui["patterns"][0]["formed"],
+                                "resolved": None, "track_record": "Confirms 36%, fails 21%, expires 43%."}]
 
 
-def test_his_position_comes_through_after_the_days_reads_are_used(tmp_path, monkeypatch):
-    agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))])], per_day=1)
-    now = time.time()
-    seed(agent.store, now)
-    agent.store.add_brief("read", {"reason": "morning", "sent": True})          # the day's one read is used
-    cur = analyst.scan(agent, now)
-    prev = json.loads(json.dumps(cur))
-    prev["market"]["crowd_long_pct"] = (cur["market"]["crowd_long_pct"] or 50) - 20      # the market moved a lot
-    prev["direction"][0]["price"] = cur["direction"][0]["price"] * 1.1
-    agent.store.put_snapshot("read_scan", prev)
-    later = now + 3 * 3600
-    reason, ch = agent.analyst.due(later, cur)
-    assert sum(c["w"] for c in ch) >= analyst.TRIGGER and reason is None   # a market change waits for tomorrow ...
-    prev["my_positions"][0]["against"] = []
-    agent.store.put_snapshot("read_scan", prev)
-    reason, ch = agent.analyst.due(later, cur)
-    assert reason == "your position"                    # ... a group turning against his SUI long does not
-
-
-def test_a_count_moving_is_not_a_new_reason_and_a_reason_is_told_once_a_day(tmp_path, monkeypatch):
+def test_a_count_moving_is_not_a_new_reason(tmp_path, monkeypatch):
     mine = lambda reasons: {"my_positions": [{"source": "wallet 0x9", "coin": "SUI", "side": "long",  # noqa: E731
                                               "against": reasons}]}
     ch = analyst.changes(mine(["4 tracked traders added shorts in 24h"]), mine(["6 tracked traders added shorts in 24h"]))
     assert not [c for c in ch if c["owner"]]                                    # 4 -> 6: the same reason
     ch = analyst.changes(mine([]), mine(["6 tracked traders added shorts in 24h"]))
-    assert ch[0]["w"] == 4 and ch[0]["kinds"] == ["# tracked traders added shorts in #h"]
+    assert ch[0]["owner"] and ch[0]["kinds"] == ["# tracked traders added shorts in #h"]
 
-    agent, sent = make(tmp_path, monkeypatch, [response([text_block(json.dumps(READ))]) for _ in range(3)])
+
+def test_his_positions_never_bring_a_read_of_their_own(tmp_path, monkeypatch):
+    agent, _ = make(tmp_path, monkeypatch, [])
     now = time.time()
     seed(agent.store, now)
+    agent.store.add_brief("read", {"reason": "morning", "sent": True})
     cur = analyst.scan(agent, now)
     prev = json.loads(json.dumps(cur))
-    prev["my_positions"][0]["against"] = []
+    prev["my_positions"][0]["against"] = []                  # every reason against his SUI long is new
     agent.store.put_snapshot("read_scan", prev)
-    out = asyncio.run(agent.analyst.run("your position", now, cur, analyst.changes(prev, cur)))
-    assert out["sent"]
-    agent.store.put_snapshot("read_scan", prev)          # as if the reasons had gone and come back an hour later
-    reason, _ = agent.analyst.due(now + 3600, cur)
-    assert reason is None                                # told once today already
-    reason, _ = agent.analyst.due(now + 86400 + 3600, cur)
-    assert reason == "your position"                     # a day later it may come again
+    reason, ch = agent.analyst.due(now + 3 * 3600, cur)
+    assert sum(c["w"] for c in ch if c["owner"]) >= analyst.TRIGGER and reason is None
 
 
 def test_hard_cap_on_unprompted_messages(tmp_path, monkeypatch):

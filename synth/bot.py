@@ -7,7 +7,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /positions  what the proven position traders hold now, by coin
   /help       what each alert means and the words in them
   /draft      one of Outrider's X posts now, as a draft (off the menu while X drafts are off)
-  /read       Outrider's read of the market now;  /record  how its past views did
+  /read       Outrider's read of the market now;  /record  how its past views did;  /mine  his positions, briefed
   /watch      the watch list, or /watch ENA long 0.09 5k to add;  /unwatch ENA  to take it off
   /reset      start the conversation afresh;  /cost  what talking and reads have cost today
 Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
@@ -28,9 +28,9 @@ HELP = """Outrider watches profitable traders on Hyperliquid and Derive's option
 Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position).
 
 What I send you
-My morning read: what I see, what I'd do with your positions and watch list, and up to two views (each scored after 1, 3 and 7 days; /record shows how they did).
-A read when a group turns against one of your positions, and at most two more a day when the market really changes.
+My morning read: what is happening and up to two setups worth a look, with what to see on the chart (each scored after 1, 3 and 7 days; /record shows how they did). At most two more a day when the market really changes.
 Conviction: a proven trader opens a position at least 2x their usual size.
+A short note when a conviction bet or a build-up goes against one of your positions. Otherwise your positions are yours: /mine when you want a briefing.
 Updates on groups you follow.
 
 What I keep without pinging (in my reads, the dashboard and /record)
@@ -47,6 +47,7 @@ Big money: accounts of $500K+ in profit all-time, one vote per owner.
 Scored after 14 and 30 days: the move since the alert, kept as a record.
 
 /read  my read of the market now
+/mine  a briefing on your positions and watch list
 /record  how my views and every other kind of pick did
 /watch  your watch list; /watch ENA long 0.09 5k adds one (side, entry and size optional)
 /unwatch ENA  takes it off
@@ -57,7 +58,11 @@ Scored after 14 and 30 days: the move since the alert, kept as a record.
 /reset  start our conversation afresh
 /cost  what talking and reads have cost today"""
 
+MINE = ("Brief me on my positions and my watch list: for each, where it stands (price against my entry and the levels "
+        "that matter), who is on which side and what changed lately. The picture, no instructions.")
+
 COMMANDS = [{"command": "read", "description": "Outrider's read of the market now"},
+            {"command": "mine", "description": "A briefing on your positions and watch list"},
             {"command": "watch", "description": "Your watch list (/watch ENA long 0.09 5k adds one)"},
             {"command": "unwatch", "description": "Take a coin off the watch list (/unwatch ENA)"},
             {"command": "record", "description": "How Outrider's views and the other picks did"},
@@ -132,6 +137,9 @@ async def handle(agent, update: dict) -> None:
     cmd = [c.split("@")[0] for c in (msg.get("text") or "").strip().split()[0:1]]
     if reply_text and not reply_text.startswith("/"):
         await _talk(agent, chat, reply_text)
+        return
+    if cmd == ["/mine"]:                                  # his positions, on request only (owner, 3 November 2026)
+        await _talk(agent, chat, MINE)
         return
     if cmd == ["/reset"]:
         store.chat_reset(chat)

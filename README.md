@@ -143,18 +143,22 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   against each.
 - **When it reads:** the morning read after `SYNTH_BRIEF_HOUR_UTC` (always sent); when enough changed since the last
   read (groups flipping, several tracked traders piling into one coin, BTC moving, new alerts, the cycle flipping or one
-  of its marks lighting), at most every 2 hours
-  and not during `SYNTH_READ_QUIET_UTC` (default 22-6); and within 30 minutes when a group that has tested well turns
-  against one of your positions (tracked traders, big money, open winners; the crowd never counts here, study S2).
+  of its marks lighting), at most every 2 hours and not during `SYNTH_READ_QUIET_UTC` (default 22-6). Your positions
+  never bring a read of their own (owner, 3 November 2026: they are your decisions); a proven trader's conviction bet
+  or a build-up of tracked traders against one of them comes as a one-line note on that alert, and `/mine` gives a
+  briefing when you ask.
 - **What it writes:** a headline, at most three sentences on what it sees and how much it is worth (the studies'
-  evidence guide, which includes what Reflex's market-cycle studies found and how little it rests on), one line per position or watched coin that changed or has a group against it (every one in the
-  morning read): hold, trim, close or watch, with the reason; and up to two views. One call with no tools (the scan
-  holds what a read needs), and it holds a read back when nothing is worth your attention. The record rides on the
-  morning read.
+  evidence guide, which includes what Reflex's market-cycle studies found and how little it rests on), and up to two
+  setups to look at: a coin, long or short, light, firm or strong, why, what to look at on the chart (the band, the
+  200-day average, a swing low, a pattern's neckline) and what would change it. A setup needs two independent things
+  lining up (traders' positioning with price action, a chart pattern or the engine), not everything. Before a read,
+  each coin gets its price action (`synth/levels.py`) and the chart patterns Reflex's chart finds on its daily candles
+  (forming, or confirmed or failed in the last 30 days, with their track record). One call with no tools, and it
+  holds a read back when nothing is worth your attention. The record rides on the morning read.
 - **Watch list:** positions or coins you want followed whatever your wallets show. `/watch ENA long 0.09 5k` (side,
   entry and size optional; `/watch HYPE` follows a coin), `/watch` lists them with the price, the move since entry,
   the groups on them and what is against you (built in code, no model), `/unwatch ENA`. In the chat, "I'm long ENA
-  from 0.09" does the same. Watched positions count like wallet positions: a group turning against one brings a read.
+  from 0.09" does the same. Watched positions count like wallet positions: an alert against one says so.
 - **Its record:** every view sent is logged at Hyperliquid's mid and scored after 1, 3 and 7 days (study S5, declared
   before any result: useful only after 60 views with 62%+ right at 3 days and a median +1% their way). The record goes
   into each read, and `/record` shows it.
@@ -175,6 +179,9 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   and funding now and over the last 24 hours (a year's worth in percent; above zero longs pay). The market block adds
   the change in open interest across the 50 most traded perps and their median funding. The changes appear once a day
   (and a week) of copies has built up: Hyperliquid keeps no open interest history to fill them from.
+- **Price action**, from the same daily candles: the high of the last 120 days, where the leg up to it started, how
+  much of that leg the price has given back, the nearest swing low under it and swing high over it, and which levels
+  (band, 200-day average, swing low) sit within 3%.
 - **When a read runs or a coin is asked about**, the 200-day simple average from daily candles and the bull market
   support band (20-week simple and 21-week exponential averages of weekly closes, the forming bar included as on
   TradingView), read once a day per coin: where the price sits against each (above, inside or below the band, and how

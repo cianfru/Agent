@@ -397,6 +397,16 @@ class PositionTraders:
                                    self._mids.get(row["coin"]) or 0.0)
         self.store.pt_close(row["id"], now)
 
+    def against_his(self, coin: str, side: str) -> str:
+        """A line when this goes against one of his positions (his wallets or his watch list), else ''. Facts only:
+        his positions are his decisions (owner, 3 November 2026)."""
+        own = self.store.get_snapshot("owner_positions") or {}
+        his = {p["side"] for w in (own.get("wallets") or {}).values()
+               for c, p in (w.get("positions") or {}).items() if c == coin}
+        his |= {w["side"] for w in self.store.watch_list() if w["coin"] == coin and w["side"]}
+        other = [s for s in sorted(his) if s != side]
+        return f"\nThis goes against your {coin} {other[0]}. Ask me if you want the full picture." if other else ""
+
     def _is_conviction(self, t: dict, value: float) -> bool:
         return bool(t.get("median_size")) and value >= CONVICTION_X * t["median_size"]
 
@@ -406,8 +416,9 @@ class PositionTraders:
             self.store.set_pick_conviction(pick_id, 2)
         if self.store.count_briefs("pt_alert", time.time() - 86400) >= MAX_ALERTS_PER_DAY:
             return 1
-        if "conviction" in self.s.pushes:
-            await notify.push(self.s, self.store, conviction_text(t, p, lev), "conviction")
+        against = self.against_his(p["coin"], p["side"])
+        if "conviction" in self.s.pushes or against:          # one against his position always comes
+            await notify.push(self.s, self.store, conviction_text(t, p, lev) + against, "conviction")
         self.store.add_brief("pt_alert", {"address": t["address"], "coin": p["coin"], "side": p["side"],
                                           "value": round(p["value"]), "lev": round(lev, 1) if lev is not None else None,
                                           "x": round(p["value"] / t["median_size"], 1) if t.get("median_size") else None,
@@ -466,8 +477,9 @@ class PositionTraders:
             text = build_text({"coin": b["coin"], "side": b["side"], "traders": b["strong_adders"],
                                "added_usd": b["net_usd"], "move": move, "held_usd": held.get((b["coin"], b["side"])),
                                "against_usd": held.get((b["coin"], other)), "big_money": self.big_money().get(b["coin"])})
-            if "build" in self.s.pushes:
-                await notify.push(self.s, self.store, text, "build")
+            against = self.against_his(b["coin"], b["side"])
+            if "build" in self.s.pushes or against:           # muted, except when it builds against his position
+                await notify.push(self.s, self.store, text + against, "build")
             self.store.add_brief("pt_build", {"key": key, "text": text, "coin": b["coin"], "side": b["side"],
                                               "traders": b["strong_adders"], "added_usd": b["net_usd"], "move": move})
             sent += 1

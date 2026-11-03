@@ -3,9 +3,11 @@
 - Each poll, one read of every perp's context (price, open interest, funding, 24-hour volume); once an hour a compact
   copy goes into the series (source "hl_ctx", kept 8 days), so open interest and funding can be compared with a day
   and a week ago. Open interest is compared in coins, so a price move does not read as new positions.
-- On demand (a read, a question about a coin): the coin's daily candles for its 200-day simple average, and its weekly
-  candles for the bull market support band (the 20-week simple and 21-week exponential averages of weekly closes, the
-  forming bar included as on TradingView). Kept a day per coin.
+- On demand (a read, a question about a coin): the coin's daily candles for its 200-day simple average and its price
+  action (the high of the last 120 days, where the leg up to it started, the low since, the recent swing highs and
+  lows), and its weekly candles for the bull market support band (the 20-week simple and 21-week exponential averages
+  of weekly closes, the forming bar included as on TradingView). Kept a day per coin; where the price sits against
+  them (how much of the last leg it has retraced, which levels are within 3%) is worked out with the price at hand.
 Context, not a signal: none of these is tested in the studies.
 """
 
@@ -50,6 +52,66 @@ def trend_levels(daily: list[float], weekly: list[float]) -> dict:
             "daily_bars": len(daily), "weekly_bars": len(weekly)}
 
 
+PIVOT_N = 3            # a swing high (low) is the highest (lowest) of the 3 days either side
+NEAR_PCT = 3.0         # a level this close to the price is "near"
+
+
+def _day(ms: float) -> str:
+    return time.strftime("%d %b", time.gmtime(ms / 1000))
+
+
+def price_structure(bars: list[list[float]], window: int = 120) -> dict:
+    """Daily bars [t, open, high, low, close], oldest first -> the high of the last `window` days and its date, the low
+    the leg up to it started from (in the `window` days before it), the low since, and the last swing highs and lows."""
+    if len(bars) < 20:
+        return {}
+    recent = bars[-window:]
+    i_hi = max(range(len(recent)), key=lambda i: recent[i][2])
+    hi = recent[i_hi]
+    k = len(bars) - len(recent) + i_hi                      # the high's place in all bars
+    before = bars[max(0, k - window):k + 1]
+    leg = min(before, key=lambda b: b[3])
+    since = bars[k:]
+    pivots_hi, pivots_lo = [], []
+    for i in range(PIVOT_N, len(recent) - PIVOT_N):
+        w = recent[i - PIVOT_N:i + PIVOT_N + 1]
+        if recent[i][2] == max(b[2] for b in w):
+            pivots_hi.append([_sig(recent[i][2]), _day(recent[i][0])])
+        if recent[i][3] == min(b[3] for b in w):
+            pivots_lo.append([_sig(recent[i][3]), _day(recent[i][0])])
+    return {"high": _sig(hi[2]), "high_date": _day(hi[0]), "leg_low": _sig(leg[3]), "leg_low_date": _day(leg[0]),
+            "low_since_high": _sig(min(b[3] for b in since)), "swing_highs": pivots_hi[-6:], "swing_lows": pivots_lo[-6:]}
+
+
+def price_action(lv: dict, price: float) -> dict | None:
+    """Where the price sits in its last move: off the recent high, how much of the leg up to it it has given back, the
+    nearest swing low under it and swing high over it, and the levels within 3% (band, 200-day average, swings)."""
+    if not lv.get("high"):
+        return None
+    hi, lo = lv["high"], lv.get("leg_low")
+    out: dict = {"recent_high": hi, "recent_high_date": lv.get("high_date"), "from_recent_high_pct": _pct(price, hi)}
+    if lo and hi > lo:
+        out["leg_low"] = lo
+        out["leg_low_date"] = lv.get("leg_low_date")
+        out["retraced_of_last_leg_pct"] = round(100 * (hi - price) / (hi - lo))
+    under = [p for p in lv.get("swing_lows") or [] if p[0] < price]
+    over = [p for p in lv.get("swing_highs") or [] if p[0] > price]
+    if under:
+        sl = max(under, key=lambda p: p[0])
+        out["support_swing_low"] = {"price": sl[0], "date": sl[1], "below_pct": _pct(sl[0], price)}
+    if over:
+        sh = min(over, key=lambda p: p[0])
+        out["resistance_swing_high"] = {"price": sh[0], "date": sh[1], "above_pct": _pct(sh[0], price)}
+    levels = {"200-day average": lv.get("ma200d"), "20-week SMA": lv.get("sma20w"), "21-week EMA": lv.get("ema21w")}
+    if under:
+        levels["swing low"] = max(under, key=lambda p: p[0])[0]
+    near = [f"{name} {v:g} ({_pct(v, price):+.1f}%)" for name, v in levels.items()
+            if v and abs(100 * (v / price - 1)) <= NEAR_PCT]
+    if near:
+        out["near"] = near
+    return out
+
+
 def trend_view(lv: dict, price: float | None) -> dict | None:
     """Where the price sits against the levels: above or below the 200-day average and by how much, and above, inside
     or below the bull market support band (and how far from its nearer edge)."""
@@ -66,6 +128,9 @@ def trend_view(lv: dict, price: float | None) -> dict | None:
         out["bull_market_support_band"] = {
             "sma20w": lv["sma20w"], "ema21w": lv["ema21w"], "price_vs_band": where,
             "vs_band_pct": _pct(price, hi) if where == "above" else _pct(price, lo) if where == "below" else 0.0}
+    pa = price_action(lv, price)
+    if pa:
+        out["price_action"] = pa
     if not out:
         out["note"] = f"too little history ({lv.get('daily_bars', 0)} daily bars)"
     return out
@@ -153,7 +218,7 @@ class Levels:
         weekly = await hl.candles(coin, "1w", end - 40 * 7 * DAY * 1000, end)
         if not daily:
             return None
-        lv = {**trend_levels([b[4] for b in daily], [b[4] for b in weekly]), "day": day}
+        lv = {**trend_levels([b[4] for b in daily], [b[4] for b in weekly]), **price_structure(daily), "day": day}
         cache = {c: v for c, v in cache.items() if v.get("day") == day}
         cache[coin] = lv
         self.store.put_snapshot("trend_levels", cache)

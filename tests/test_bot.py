@@ -56,3 +56,19 @@ def test_following_command_lists_traders(tmp_path, monkeypatch):
     text = calls[-1][1]["text"]
     assert text.splitlines()[0] == "#1 STRK short · open · following"
     assert "0xaaaa…1111 @ 0.0712 · open" in text
+
+
+def test_mine_asks_outrider_for_a_briefing_without_instructions(tmp_path, monkeypatch):
+    import asyncio
+    from synth import bot
+    asked = []
+
+    async def fake_talk(agent, chat, text):
+        asked.append(text)
+
+    monkeypatch.setattr(bot, "_talk", fake_talk)
+    agent = type("A", (), {})()
+    agent.s = type("S", (), {"telegram_chat_id": "1", "telegram_token": "t"})()
+    agent.store = None
+    asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/mine"}}))
+    assert asked == [bot.MINE] and "no instructions" in bot.MINE
