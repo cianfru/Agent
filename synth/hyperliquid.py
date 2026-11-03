@@ -59,12 +59,23 @@ class HL:
                 pass
         return out
 
+    async def contexts(self) -> dict[str, dict]:
+        """Every listed perp, UPPER-case: mark price, open interest (in coins), funding (the hourly rate), 24-hour
+        volume in dollars."""
+        meta, ctxs = await self._post({"type": "metaAndAssetCtxs"})
+        return {u["name"].upper(): {"px": _num(c.get("markPx")), "oi": _num(c.get("openInterest")),
+                                    "funding": _num(c.get("funding")), "vol": _num(c.get("dayNtlVlm"))}
+                for u, c in zip(meta.get("universe") or [], ctxs or []) if not u.get("isDelisted")}
+
     async def top_coins(self, n: int) -> list[str]:
         """The n most traded perps by 24-hour volume, UPPER-case (delisted ones left out)."""
-        meta, ctxs = await self._post({"type": "metaAndAssetCtxs"})
-        rows = [(float(c.get("dayNtlVlm") or 0), u["name"].upper())
-                for u, c in zip(meta.get("universe") or [], ctxs or []) if not u.get("isDelisted")]
-        return [name for _, name in sorted(rows, reverse=True)[:n]]
+        ctx = await self.contexts()
+        return sorted(ctx, key=lambda c: -(ctx[c]["vol"] or 0))[:n]
+
+    async def ensure_names(self) -> None:
+        """The exchange's own spelling of each coin (kPEPE...), read once, before asking for candles."""
+        if not self._names:
+            await self.mids()
 
     def name(self, coin: str) -> str:
         return self._names.get(coin.upper(), coin)

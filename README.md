@@ -167,6 +167,20 @@ With a model key, Outrider reads the market instead of posting the same numbers 
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
 
+### Open interest, funding, the 200-day average and the support band
+
+`synth/levels.py`, from Hyperliquid's public API (no key, no cost):
+- **Each poll** one read of every perp's price, open interest, funding and 24-hour volume; an hourly copy is kept 8
+  days, so the read gets open interest's change over 24 hours and 7 days (in coins, so a price move is not new money)
+  and funding now and over the last 24 hours (a year's worth in percent; above zero longs pay). The market block adds
+  the change in open interest across the 50 most traded perps and their median funding. The changes appear once a day
+  (and a week) of copies has built up: Hyperliquid keeps no open interest history to fill them from.
+- **When a read runs or a coin is asked about**, the 200-day simple average from daily candles and the bull market
+  support band (20-week simple and 21-week exponential averages of weekly closes, the forming bar included as on
+  TradingView), read once a day per coin: where the price sits against each (above, inside or below the band, and how
+  far).
+- Context, not a signal: none of these is tested in the studies; the evidence guide says how to read them.
+
 ## Daily brief (Telegram, after 08:00 UTC; only with SYNTH_READS=off or no model key)
 
 The brief has three short sections and is under 15 lines:
