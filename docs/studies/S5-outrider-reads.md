@@ -46,3 +46,12 @@ shows anything yet. Two changes to how results are shown; the verdict rule above
 - The record shows how the reads went over 7 days (ran, sent, held back, failed, sent with no view, views logged), so
   a thin record can be told from a broken one.
 - Changing the verdict to the market-relative result would be a new dated rule, decided before more results come in.
+
+## Amendment 2 (3 November 2026): views become setups to look at
+
+The owner asked for a companion that points at setups worth a look rather than one that tells him to close his
+positions. From this date a read's views are framed as setups: each needs two independent things lining up (traders'
+positioning with price action, a chart pattern or the engine), names what to look at on the chart, and reads with
+the coin's price action and Reflex's chart patterns. They are logged and scored exactly as before (at most two a read,
+once a day per coin and side). The verdict rule is unchanged; views before 3 November are reported apart from the
+setups after it when the verdict is computed.

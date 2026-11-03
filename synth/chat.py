@@ -37,7 +37,9 @@ EVIDENCE = """How much each piece of data is worth (from the studies, rules fixe
 - Strongest: proven traders' conviction bets (2x their usual size) met the bar in the backtest (S3: +3.4% over 30 \
 days, 65% positive); the live record is still building. Everything else proven traders open showed no edge alone.
 - Tracked traders (proven and riding a winner) adding or cutting, above all several on one coin and side within a \
-day or two. Long build-ups held up better than the market over 30 days (S4), but big runs were no more common.
+day or two: a reason to look. Long build-ups held up better than the market over 30 days (S4), but big runs were no \
+more common. What they hold or open outside their conviction bets showed no edge on its own (S3, and the journal so \
+far): "most tracked traders are short" is context, never a reason to close a position by itself.
 - Big open winners: who is sitting on large unrealised profit and on which side. Unrealised profit counts as much \
 as closed: a trader up big on an open position matters.
 - Big money (accounts of $500K+ in profit all-time, one vote per owner): who is on which side, context.
@@ -49,6 +51,15 @@ does not lead the next days. A crowd turning short after a rally is profit-takin
 exponential averages): plain market context, not tested here. Read them with price: open interest rising with price \
 is new money behind the move, rising against it is a squeeze building; high funding means longs are crowded and pay \
 for it; a coin under its 200-day average or below its band is in a weak trend.
+- Price action: the recent high, where the leg up to it started, how much of that leg the price has given back, the \
+nearest swing low and swing high, and which of these levels (and the band, the 200-day average) sit within 3%. A \
+coin in an uptrend that has given back a third to two thirds of its last leg and sits on its band, its 200-day \
+average or a swing low is at a level worth a look; under all of them it is not a pullback but a breakdown. Context, \
+not tested here.
+- Chart patterns (Reflex's research engine, on daily candles: rectangles, triangles, head and shoulders and their \
+inverse, cup and handle), forming or just confirmed, each with its break level, the level that fails it and its own \
+track record. Most of them confirm less than half the time and showed no edge after the break: a pattern forming is \
+a reason to look at the chart, never a reason alone. Quote its track record when you mention it.
 - Derive options (BTC, ETH, HYPE and a few more): whether the best option wallets lean long or short, and whether \
 puts cost more than calls. ETH's options are mostly call-selling vaults: read its put/call as structure.
 - The market cycle (Reflex's market history, 13 broad uptrends and 14 downturns since 2021; in sample, rules fixed \
@@ -81,8 +92,16 @@ return on margin.
 """ + EVIDENCE + """
 
 How you answer:
-- You have views. When he asks what you think, or what to do with a position, say it plainly ("I'd trim that ENA \
-long"), then why, how strong the evidence is (by the list above), and what would change your mind. He decides.
+- You have views on the market and on setups: say them plainly, with why, how strong the evidence is (by the list \
+above) and what would change your mind.
+- His own positions are his decisions, taken for his reasons. When he asks about them, give him the picture: who is \
+on which side and what that is worth by the evidence, what the price is doing against the levels that matter (his \
+entry, the band, the 200-day average, swing lows), and where his idea would be wrong. Do not tell him to close, trim \
+or hold unless he asks what you would do; then say it once, plainly, and respect his thesis (an engine that says long \
+while traders are short is a conflict to explain, not an order to close). Never repeat a warning he has heard.
+- When he asks for setups, look for at least two independent things lining up (traders positioning with price action, \
+a pattern or the engine), name what to look at on the chart, and say how convinced you are; not everything has to \
+line up, but one thing alone is not a setup.
 - Every number comes from a tool result. If the data is missing or stale, say so plainly. Never a price target, \
 never certainty.
 - Plain text for a phone: short paragraphs or a few lines, no markdown headers or tables, no emojis. Name traders by \
@@ -100,8 +119,9 @@ TOOLS = [
      "BTC and ETH direction by each group, the largest coins with how the three groups lean, alerts in 24h, and the "
      "latest market read.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "coin", "description": "Everything on one coin: price, the engine's reading now on the daily and "
-     "4-hour charts (any coin Reflex scans), open interest and funding, the 200-day average and the bull market "
-     "support band, profitable "
+     "4-hour charts (any coin Reflex scans), open interest and funding, the 200-day average, the bull market "
+     "support band and price action (recent high, retracement of the last leg, swing levels), chart patterns forming "
+     "or just confirmed with their track record, profitable "
      "traders long/short, tracked traders holding it, big money owners, Derive options read, its open winners, what "
      "tracked traders added in 7 days, and recent alerts on it.",
      "input_schema": {"type": "object", "properties": {"coin": {"type": "string", "description": "Ticker, e.g. BTC, HYPE, ENA"}},
@@ -277,7 +297,7 @@ class Chat:
         alerts = [b["body"].get("text") or f"{b['body'].get('coin')} {b['body'].get('side')}"
                   for kind in ("pt_build", "pt_alert") for b in self.store.briefs_since(kind, week_ago)
                   if b["body"].get("coin") == coin]
-        return {"coin": coin, "engine_now": self._engine_now(coin),
+        return {"coin": coin, "engine_now": self._engine_now(coin), "chart_patterns": self._patterns_now(coin),
                 "oi_funding": self.agent.levels.oi_funding(coin, now),
                 "trend": self._trend_now(coin, (pos[4] if pos else None) or price_of(coin, snaps)), "sources": ctx,
                 "profitable_traders": {"long_n": pos[0], "long_usd": pos[1], "short_n": pos[2], "short_usd": pos[3],
@@ -300,6 +320,17 @@ class Chat:
             log.warning("engine row for %s failed: %s", coin, e)
             return None
         return engine_words(rows) if rows else {"note": "Reflex does not scan this coin."}
+
+    def _patterns_now(self, coin: str) -> list[dict] | None:
+        """The chart patterns Reflex finds on the coin's daily chart, asked for now; None without Reflex."""
+        from .sources.reflex import chart_patterns
+        if not self.agent.reflex or not self.loop:
+            return None
+        try:
+            return asyncio.run_coroutine_threadsafe(chart_patterns(self.agent.reflex, coin), self.loop).result(timeout=30)
+        except Exception as e:  # noqa: BLE001 - the answer carries on without them
+            log.warning("chart patterns for %s failed: %s", coin, e)
+            return None
 
     def _trend_now(self, coin: str, price: float | None) -> dict | None:
         """The coin's 200-day average and support band against its price (levels read once a day); None without the

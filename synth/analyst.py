@@ -3,11 +3,15 @@
 Every poll the code builds one scan of the market (`scan`): BTC and ETH as direction, the market's mood, and the coins
 where something is happening, each with what the crowd of profitable traders, the tracked traders (and what they added
 or cut in 24 hours), big money by owner and the open winners hold, the engine's reading and Derive's options; plus the
-owner's own positions (SYNTH_OWNER_WALLETS, read from Hyperliquid) with what each group does on those coins.
-`changes` compares it with the scan behind the last read. When enough changed, when a group turns against one of the
-owner's positions, or at the morning read, the model reads the scan in one call (no tools: the scan holds what a read
-needs, which keeps a read to a few cents) and writes a read: what it sees, what it makes of it, what it would do with
-his positions and watch list, and up to two views on coins.
+owner's own positions (SYNTH_OWNER_WALLETS, read from Hyperliquid) and watch list. When a read runs, each coin also gets
+its price action (levels.py: 200-day average, bull market support band, recent high, swing low, how much of the last
+leg it has retraced) and the chart patterns Reflex finds on its daily chart, with their track record.
+`changes` compares the scan with the one behind the last read. When enough changed in the market, or at the morning
+read, the model reads the scan in one call (no tools: the scan holds what a read needs, which keeps a read to a few
+cents) and writes a read: what it sees and up to two setups worth a look. His positions are his decisions (owner,
+3 November 2026): reads do not brief him on them or tell him what to do with them; he asks in the chat (/mine), and a
+big move against one (a proven trader's conviction bet, a build-up of tracked traders) is a short note of its own
+(position_traders.py).
 It may also decide that nothing is worth his attention. Every view is logged and scored after 1, 3 and 7 days (study
 S5), and that record goes back into the next read, so the agent knows how often it has been right.
 """
@@ -40,9 +44,6 @@ DAY = 86400
 TOP_COINS = 10               # coins in a scan besides BTC, ETH and the owner's own
 TRIGGER = 4                  # change points that make a read worth running
 MIN_GAP_S = 2 * 3600         # between reads on market changes
-OWNER_GAP_S = 30 * 60        # a group turning against one of his positions may come sooner
-OWNER_PER_DAY = 3            # reads on his positions a day, beside the others
-OWNER_AGAIN_S = DAY          # the same reason against the same position brings a read once a day at most
 REPEAT_S = DAY               # the same view (coin and side) is logged once a day, so repeats do not pad the record
 
 SIGNAL = {"STRONG_LONG": "strong up-setup", "LIGHT_LONG": "leaning up", "ACCUMULATE": "base forming",
@@ -54,38 +55,39 @@ REGIME = {"MARKUP": "trending up", "BLOWOFF": "overheated", "REACC": "cooling of
 STRENGTH = {1: "light", 2: "firm", 3: "strong"}
 TURN_MARKS = {"median_z_turned_down", "rolled_over", "median_z_turned_up", "turned_up"}   # the cycle's own turns
 
-SYSTEM = """You are Outrider, the owner's private market agent. Through the day the code scans the market and hands \
+SYSTEM = """You are Outrider, the owner's market companion. Through the day the code scans the market and hands \
 you the scan: BTC and ETH as direction, the market's mood and where it stands in its cycle (market.turns: a broad \
-uptrend or a downturn, its day, its marks), the coins where something is happening (what each group of \
-traders holds and how it changed, the engine's reading, open interest and funding, where the price sits against its \
-200-day average and its bull market support band, Derive's options), his positions (from his wallets and from \
-his watch list, positions he follows by hand; a watch-list coin with no side is a coin he wants followed) with what \
-each group does on those coins, and what changed since your last read. Think like a sharp desk analyst who knows this data cold: find \
-what matters, connect it, and tell him in a few lines what you see and what you would do in his place.
+uptrend or a downturn, its day, its marks), the coins where something is happening (what each group of traders holds \
+and how it changed, the engine's reading, open interest and funding, price action: where the price sits against its \
+200-day average, its bull market support band, its recent high and swing low and how much of its last leg it has \
+retraced; chart patterns forming or just confirmed, with their track record; Derive's options), his positions and \
+watch list, and what changed since your last read. Think like a sharp trader friend who knows this data cold: find \
+what matters, connect it, and tell him in a few lines what is happening and which setups are worth a look.
 
 """ + EVIDENCE + """
 
 A good read:
-- Leads with the one thing that matters most now, in plain words ("Tracked traders are piling into SUI shorts while \
-the crowd buys the dip").
-- Connects the groups: who is moving, against whom, and whether the price agrees. Calls out where tracked traders \
-converge (several adding the same coin and side), where groups disagree, and where the big open winners sit.
-- Weighs each piece by the evidence above and says how much it is worth. A crowd lean alone is never the story.
-- Puts his positions first when a group turned against one: hold, trim, close or watch, each with the reason. He \
-decides; you say what you would do and why. Each of his positions and watched coins gets a line only when something \
-changed on it or a group is against it; in the morning read, every one gets a line.
-- Gives at most two views on coins (long or short; light, firm or strong) and what would change each. Every view is \
-logged and scored after 1, 3 and 7 days, so give only one you would stand behind. Strong needs independent groups \
-agreeing before the price has run. No view is fine.
-- Says what is new since your last read, and says so plainly when an earlier view of yours is now wrong.
+- Leads with the one thing that matters most now, in plain words.
+- Connects the traders and the chart: who is moving, on which side, and what the price is doing where.
+- Weighs each piece by the evidence above. A crowd lean alone is never the story, nor is the tracked traders' lean.
+- Gives up to two setups worth a look (views): a coin, long or short, why, and what to look at on the chart (the band, \
+the 200-day average, the swing low, a pattern's neckline). A setup is worth sending when at least two independent \
+things line up: traders positioning (above all a proven trader's conviction bet, or several tracked traders adding) \
+with price action (a pullback into the band, the 200-day average or a swing low after a real retracement; a pattern \
+forming or just confirmed), or either of those with the engine. Do not wait for everything to line up: that almost \
+never happens. Light, firm or strong says how convinced you are. Every setup is logged and scored after 1, 3 and 7 \
+days. When nothing lines up, no setup; when the market is weak, say so and still name a setup if one stands out.
+- His positions are his decisions. Do not brief him on them and never tell him to close, trim or hold: he asks you in \
+the chat when he wants that. Mention one only when it is part of a setup, in one factual sentence.
+- Says what is new since your last read, and says so plainly when an earlier setup of yours is now wrong.
 - Sets send to false when nothing changed enough to be worth his attention (never for the morning read). He prefers \
 silence to filler.
 
 Style: he reads it on a phone in ten seconds. Plain text, no markdown, no emojis, no engine codes (say "trending \
 up", not the code). The headline under 80 characters. The read at most three short sentences, under 350 characters: \
-the story and what it means, not a list of figures; two or three numbers at most, the ones that carry the point. Each \
-position or view line under 120 characters. Never repeat in one part what another already says. Numbers only from \
-the scan; never a price target. If he wants more, he asks you in the chat."""
+the story and what it means, not a list of figures. Each setup's why under 140 characters and its chart note under \
+90. Never repeat in one part what another already says. Numbers only from the scan. A level on the chart is fine; \
+never say where the price will go. If he wants more, he asks you in the chat."""
 
 SCHEMA = {
     "type": "object",
@@ -94,18 +96,15 @@ SCHEMA = {
         "headline": {"type": "string"},
         "read": {"type": "string"},
         "market_lean": {"type": "string", "enum": ["long", "short", "neutral"]},
-        "positions": {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["coin", "side", "take", "why"],
-            "properties": {"coin": {"type": "string"}, "side": {"type": "string", "enum": ["long", "short", "none"]},
-                           "take": {"type": "string", "enum": ["hold", "trim", "close", "watch"]},
-                           "why": {"type": "string"}}}},
-        "views": {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["coin", "lean", "strength", "why", "changes_if"],
+        "views": {"type": "array", "description": "setups worth a look", "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["coin", "lean", "strength", "why", "chart", "changes_if"],
             "properties": {"coin": {"type": "string"}, "lean": {"type": "string", "enum": ["long", "short"]},
                            "strength": {"type": "integer", "enum": [1, 2, 3]}, "why": {"type": "string"},
+                           "chart": {"type": "string", "description": "what to look at on the chart"},
                            "changes_if": {"type": "string"}}}},
     },
-    "required": ["send", "headline", "read", "market_lean", "positions", "views"],
+    "required": ["send", "headline", "read", "market_lean", "views"],
     "additionalProperties": False,
 }
 
@@ -524,18 +523,16 @@ def record_text(rec: dict) -> str | None:
 
 
 def format_read(r: dict, now: float, rec: dict | None = None) -> str:
-    """Headline, the read, then one line per position and per view; the record only when `rec` is passed (the
-    morning read)."""
+    """Headline, the read, then the setups worth a look; the record only when `rec` is passed (the morning read)."""
     lines = [f"Outrider · {time.strftime('%H:%M', time.gmtime(now))} UTC", r["headline"].strip(), "", r["read"].strip()]
-    if r.get("positions"):
-        lines += ["", "Yours"]
-        lines += [f"{p['coin']}{' ' + p['side'] if p.get('side') in ('long', 'short') else ''} · {p['take']}: "
-                  f"{p['why'].strip()}" for p in r["positions"]]
     if r.get("views"):
-        lines += ["", "Views"]
+        lines += ["", "Setups to look at"]
         for v in r["views"]:
-            lines.append(f"{v['coin']} {v['lean']} · {STRENGTH.get(v['strength'], 'light')}: "
-                         f"{v['why'].strip().rstrip('.')}. Off if {v['changes_if'].strip().rstrip('.')}.")
+            line = (f"{v['coin']} {v['lean']} · {STRENGTH.get(v['strength'], 'light')}: "
+                    f"{v['why'].strip().rstrip('.')}.")
+            if (v.get("chart") or "").strip():
+                line += f" Chart: {v['chart'].strip().rstrip('.')}."
+            lines.append(line + f" Off if {v['changes_if'].strip().rstrip('.')}.")
     rt = record_text(rec) if rec else None
     if rt:
         lines += ["", rt]
@@ -583,15 +580,10 @@ class Analyst:
             return None, ch
         last = self.store.latest_brief("read")
         gap = now - last["ts"] if last else float("inf")
-        told = (self.store.get_snapshot("owner_told") or {}).get("at") or {}
-        new_against = [c for c in ch if c["owner"] and c["w"] >= 4 and any(
-            now - told.get(f"{c.get('pos')}|{k}", 0) >= OWNER_AGAIN_S for k in c.get("kinds") or [""])]
-        owner_today = sum(1 for b in today if b["body"].get("reason") == "your position" and b["body"].get("sent"))
-        if new_against and gap >= OWNER_GAP_S and owner_today < OWNER_PER_DAY:
-            return "your position", ch                       # his positions come through whatever the day's count
         if sum(1 for b in today if b["body"].get("sent")) >= self.per_day:
             return None, ch
-        if hour not in self.quiet and sum(c["w"] for c in ch) >= TRIGGER and gap >= MIN_GAP_S:
+        market = sum(c["w"] for c in ch if not c["owner"])    # his positions never bring a read of their own
+        if hour not in self.quiet and market >= TRIGGER and gap >= MIN_GAP_S:
             return "market changed", ch
         return None, ch
 
@@ -632,7 +624,7 @@ class Analyst:
             cur = await asyncio.to_thread(scan, self.agent, now)
         if ch is None:
             ch = changes(self.store.get_snapshot("read_scan"), cur)
-        await self.fill_engine(cur)
+        await self.fill_reflex(cur)
         await self.fill_trend(cur, now)
         rec = record(self.store)
         task = self.task(reason, cur, ch, self.store.latest_brief("read"), rec)
@@ -651,18 +643,11 @@ class Analyst:
                                       "changes": [c["text"] for c in ch], "logged": logged})
         if send:
             await notify.push(self.agent.s, self.store, text, "read", must=reason in ("morning", "asked") or force_send)
-        if reason == "your position":                        # each reason is told once a day per position
-            told = (self.store.get_snapshot("owner_told") or {}).get("at") or {}
-            told = {k: t for k, t in told.items() if now - t < OWNER_AGAIN_S}
-            for c in ch:
-                for k in c.get("kinds") or []:
-                    told[f"{c.get('pos')}|{k}"] = now
-            self.store.put_snapshot("owner_told", {"at": told})
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged}
 
-    async def fill_engine(self, cur: dict) -> None:
-        """Coins in the scan without a full engine reading (outside the 40 Reflex's positioning feed carries) get
-        theirs from Reflex's scan, only when a read runs."""
+    async def fill_reflex(self, cur: dict) -> None:
+        """From Reflex, only when a read runs: the engine reading for coins without a full one (outside the 40 its
+        positioning feed carries), and the chart patterns on every coin's daily chart."""
         rc = self.agent.reflex
         if not rc:
             return
@@ -673,6 +658,14 @@ class Analyst:
                 r["engine"] = engine_words(g)
             elif isinstance(g, Exception):
                 log.warning("engine row for %s failed: %s", r["coin"], g)
+        # chart patterns on each coin's daily chart, as Reflex's chart shows them (forming or recent, with their record)
+        rows = cur["direction"] + cur["coins"]
+        got = await asyncio.gather(*(reflex_src.chart_patterns(rc, r["coin"]) for r in rows), return_exceptions=True)
+        for r, g in zip(rows, got):
+            if isinstance(g, list) and g:
+                r["patterns"] = g
+            elif isinstance(g, Exception):
+                log.warning("chart patterns for %s failed: %s", r["coin"], g)
 
     async def fill_trend(self, cur: dict, now: float) -> None:
         """Each coin in the scan: where its price sits against its 200-day average and its bull market support band
@@ -733,8 +726,7 @@ class Analyst:
             coin = str(v.get("coin") or "").upper().lstrip("$")
             if coin and v.get("lean") in ("long", "short"):
                 views.append({**v, "coin": coin, "strength": int(v.get("strength") or 1)})
-        pos = [{**p, "coin": str(p.get("coin") or "").upper()} for p in out.get("positions") or [] if p.get("coin")]
-        return {**out, "views": views, "positions": pos}
+        return {**out, "views": views}
 
     def log_views(self, views: list[dict], now: float, reason: str) -> list[int]:
         """Each view as a pick at Hyperliquid's mid, scored after 1, 3 and 7 days; a repeat within a day is not

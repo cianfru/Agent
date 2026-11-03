@@ -12,8 +12,9 @@ Endpoints read each poll (all unrate-limited GETs; ETag/304 keeps egress low):
   /api/notifications/market-setups              OI-vs-price divergence setups
   /api/notifications/exhaustion-opportunities   exhaustion floors / climax reversals
   /api/market-pulse?timeframe=1d                consensus, BTC regime, funding mood, ETF flows
-On demand (a question about a coin, or a read's coins without a full engine reading):
+On demand (a question about a coin, or a read's coins):
   /api/scan/row?symbol=X&timeframe=1d|4h        one coin's full engine row, for any coin Reflex scans
+  /api/chart/X-USDT?timeframe=1d&limit=60       the chart patterns on its daily chart (only the patterns are kept)
 
 Note: every request marks Reflex "active" (faster synthesis = more Railway cost), so
 keep the poll interval at a few minutes.
@@ -148,6 +149,41 @@ async def engine_rows(rc: ReflexClient, coin: str) -> dict | None:
         row = (body or {}).get("row") or {}
         out[tf] = {k: row[k] for k in ROW_KEYS if row.get(k) not in (None, "")}
     return out or None
+
+
+PATTERN_NAMES = {"rect": "rectangle", "asc": "ascending triangle", "desc": "descending triangle",
+                 "hs": "head and shoulders", "ihs": "inverse head and shoulders", "cup": "cup and handle"}
+RECENT_PATTERN_S = 30 * 86400   # confirmed or failed within this long ago still shown
+
+
+def _sig(x: float | None) -> float | None:
+    return float(f"{x:.5g}") if x else x
+
+
+async def chart_patterns(rc: ReflexClient, coin: str, now: float | None = None) -> list[dict]:
+    """The chart patterns Reflex's chart finds on the coin's daily candles (research, display only in Reflex): those
+    forming, and those confirmed or failed in the last 30 days, each with its break level, the level that would fail
+    it, its dates and the pattern's track record from Reflex's study. Empty when Reflex does not chart the coin."""
+    import time
+    now = now or time.time()
+    try:
+        body = await rc.get(f"/api/chart/{coin.upper()}-USDT?timeframe=1d&limit=60")
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (404, 422):
+            return []
+        raise
+    day = lambda t: time.strftime("%d %b", time.gmtime(t)) if t else None   # noqa: E731
+    out = []
+    for p in (body or {}).get("patterns") or []:
+        status = p.get("status")
+        if status == "expired" or (status != "forming" and now - (p.get("end") or 0) > RECENT_PATTERN_S):
+            continue
+        out.append({"pattern": PATTERN_NAMES.get(p.get("kind"), p.get("name")), "status": status,
+                    "direction": {1: "up", -1: "down"}.get(p.get("direction"), "either way"),
+                    "break_level": [_sig(v) for v in p.get("levels") or []], "fails_beyond": _sig(p.get("invalidation")),
+                    "formed": day(p.get("formed")), "resolved": day(p.get("end")) if status != "forming" else None,
+                    "track_record": p.get("track_record")})
+    return out
 
 
 async def fetch(rc: ReflexClient) -> dict:
