@@ -100,11 +100,16 @@ def price_action(lv: dict, price: float) -> dict | None:
         return None
     hi, lo = lv["high"], lv.get("leg_low")
     out: dict = {"recent_high": hi, "recent_high_date": lv.get("high_date"), "from_recent_high_pct": _pct(price, hi)}
+    if price > hi:                            # the levels were read at 00:30; the price has gone past that high since
+        hi = out["recent_high"] = price
+        out.update({"recent_high_date": "today", "from_recent_high_pct": 0.0, "new_high_today": True})
     if lo and hi > lo:
         out["leg_low"] = lo
         out["leg_low_date"] = lv.get("leg_low_date")
         out["retraced_of_last_leg_pct"] = round(100 * (hi - price) / (hi - lo))
     low, top = lv.get("low"), lv.get("drop_high")
+    if low and price < low:                   # the same for a new low
+        low, out["new_low_today"] = price, True
     if low and top and top > low and (lv.get("low_bars_ago") or 0) < (lv.get("high_bars_ago") or 0):
         out["recent_low"] = low                              # the last move was down: how much of the drop came back
         out["recent_low_date"] = lv.get("low_date")
@@ -166,6 +171,7 @@ def trend_view(lv: dict, price: float | None) -> dict | None:
 class Levels:
     def __init__(self, store):
         self.store = store
+        self._memo: tuple | None = None    # (last series ts, when parsed, tss, rows)
 
     # ---------------------------------------------------------- open interest --
     async def step(self, hl, now: float) -> bool:
@@ -181,8 +187,25 @@ class Levels:
         return True
 
     def _rows(self, now: float) -> tuple[list[float], list[dict]]:
+        """The last 8 days of hourly contexts, parsed once per new hourly row (a screen asks for every coin, and
+        parsing the series each time cost seconds of CPU per poll)."""
+        last = self.store.series_last_ts("hl_ctx")
+        if self._memo and self._memo[0] == last and now - self._memo[1] < 2 * STEP_S:
+            return self._memo[2], self._memo[3]
         rows = self.store.series("hl_ctx", now - 8 * DAY)
-        return [r[0] for r in rows], [r[1].get("c") or {} for r in rows]
+        tss, cs = [r[0] for r in rows], [r[1].get("c") or {} for r in rows]
+        self._memo = (last, now, tss, cs)
+        return tss, cs
+
+    def price_at(self, coin: str, ts: float, within: float = 2 * 3600, now: float | None = None) -> float | None:
+        """The coin's price in the hourly copy nearest `ts` (within `within` seconds), from the last 8 days."""
+        tss, rows = self._rows(now or time.time())
+        if not tss:
+            return None
+        i = bisect.bisect_left(tss, ts)
+        j = min((k for k in (i - 1, i) if 0 <= k < len(tss)), key=lambda k: abs(tss[k] - ts))
+        v = rows[j].get(coin) if abs(tss[j] - ts) <= within else None
+        return v[0] if v else None
 
     @staticmethod
     def _near(tss: list[float], rows: list[dict], ts: float) -> dict:
@@ -247,6 +270,9 @@ class Levels:
             return None
         lv = {**trend_levels([b[4] for b in daily], [b[4] for b in weekly]), **price_structure(daily), "day": day,
               "ts": now}
+        # read again after the awaits: another read (the daily refresh, a question) may have written meanwhile, and
+        # writing back the copy read before them would drop its coins
+        cache = self.store.get_snapshot("trend_levels") or {}
         cache = {c: v for c, v in cache.items() if now - (v.get("ts") or 0) < KEEP_S}   # levels move slowly: kept
         cache[coin] = lv                                                                # until read again
         self.store.put_snapshot("trend_levels", cache)
@@ -270,23 +296,37 @@ class Levels:
 
     async def refresh_all(self, hl, coins: list[str], now: float | None = None, pace_s: float = 6.0) -> int:
         """Read the levels of every coin not read today, a few seconds apart (about 45 weight each of the 1,200 a
-        minute Hyperliquid allows an address). Returns how many were read."""
+        minute Hyperliquid allows an address). Returns how many were read. The day counts as done only when at most
+        one coin in ten failed (or after a third attempt), so a bad night is tried again half an hour later for the
+        coins it missed, not left on old levels until tomorrow."""
         now = now or time.time()
         day = time.strftime("%Y-%m-%d", time.gmtime(now))
-        self.store.put_snapshot("levels_refresh", {"day": None, "running": True, "ts": now})
-        read = 0
+        prev = self.store.get_snapshot("levels_refresh") or {}
+        attempt = (prev.get("attempt") or 0) + 1 if prev.get("attempt_day") == day else 1
+        self.store.put_snapshot("levels_refresh", {"day": None, "running": True, "ts": now, "attempt": attempt,
+                                                   "attempt_day": day})
+        read, tried, failed = 0, 0, []
         try:
             for c in coins:
                 if ((self.store.get_snapshot("trend_levels") or {}).get(c) or {}).get("day") == day:
                     continue
+                tried += 1
                 try:
                     if await self.trend(hl, c, now):
                         read += 1
                 except Exception as e:  # noqa: BLE001 - one coin failing leaves the rest
                     log.warning("levels for %s failed: %s", c, e)
+                    failed.append(c)
                 await asyncio.sleep(pace_s)
-            self.store.put_snapshot("levels_refresh", {"day": day, "running": False, "ts": time.time(), "read": read})
+            done = len(failed) <= 0.1 * max(tried, 1) or attempt >= 3
+            if failed:
+                log.warning("levels refresh: %d of %d coins failed (attempt %d)", len(failed), tried, attempt)
+            self.store.put_snapshot("levels_refresh", {
+                "day": day if done else None, "running": False, "ts": time.time(), "read": read, "tried": tried,
+                "errors": len(failed), "failed_coins": failed[:20], "attempt": attempt, "attempt_day": day,
+                **({} if done else {"failed": time.time()})})
         except Exception:
-            self.store.put_snapshot("levels_refresh", {"day": None, "running": False, "failed": time.time()})
+            self.store.put_snapshot("levels_refresh", {"day": None, "running": False, "failed": time.time(),
+                                                       "attempt": attempt, "attempt_day": day})
             raise
         return read

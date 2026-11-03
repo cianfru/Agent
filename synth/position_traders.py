@@ -58,6 +58,7 @@ CONVICTION_X = 2.0                 # times the trader's usual (median) position 
 CONVICTION_WINDOW_S = 4 * 3600     # judged within 4 hours of the open, as a follower would see it
 MIN_NEW_USD = 10_000               # smaller opens are not logged
 MAX_ALERTS_PER_DAY = 5             # conviction alerts
+STALE_S = 3600                     # a trader not read for this long is read afresh: what it holds is the baseline
 MODERATE_LEVERAGE = 5.0
 
 RIDE_MIN_OPEN_PNL = 250_000
@@ -77,6 +78,12 @@ BUILD_COOLDOWN_S = 72 * 3600
 MAX_BUILD_ALERTS_PER_DAY = 3
 BIG_MIN_VOTE_USD = 25_000          # an owner's net position in a coin counts as a big-money vote from $25K
 MAJORS = ("BTC", "ETH")            # direction, not build-ups: shown on their own, left out of the build-up alert
+
+
+def _cost(p: dict) -> float:
+    """A position's size at its own average entry (dollars traded): the conviction rule's size, as S3's backtest
+    sized positions at their fills. The mark value would let a price move in the first hours promote a position."""
+    return abs(p.get("size") or 0) * (p.get("entry_px") or 0) or p.get("notional") or 0
 
 
 def load_owners(path: Path = OWNERS, pairs: list[list[str]] | tuple = ()) -> dict[str, str]:
@@ -344,7 +351,10 @@ class PositionTraders:
     async def _update(self, t: dict, st: dict, now: float) -> dict:
         a = t["address"].lower()
         res = {"new": 0, "closed": 0, "conviction": 0}
-        first_look = self.store.pt_trader(a) is None
+        seen = self.store.pt_trader(a)
+        # first look, or not read for an hour (dropped and listed again, or the agent was down): what it holds now
+        # is the starting point, since positions opened in the gap cannot be told from ones held for weeks
+        first_look = seen is None or now - (seen.get("last_seen") or 0) > STALE_S
         gross = sum(p["notional"] for p in st["positions"].values())
         self.store.pt_set_trader(a, st["equity"], gross, now)
         lev = gross / st["equity"] if st["equity"] else None
@@ -365,7 +375,7 @@ class PositionTraders:
                 self.store.pt_touch(row["id"], p["notional"], p["entry_px"], p["upnl"], now, p["size"],
                                     p.get("roe"), p.get("lev"))
                 young = now - row["opened_ts"] <= CONVICTION_WINDOW_S if row["known_open"] else False
-                if young and not row["conviction"] and not row["baseline"] and self._is_conviction(t, p["notional"]):
+                if young and not row["conviction"] and not row["baseline"] and self._is_conviction(t, _cost(p)):
                     res["conviction"] += await self._conviction(t, row["id"], row.get("pick_id"),
                                                                 {**p, "coin": coin, "value": p["notional"]}, lev)
                 continue
@@ -383,7 +393,7 @@ class PositionTraders:
                                               p.get("roe"), p.get("lev"))
             if not baseline:
                 res["new"] += 1
-                if p["notional"] >= MIN_NEW_USD and self._is_conviction(t, p["notional"]):
+                if p["notional"] >= MIN_NEW_USD and self._is_conviction(t, _cost(p)):
                     res["conviction"] += await self._conviction(t, rid, pick_id, {**p, "coin": coin,
                                                                                    "value": p["notional"]}, lev)
         for row in held.values():                            # gone: closed
@@ -414,15 +424,16 @@ class PositionTraders:
         self.store.pt_mark_conviction(row_id)
         if pick_id:
             self.store.set_pick_conviction(pick_id, 2)
-        if self.store.count_briefs("pt_alert", time.time() - 86400) >= MAX_ALERTS_PER_DAY:
-            return 1
         against = self.against_his(p["coin"], p["side"])
-        if "conviction" in self.s.pushes or against:          # one against his position always comes
-            await notify.push(self.s, self.store, conviction_text(t, p, lev) + against, "conviction")
+        now = time.time()
+        capped = sum(1 for b in self.store.briefs_since("pt_alert", now - 86400)
+                     if not b["body"].get("capped")) >= MAX_ALERTS_PER_DAY and not against
+        if not capped and ("conviction" in self.s.pushes or against):   # one against his position always comes
+            await notify.push(self.s, self.store, conviction_text(t, p, lev) + against, "conviction", must=bool(against))
         self.store.add_brief("pt_alert", {"address": t["address"], "coin": p["coin"], "side": p["side"],
                                           "value": round(p["value"]), "lev": round(lev, 1) if lev is not None else None,
-                                          "x": round(p["value"] / t["median_size"], 1) if t.get("median_size") else None,
-                                          "record": record_line(t)})
+                                          "x": round(_cost(p) / t["median_size"], 1) if t.get("median_size") else None,
+                                          "record": record_line(t), **({"capped": True} if capped else {})})
         return 1
 
     # -------------------------------------------------------------- build-ups --
@@ -479,7 +490,7 @@ class PositionTraders:
                                "against_usd": held.get((b["coin"], other)), "big_money": self.big_money().get(b["coin"])})
             against = self.against_his(b["coin"], b["side"])
             if "build" in self.s.pushes or against:           # muted, except when it builds against his position
-                await notify.push(self.s, self.store, text + against, "build")
+                await notify.push(self.s, self.store, text + against, "build", must=bool(against))
             self.store.add_brief("pt_build", {"key": key, "text": text, "coin": b["coin"], "side": b["side"],
                                               "traders": b["strong_adders"], "added_usd": b["net_usd"], "move": move})
             sent += 1

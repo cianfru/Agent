@@ -159,15 +159,19 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   entry and size optional; `/watch HYPE` follows a coin), `/watch` lists them with the price, the move since entry,
   the groups on them and what is against you (built in code, no model), `/unwatch ENA`. In the chat, "I'm long ENA
   from 0.09" does the same. Watched positions count like wallet positions: an alert against one says so.
-- **Its record:** every view sent is logged at Hyperliquid's mid and scored after 1, 3 and 7 days (study S5, declared
-  before any result: useful only after 60 views with 62%+ right at 3 days and a median +1% their way). The record goes
-  into each read, and `/record` shows it.
+- **Its record:** every view sent is logged at Hyperliquid's mid (only a mid read within the last two polls) and scored
+  at 1, 3 and 7 days at the price of that hour: from the hourly copy of every coin's price (kept 8 days), or the price
+  now while the horizon is under two hours old; never at a later price as if it were the horizon's (study S5, declared
+  before any result: useful only after 60 setups with 62%+ right at 3 days and a median +1% their way). The setups
+  since S5's Amendment 2 (3 November 2026) are reported apart from the views before it, as the study says; each read
+  and `/record` show the setups against the declared bar.
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
   list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
   deeper), `SYNTH_READ_EFFORT` (default `medium`), `SYNTH_READ_DAILY_USD` (default 0.5; the morning read still goes
   out), `SYNTH_READS_PER_DAY` (default 3 sent: the morning read and at most two more). About 2 to 3 cents a read on Sonnet 5.5 (a prompt of about 4,000
-  tokens). `/read` asks for one now; `/cost` shows talking and reads.
+  tokens). `/read` asks for one now (it answers you, so it never counts against the daily cap or the day's reads);
+  `/cost` shows talking, reads and messages sent.
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
 
@@ -221,7 +225,7 @@ The brief has three short sections and is under 15 lines:
 - **Hyperliquid today:** where profitable traders are opening. Convergences from the last 24 hours come first, fastest at the top, then the busiest coins by new opens. Built in code.
 - **Open groups:** smart traders who converged and are still in, with how many are still in, their entry range, the price now, and the losing line. Built in code; there is no model in the brief.
 
-What pings Telegram (owner, 3 November 2026: only essential and important updates): the reads (the morning read, a read when a group turns against one of your positions, at most two more a day), conviction bets of proven traders, and updates on groups you follow. `SYNTH_PUSH` lists the alert kinds that ping (default `conviction`; add `build`, `smart`, `group`). Above all of it, `SYNTH_MAX_PUSHES_PER_DAY` (default 6) caps unprompted messages over any 24 hours: past it they are kept as held (briefs `push_held`), not sent; the morning read and a read you ask for always go. A read on your position comes once per reason per day (a count moving, 4 traders to 5, is the same reason), at most 3 a day. A muted kind is still logged, scored, shown on the dashboard and read by Outrider. With `smart` on there are at most 2 alerts per poll and `SYNTH_MAX_ALERTS_PER_DAY` (default 6) per 24 hours.
+What pings Telegram (owner, 3 November 2026: only essential and important updates): the reads (the morning read, a read when a group turns against one of your positions, at most two more a day), conviction bets of proven traders, and updates on groups you follow. `SYNTH_PUSH` lists the alert kinds that ping (default `conviction`; add `build`, `smart`, `group`). Above all of it, `SYNTH_MAX_PUSHES_PER_DAY` (default 6) caps unprompted messages over any 24 hours: past it they are kept as held (briefs `push_held`), not sent: `/held` lists them and the morning read says how many; the morning read, a read you ask for and a note against one of your positions always go (a read you ask for answers you and does not count). Every scheduled sender (the code-built brief and pulse when reads are off, X drafts when on) goes through the same cap; a send Telegram fails does not use up the allowance, and a long message is split, never cut. A read on your position comes once per reason per day (a count moving, 4 traders to 5, is the same reason), at most 3 a day. A muted kind is still logged, scored, shown on the dashboard and read by Outrider. With `smart` on there are at most 2 alerts per poll and `SYNTH_MAX_ALERTS_PER_DAY` (default 6) per 24 hours.
 
 Reflex flags a convergence when 2+ profitable traders open the same side within 24 hours. The agent alerts only on fast ones, where all the opens came within `SYNTH_FAST_CONVERGENCE_HOURS` (default 6). Slower ones stay on the dashboard and in the pulse but don't ping you.
 

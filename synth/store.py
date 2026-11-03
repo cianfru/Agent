@@ -190,7 +190,11 @@ CREATE TABLE IF NOT EXISTS market_index (
     btc REAL,
     basket REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS briefs_kind_ts ON briefs(kind, ts);
 """
+
+# brief kinds that are bookkeeping, kept 90 days; reads, picks and the trader records are never pruned
+PRUNE_BRIEFS = ("push", "push_held", "alert_sent", "persona_slot", "pulse")
 
 
 class Store:
@@ -199,6 +203,10 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         with self._lock:
+            if path != ":memory:":
+                self._db.execute("PRAGMA journal_mode=WAL")      # readers never wait on the poll's writes
+                self._db.execute("PRAGMA synchronous=NORMAL")
+            self._db.execute("PRAGMA busy_timeout=5000")
             self._db.executescript(SCHEMA)
             cols = {r[1] for r in self._db.execute("PRAGMA table_info(picks)")}
             for col in ("ret_14d", "ret_30d"):   # added with the position traders' 14/30-day scoring
@@ -250,6 +258,19 @@ class Store:
     def prune_series(self, before: float) -> None:
         with self._lock:
             self._db.execute("DELETE FROM series WHERE ts<?", (before,))
+            self._db.commit()
+
+    def series_last_ts(self, source: str) -> float | None:
+        row = self._db.execute("SELECT MAX(ts) AS t FROM series WHERE source=?", (source,)).fetchone()
+        return row["t"] if row else None
+
+    def prune_old(self, now: float | None = None, days: float = 90) -> None:
+        """Bookkeeping older than `days`: detected events and the push, held, alert-sent and slot briefs."""
+        before = (now or time.time()) - days * 86400
+        with self._lock:
+            self._db.execute("DELETE FROM events WHERE ts<?", (before,))
+            self._db.execute(f"DELETE FROM briefs WHERE ts<? AND kind IN ({','.join('?' * len(PRUNE_BRIEFS))})",
+                             (before, *PRUNE_BRIEFS))
             self._db.commit()
 
     # events -------------------------------------------------------------
@@ -312,7 +333,7 @@ class Store:
         rows = self._db.execute(
             "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d, ret_14d, ret_30d FROM picks "
             "WHERE entry_price IS NOT NULL AND (ret_7d IS NULL OR (origin='position' AND ret_30d IS NULL AND ts > ?))",
-            ((now or time.time()) - 32 * 86400,),
+            ((now or time.time()) - 38 * 86400,),   # a 30-day price stays in the hourly copy for 8 days
         ).fetchall()
         return [dict(r) for r in rows]
 

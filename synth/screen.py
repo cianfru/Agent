@@ -22,7 +22,8 @@ the setups a read sends are what study S5 scores.
                                   short: the mirror (under the 200-day, inside the band or just under it, a bounce of
                                   30% to 70% of the last drop), or stretched: a daily z-score at the engine's blow-off
                                   line (2.5) 35, at its trim line (3) 40, plus 10 when 15%+ over the band; this route
-                                  fades a run, so it needs no downtrend. Extended (long) or far under the band: 0.
+                                  fades a run, so it needs no downtrend. A long under its band, a long extended over
+                                  it, or a short 15%+ under it: 0 (owner's band rule).
   who is positioning, up to 35    a proven trader's conviction bet that side in 7 days 20, two or more tracked traders
                                   adding that side in 24 hours 10, tracked traders leaning that side 5
   the engine, up to 15            its daily setup that way 15; the other way -10; a long on a stretched z (2.5+) -15
@@ -66,10 +67,14 @@ def coin_row(coin: str, lv: dict, price: float, ctx: dict | None, pos: dict) -> 
     if lv.get("ma200d"):
         r["ma200d"], r["vs_ma200d_pct"] = lv["ma200d"], _pct(price, lv["ma200d"])
     hi, leg = lv.get("high"), lv.get("leg_low")
+    if hi and price > hi:                     # past the high read at 00:30: a new high today, nothing given back
+        hi, r["new_high"] = price, True
     if hi and leg and hi > leg:
         r["from_high_pct"] = _pct(price, hi)
         r["retraced_pct"] = round(100 * (hi - price) / (hi - leg))
     low, top = lv.get("low"), lv.get("drop_high")
+    if low and price < low:                   # under the low read at 00:30: a new low today, no bounce yet
+        low, r["new_low"] = price, True
     if low and top and top > low and (lv.get("low_bars_ago") or 0) < (lv.get("high_bars_ago") or 0):
         r["bounced_of_drop_pct"] = round(100 * (price - low) / (top - low))
     lows = [p[0] for p in lv.get("swing_lows") or [] if p[0] < price]
@@ -123,6 +128,10 @@ def score(r: dict, side: str) -> tuple[int, list[str]]:
                 why.append(f"{r['band']['vs_pct']:.0f}% over its band")
     if long and st == "extended":
         pts, why = 0, ["extended over its band"]
+    elif long and st == "below":                          # the band rule: under it the trend is lost until reclaimed
+        pts, why = 0, ["under its band: trend lost until reclaimed"]
+    elif not long and st == "below" and (r["band"]["vs_pct"] or 0) <= -15 and not (z is not None and z >= Z_BLOWOFF):
+        pts, why = 0, ["far under its band: chasing a breakdown"]
     if long and z is not None and z >= Z_BLOWOFF:
         pts -= 15
         why.append(f"stretched: daily z {z:.1f}, buying here is chasing")

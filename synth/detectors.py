@@ -7,6 +7,8 @@ and returns events: {key, kind, coin, direction, score (0-100), title, data}.
 
 from __future__ import annotations
 
+import time
+
 from typing import Iterable
 
 BULLISH_SIGNALS = {"STRONG_LONG": 3, "LIGHT_LONG": 2, "ACCUMULATE": 2, "REVIVAL_SEED": 1}
@@ -290,7 +292,22 @@ SMART_KINDS = {"smart_convergence", "wallet_move", "cohort_flip"}
 ALERT_KINDS = (SMART_KINDS - {"smart_convergence"}) | {"cross_confirm", "crowded"}
 
 
-def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dict]:
+CROSS_FRESH_S = 2 * 3600    # a convergence older than this is not "smart money on both venues now"
+
+
+def _fresh(ev: dict, now: float | None) -> bool:
+    ts = (ev.get("data") or {}).get("ts")
+    if ev.get("kind") != "smart_convergence" or not ts:
+        return True
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
+        return True
+    ts = ts / 1000 if ts > 1e12 else ts
+    return (now or time.time()) - ts <= CROSS_FRESH_S
+
+
+def cross_source(events: Iterable[dict], snapshots: dict[str, dict], now: float | None = None) -> list[dict]:
     """A smart-money event on one venue confirmed by the other venue's smart money.
 
     Both venues firing smart-money events the same way scores 80 (alert). One venue's event that
@@ -299,13 +316,15 @@ def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dic
     by_coin: dict[tuple[str, str], set[str]] = {}
     for ev in events:
         if ev.get("kind") in SMART_KINDS and ev.get("coin") and ev.get("direction") in ("long", "short"):
+            if not _fresh(ev, now):        # Reflex lists convergences of the last 48 hours: only a recent one counts
+                continue
             by_coin.setdefault((ev["coin"], ev["direction"]), set()).add(ev["data"].get("source"))
     for (coin, side), sources in by_coin.items():
         if len(sources) >= 2:
             out.append(_ev(
                 "cross_confirm", coin, side, 80,
                 f"{coin}: smart money {side} on both Hyperliquid and Derive",
-                f"cross:{coin}:{side}", sources=sorted(sources),
+                f"cross:{coin}:{side}:both", sources=sorted(sources),
             ))
             continue
         # One source fired; check the other source's standing smart-money lean.
@@ -318,7 +337,7 @@ def cross_source(events: Iterable[dict], snapshots: dict[str, dict]) -> list[dic
                 out.append(_ev(
                     "cross_confirm", coin, side, 55,
                     f"{coin}: {side} move on {src} matches {other} smart-money lean",
-                    f"cross:{coin}:{side}", sources=[src, other],
+                    f"cross:{coin}:{side}:lean", sources=[src, other],
                 ))
     return out
 

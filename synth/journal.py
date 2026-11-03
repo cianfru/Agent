@@ -15,13 +15,21 @@ told apart from a broken one.
 
 from __future__ import annotations
 
+import calendar
 import statistics
 import time
 
 H5 = ("1d", "3d", "7d", "14d", "30d")
 H3 = ("1d", "3d", "7d")
+# S5 Amendment 2 (docs/studies/S5-outrider-reads.md): from 3 November 2026 a read's views are setups; the views before
+# it are reported apart. S5's declared bar: 60 setups scored at 3 days, 62% right, median 3-day move +1% their way.
+S5_SETUPS_FROM = calendar.timegm((2026, 11, 3, 0, 0, 0))
+S5_BAR = {"n": 60, "right_pct": 62, "median_pct": 1.0}
 KINDS = [  # key, label, study, horizons, the horizon its verdict uses, which picks
-    ("read", "Outrider's views", "S5", H3, "3d", lambda p: p["origin"] == "read"),
+    ("read", "Outrider's setups (since 3 Nov)", "S5", H3, "3d",
+     lambda p: p["origin"] == "read" and p["ts"] >= S5_SETUPS_FROM),
+    ("read_before", "Outrider's views before 3 Nov", "S5, before Amendment 2", H3, "3d",
+     lambda p: p["origin"] == "read" and p["ts"] < S5_SETUPS_FROM),
     ("conviction", "Tracked traders' conviction bets (2x usual size)", "S3", H5, "30d",
      lambda p: p["origin"] == "position" and (p.get("conviction") or 0) >= 2),
     ("position", "Tracked traders' other new positions", None, H5, "30d",
@@ -46,6 +54,13 @@ def excess(p: dict, h: str) -> float | None:
     if ret is None or mkt is None:
         return None
     return ret - (mkt if p["direction"] == "long" else -mkt)
+
+
+def verdict(a: dict, bar: dict = S5_BAR) -> str:
+    """S5's verdict for a 3-day block: Useful only when all three declared conditions hold; else context."""
+    if a["n"] >= bar["n"] and (a["right_pct"] or 0) >= bar["right_pct"] and (a["median_pct"] or 0) >= bar["median_pct"]:
+        return "meets the declared bar"
+    return "context, not a signal"
 
 
 def block(picks: list[dict], h: str) -> dict:

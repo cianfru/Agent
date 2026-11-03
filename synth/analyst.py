@@ -114,6 +114,14 @@ SCHEMA = {
 }
 
 
+class ReadFailed(RuntimeError):
+    """A read that failed after the model was called: what it cost still counts."""
+
+    def __init__(self, msg: str, cost: float = 0.0):
+        super().__init__(msg)
+        self.cost = cost
+
+
 # ---------------------------------------------------------------------- scan --
 
 
@@ -146,9 +154,10 @@ def _engine(snap: dict, cow: dict, coin: str, every: dict | None = None) -> dict
     r = (snap.get("coins") or {}).get(coin) or (cow.get("coins") or {}).get(coin) or {}
     e = (snap.get("engine") or {}).get(coin) or {}
     a = (every or {}).get(coin) or {}                       # every coin's reading, hourly: the z-score above all
-    out = {"daily": SIGNAL.get(r.get("signal_1d") or e.get("1d") or "", None),
-           "4h": SIGNAL.get(r.get("signal_4h") or e.get("4h") or "", None),
+    out = {"daily": SIGNAL.get(r.get("signal_1d") or e.get("1d") or a.get("signal_1d") or "", None),
+           "4h": SIGNAL.get(r.get("signal_4h") or e.get("4h") or a.get("signal_4h") or "", None),
            "regime": REGIME.get(r.get("regime_1d") or a.get("regime_1d") or "", None),
+           "regime_4h": REGIME.get(a.get("regime_4h") or "", None),
            "heat": r.get("heat_1d") if r.get("heat_1d") is not None else a.get("heat_1d"),
            "z_daily": r.get("z_1d") if r.get("z_1d") is not None else a.get("z_1d"),
            "z_4h": r.get("z_4h") if r.get("z_4h") is not None else a.get("z_4h")}
@@ -213,7 +222,7 @@ def scan(agent, now: float | None = None) -> dict:
     cur = cur or snap.get("positions") or {}
     day = (_at(rows, tss, now - DAY) or {}).get("c") or {}
     week = (_at(rows, tss, now - 7 * DAY) or {}).get("c") or {}
-    mids = getattr(agent.tracker, "last_mids", {}) or {}
+    mids = agent.tracker.fresh_mids(now) if hasattr(agent.tracker, "fresh_mids") else {}
     every = (store.get_snapshot("engine_all") or {}).get("c") or {}
 
     board = pt.board(now)
@@ -504,11 +513,17 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
 
 
 def record(store) -> dict:
-    """How the read's views did, scored as the journal scores them (synth/journal.py): per horizon, right and beat the
-    market, for all views, the firm or strong ones, and longs and shorts apart. The model reads it before each read."""
-    picks = store.picks(limit=100_000, origin="read")
-    out: dict[str, Any] = {"logged": len(picks), "longs": sum(p["direction"] == "long" for p in picks),
-                           "shorts": sum(p["direction"] == "short" for p in picks)}
+    """How the read's setups did, scored as the journal scores them (synth/journal.py): per horizon, right and beat the
+    market, for all, the firm or strong ones, and longs and shorts apart. Only the setups since S5's Amendment 2
+    (3 November 2026); the views before it are reported apart, as the study says. The model reads it before each
+    read."""
+    every = store.picks(limit=100_000, origin="read")
+    picks = [p for p in every if p["ts"] >= journal.S5_SETUPS_FROM]
+    before = [p for p in every if p["ts"] < journal.S5_SETUPS_FROM]
+    out: dict[str, Any] = {"since": "3 Nov 2026", "logged": len(picks),
+                           "longs": sum(p["direction"] == "long" for p in picks),
+                           "shorts": sum(p["direction"] == "short" for p in picks),
+                           "bar": journal.S5_BAR, "views_before_3_nov": journal.block(before, "3d")}
     for h in ("1d", "3d", "7d"):
         out[h] = {"all": journal.block(picks, h),
                   "firm_or_strong": journal.block([p for p in picks if (p.get("conviction") or 0) >= 2], h),
@@ -518,24 +533,29 @@ def record(store) -> dict:
 
 
 def record_text(rec: dict) -> str | None:
+    """The setups' record against S5's declared bar, so a share is never read as a verdict on its own."""
     a = rec["3d"]["all"]
-    if a["n"] < 5:
+    b = rec.get("views_before_3_nov") or {}
+    if a["n"] < 3 and not b.get("n"):
         return None
-    line = (f"Record: {a['right']} of {a['n']} views right after 3 days ({a['right_pct']}%), "
-            f"median {a['median_pct']:+.1f}% their way")
-    v = a["vs_market"]
-    if v["n"]:
-        line += f"; beat the market {v['right']} of {v['n']}"
-    s = rec["3d"]["firm_or_strong"]
-    if s["n"] >= 5:
-        line += f"; firm or strong {s['right']} of {s['n']} right"
+    bar = rec.get("bar") or journal.S5_BAR
+    line = f"Setups since 3 Nov (S5): {a['n']} scored at 3 days, {bar['n']} needed"
+    if a["n"]:
+        line += (f" · {a['right']} right ({a['right_pct']}%, bar {bar['right_pct']}%)"
+                 f" · median {a['median_pct']:+.1f}% (bar +{bar['median_pct']:g}%)")
+        v = a["vs_market"]
+        if v["n"]:
+            line += f" · beat the market {v['right']} of {v['n']}"
+    line += " · " + journal.verdict(a)
+    if b.get("n"):
+        line += f". Views before 3 Nov: {b['right']} of {b['n']} right"
     return line + "."
 
 
 # --------------------------------------------------------------------- read --
 
 
-def format_read(r: dict, now: float, rec: dict | None = None) -> str:
+def format_read(r: dict, now: float, rec: dict | None = None, held: int = 0) -> str:
     """Headline, the read, then the setups worth a look; the record only when `rec` is passed (the morning read)."""
     lines = [f"Outrider · {time.strftime('%H:%M', time.gmtime(now))} UTC", r["headline"].strip(), "", r["read"].strip()]
     if r.get("views"):
@@ -549,6 +569,8 @@ def format_read(r: dict, now: float, rec: dict | None = None) -> str:
     rt = record_text(rec) if rec else None
     if rt:
         lines += ["", rt]
+    if held:
+        lines += ["", f"Held back by the daily cap in the last 24 hours: {held} · /held lists them."]
     return "\n".join(lines)
 
 
@@ -575,7 +597,7 @@ class Analyst:
         self.daily_usd = daily_usd
         self.per_day = per_day
         self.quiet = quiet_hours(quiet)
-        self.client = client or anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic(timeout=120, max_retries=1)   # a slow day never stalls the poll
 
     # ------------------------------------------------------------- schedule --
     def spent_today(self, now: float | None = None) -> float:
@@ -593,7 +615,7 @@ class Analyst:
             return None, ch
         last = self.store.latest_brief("read")
         gap = now - last["ts"] if last else float("inf")
-        if sum(1 for b in today if b["body"].get("sent")) >= self.per_day:
+        if sum(1 for b in today if b["body"].get("sent") and b["body"].get("reason") != "asked") >= self.per_day:
             return None, ch
         market = sum(c["w"] for c in ch if not c["owner"])    # his positions never bring a read of their own
         if hour not in self.quiet and market >= TRIGGER and gap >= MIN_GAP_S:
@@ -645,17 +667,20 @@ class Analyst:
             out, cost = await asyncio.to_thread(self.think, task, now)
         except Exception as e:  # noqa: BLE001 - logged; the next poll can try again
             log.warning("read failed: %s", e)
-            self.store.add_brief("read", {"reason": reason, "sent": False, "error": str(e)[:300], "cost": 0})
+            self.store.add_brief("read", {"reason": reason, "sent": False, "error": str(e)[:300],
+                                          "cost": round(getattr(e, "cost", 0.0), 4)})
             raise
-        out = self.clean(out)
+        out = self.clean(out, cur)
         send = bool(out["send"]) or reason == "morning" or force_send
-        text = format_read(out, now, rec if reason == "morning" else None)
+        held = self.store.count_briefs("push_held", now - DAY) if reason == "morning" else 0
+        text = format_read(out, now, rec if reason == "morning" else None, held)
         logged = self.log_views(out["views"], now, reason) if send else []
         self.store.put_snapshot("read_scan", cur)
         self.store.add_brief("read", {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4),
                                       "changes": [c["text"] for c in ch], "logged": logged})
-        if send:
-            await notify.push(self.agent.s, self.store, text, "read", must=reason in ("morning", "asked") or force_send)
+        if send:   # a read he asked for answers him: it does not count against the unprompted messages
+            await notify.push(self.agent.s, self.store, text, "read", must=reason == "morning" or force_send,
+                              reply=reason == "asked")
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged}
 
     async def fill_reflex(self, cur: dict) -> None:
@@ -664,7 +689,8 @@ class Analyst:
         rc = self.agent.reflex
         if not rc:
             return
-        rows = [r for r in cur["direction"] + cur["coins"] if not (r.get("engine") or {}).get("regime")]
+        rows = [r for r in cur["direction"] + cur["coins"]
+                if not ((r.get("engine") or {}).get("daily") and (r.get("engine") or {}).get("regime"))]
         got = await asyncio.gather(*(reflex_src.engine_rows(rc, r["coin"]) for r in rows), return_exceptions=True)
         for r, g in zip(rows, got):
             if isinstance(g, dict):
@@ -715,13 +741,18 @@ class Analyst:
         return "\n\n".join(parts)
 
     def think(self, task: str, now: float) -> tuple[dict, float]:
-        """One call: the scan in, the read out as JSON."""
+        """One call: the scan in, the read out as JSON. A failure after the call carries what it cost."""
         resp = self._create([{"role": "user", "content": task}])
         cost = cost_of(resp.model if resp.model in PRICES else self.model, resp.usage)
         if resp.stop_reason == "refusal":
-            raise RuntimeError("the model declined this read")
+            raise ReadFailed("the model declined this read", cost)
+        if resp.stop_reason == "max_tokens":
+            raise ReadFailed("the read ran out of room", cost)
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
-        return json.loads(text), cost
+        try:
+            return json.loads(text), cost
+        except ValueError as e:
+            raise ReadFailed(f"the read was not valid JSON: {e}", cost) from e
 
     def _create(self, messages: list[dict]):
         params = {"model": self.model, "max_tokens": 16000, "messages": messages,
@@ -733,13 +764,21 @@ class Analyst:
         return self.client.messages.create(**params)
 
     @staticmethod
-    def clean(out: dict) -> dict:
-        views = []
+    def clean(out: dict, cur: dict | None = None) -> dict:
+        """At most two views, each on a coin the scan showed (a view on a coin with no data behind it is dropped)."""
+        shown = None
+        if cur is not None:
+            shown = {str(r.get("coin") or "").upper() for r in (cur.get("candidates") or []) + (cur.get("direction")
+                     or []) + (cur.get("coins") or []) + (cur.get("my_positions") or [])}
+        views, dropped = [], []
         for v in (out.get("views") or [])[:2]:
             coin = str(v.get("coin") or "").upper().lstrip("$")
             if coin and v.get("lean") in ("long", "short"):
+                if shown is not None and coin not in shown:
+                    dropped.append(coin)
+                    continue
                 views.append({**v, "coin": coin, "strength": int(v.get("strength") or 1)})
-        return {**out, "views": views}
+        return {**out, "views": views, **({"dropped_views": dropped} if dropped else {})}
 
     def log_views(self, views: list[dict], now: float, reason: str) -> list[int]:
         """Each view as a pick at Hyperliquid's mid, scored after 1, 3 and 7 days; a repeat within a day is not
@@ -751,7 +790,7 @@ class Analyst:
         for v in views:
             if (v["coin"], v["lean"]) in recent:
                 continue
-            px = (getattr(self.agent.tracker, "last_mids", {}) or {}).get(v["coin"]) or price_of(v["coin"], snaps)
+            px = self.agent.price_now(v["coin"], now) or price_of(v["coin"], snaps)
             if not px:
                 continue
             ids.append(self.store.add_pick("read", v["coin"], v["lean"], v["strength"], px,

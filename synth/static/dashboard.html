@@ -634,7 +634,7 @@ document.querySelectorAll("#owsort button").forEach((b) => b.onclick = () => {
 const pctOrDash = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : "short"}">${x > 0 ? "+" : ""}${Math.round(100 * x)}%</span>`;
 function renderOpenWinners() {
   const d = ptData; if (!d) return;
-  const key = { usd: (r) => r.upnl, move: (r) => r.move, held: (r) => r.held_days == null ? 1e9 : r.held_days }[owSort];
+  const key = { usd: (r) => r.upnl, move: (r) => r.move ?? -Infinity, held: (r) => r.held_days == null ? 1e9 : r.held_days }[owSort];
   const rows = [...(d.open_winners || [])].sort((a, b) => key(b) - key(a)).slice(0, 25);
   $("#owtable tbody").innerHTML = rows.length ? rows.map((r) => `<tr>
       <td><a href="https://hypurrscan.io/address/${esc(r.address)}" target="_blank" rel="noopener" style="color:inherit"><b>${esc(r.codename)}</b></a> <span class="muted">${esc(short(r.address))}</span>${r.listed ? ` <span class="agree ${r.listed === "proven" ? "al" : "dis"}">${esc(r.listed)}</span>` : ""}</td>
@@ -819,7 +819,7 @@ $("#askbtn").onclick = async () => {
   const q = $("#q").value.trim(); if (!q) return;
   $("#answer").innerHTML = '<span class="muted">thinking...</span>';
   try { const a = await api("/ask", { method: "POST", body: JSON.stringify({ question: q }) });
-    $("#answer").innerHTML = `<p>${esc(a.answer)}</p>`; }
+    $("#answer").innerHTML = `<p style="white-space:pre-wrap">${esc(a.answer)}</p>`; }
   catch (e) { $("#answer").innerHTML = `<span class="short">${esc(e.message)}</span>`; }
 };
 
@@ -828,9 +828,9 @@ $("#askbtn").onclick = async () => {
 // ---- levels: every liquid coin against its band, its 200-day average and its last leg
 let lvRows = [], lvSort = "bandpct", lvAsc = true;
 const LVKEY = { coin: (r) => r.coin, price: (r) => r.price, band: (r) => ["below", "inside", "just above", "above", "extended"].indexOf((r.band || {}).state),
-  bandpct: (r) => r.band ? Math.abs(r.band.vs_pct) : 1e9, ma200: (r) => r.vs_ma200d_pct ?? 1e9, retrace: (r) => r.retraced_pct ?? 1e9,
-  swing: (r) => r.swing_low_pct ?? -1e9, oi: (r) => r.oi_change_24h_pct ?? -1e9, funding: (r) => r.funding_apr_pct ?? -1e9,
-  z: (r) => r.z_1d ?? -1e9, engine: (r) => r.engine || "~", tracked: (r) => r.tracked ? r.tracked.long - r.tracked.short : 0,
+  bandpct: (r) => r.band ? Math.abs(r.band.vs_pct) : null, ma200: (r) => r.vs_ma200d_pct ?? null, retrace: (r) => r.retraced_pct ?? null,
+  swing: (r) => r.swing_low_pct ?? null, oi: (r) => r.oi_change_24h_pct ?? null, funding: (r) => r.funding_apr_pct ?? null,
+  z: (r) => r.z_1d ?? null, engine: (r) => r.engine || "~", tracked: (r) => r.tracked ? r.tracked.long - r.tracked.short : 0,
   long: (r) => r.score_long, short: (r) => r.score_short };
 document.querySelectorAll("#lvtable th").forEach((th) => th.onclick = () => {
   const k = th.dataset.s; lvAsc = lvSort === k ? !lvAsc : ["coin", "band", "bandpct", "engine"].includes(k); lvSort = k; renderLevels(); });
@@ -843,7 +843,10 @@ async function loadLevels() {
   renderLevels();
 }
 function renderLevels() {
-  const k = LVKEY[lvSort], rows = [...lvRows].sort((a, b) => (k(a) > k(b) ? 1 : k(a) < k(b) ? -1 : 0) * (lvAsc ? 1 : -1));
+  const k = LVKEY[lvSort], rows = [...lvRows].sort((a, b) => {   // rows without the figure go last, either way
+    const ka = k(a), kb = k(b);
+    if (ka == null || kb == null) return (ka == null) - (kb == null);
+    return (ka > kb ? 1 : ka < kb ? -1 : 0) * (lvAsc ? 1 : -1); });
   const p = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : x < 0 ? "short" : ""}">${x > 0 ? "+" : ""}${x.toFixed(1)}%</span>`;
   const plain = (x) => x == null ? '<span class="muted">-</span>' : `${x > 0 ? "+" : ""}${x.toFixed(1)}%`;
   const zc = (z) => z == null ? '<span class="muted">-</span>' : `<span class="${z >= 2.5 ? "short" : z <= -1 ? "long" : ""}" title="the engine's daily z-score: 2.5 blow-off, 3 trim, -1 capitulation">${z.toFixed(1)}</span>`;
