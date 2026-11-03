@@ -38,7 +38,7 @@ TOP_COINS = 40  # coins kept in the snapshot, by number of smart traders positio
 
 # The parts of a scan row a read or an answer uses (the full row also carries the conditions, setups and positioning).
 ROW_KEYS = ("price", "regime", "signal", "zscore", "heat", "heat_phase", "exhaustion_state", "divergence",
-            "signal_reason", "conditions_met", "conditions_total", "sector")
+            "signal_reason", "conditions_met", "conditions_total", "sector", "vol_scale")
 
 
 class ReflexAuthError(RuntimeError):
@@ -175,8 +175,23 @@ async def engine_all(rc: ReflexClient) -> dict[str, dict]:
             if row.get("zscore") is not None:
                 d[f"z_{tf}"] = round(float(row["zscore"]), 2)
             d[f"signal_{tf}"], d[f"regime_{tf}"] = row.get("signal"), row.get("regime")
-            if tf == "1d" and row.get("heat") is not None:
-                d["heat_1d"] = row["heat"]
+            if tf == "1d":                     # the daily row's context, already in the list (no extra request)
+                if row.get("heat") is not None:
+                    d["heat_1d"] = row["heat"]
+                if row.get("sector"):
+                    d["sector"] = row["sector"]
+                if row.get("atr_regime") and row["atr_regime"] != "Normal":
+                    d["atr_regime"] = str(row["atr_regime"]).lower()
+                if row.get("rel_vol"):
+                    d["rel_vol"] = round(float(row["rel_vol"]), 2)
+                if row.get("exhaustion_state") not in (None, "", "NEUTRAL"):
+                    d["exhaustion"] = str(row["exhaustion_state"]).lower().replace("_", " ")
+                if row.get("is_climax"):
+                    d["climax"] = True
+                if row.get("divergence"):
+                    d["divergence"] = str(row["divergence"]).lower()
+                if row.get("floor_confirmed"):
+                    d["floor_confirmed"] = True
     return out
 
 

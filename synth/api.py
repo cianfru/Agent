@@ -91,6 +91,8 @@ async def _refresh_levels(agent: Agent) -> None:
         extra = [w["coin"] for w in agent.store.watch_list()] + screen.trader_coins(agent, time.time())
         n = await agent.levels.refresh_all(hl, agent.levels.universe(extra))
         log.info("levels read for %d coins", n)
+        if (agent.store.get_snapshot("levels_refresh") or {}).get("day"):
+            await asyncio.to_thread(screen.log_day, agent)        # the day's screen, kept for a later test of it
     except Exception:  # noqa: BLE001 - tried again later
         log.exception("levels refresh failed")
     finally:

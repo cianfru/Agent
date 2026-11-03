@@ -47,11 +47,22 @@ as closed: a trader up big on an open position matters.
 does not lead the next days. A crowd turning short after a rally is profit-taking, not a warning; never a reason alone.
 - Convergences of profitable traders opening together (S1): no better than one trader alone.
 - The engine (trend regime and setup per coin): the backdrop, whether a coin is trending, stretched or washed out.
-- The engine's z-score (daily, every coin): how far the price sits over its long-run trend in its own volatility. Its \
-own lines: 2.5 a blow-off, 3 it trims, 3.5 it trims hard, -1 capitulation. The owner reads it first for shorts: a \
-coin stretched past 2.5 while shorts build (a conviction bet short, tracked traders adding shorts, longs paying high \
-funding) is the short setup he watches most; buying a stretched coin is chasing. Context, not tested here beyond the \
-engine's own use of these lines.
+- The engine's z-score (daily, every coin): how far the price sits over its long-run trend in its own volatility. The \
+owner's lines: 2.5 a blow-off, 3 trim, 3.5 hard trim, -1 capitulation. The engine scales these lines by the coin's \
+volatility (engine_z_lines, when given, are its own for that coin) and trims only in its blow-off regime: say "the \
+engine is trimming" only when its reading says so. The owner reads the z-score first for shorts: a coin stretched past \
+2.5 while shorts build (a conviction bet short, tracked traders adding shorts, longs paying high funding, longs piling \
+in with open interest) is the short setup he watches most; buying a stretched coin is chasing. Context, not tested \
+here.
+- Each coin's volatility (atr_pct, the 14-day average true range in %; rv30_pct): "near" a level means within one \
+average true range, so a 3% move is a test for a quiet coin and noise for a wild one. Strength against BTC over 30 \
+days (rs_30d_pct, rs_rank_30d from 0 weakest to 100 strongest) and beta to BTC: a long on a coin leading the market \
+is a buyable pullback, on one lagging it a falling knife; a short with a beta over 1.5 is mostly a bet on BTC. Open \
+interest against price (longs or shorts building, short covering, long liquidation) says who is acting. Context, \
+not tested here.
+- Risk frame (code, per side): where the setup is wrong (off: the level the price sits on, with its distance in % and \
+in average true ranges), the next level the other way and the room to it over the risk. Plain levels, never targets. \
+A coin under $3M a day of volume or with a wide book is too thin to be a setup.
 - Open interest, funding, the 200-day average and the bull market support band (the 20-week simple and 21-week \
 exponential averages): plain market context, not tested here. Read them with price: open interest rising with price \
 is new money behind the move, rising against it is a squeeze building; high funding means longs are crowded and pay \

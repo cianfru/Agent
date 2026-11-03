@@ -55,9 +55,9 @@ def test_the_table_reads_every_coin_with_levels_and_the_chat_can_screen_it(tmp_p
     assert sui["tracked"] == {"long": 0, "short": 4, "lean": "short"} and sui["added_24h"] == {"short": 4}
     got = json.loads(agent.chat.execute("screen", {"sort": "band", "limit": 5}, now))
     assert [r["coin"] for r in got["rows"]] == ["SUI", "SOL"] and got["breadth"]["inside"] == 1
-    cand = screen.candidates(t)
-    assert [c["coin"] for c in cand] == ["SUI"] and cand[0]["side"] == "long"
-    assert cand[0]["why"][:2] == ["inside its band", "gave back 50% of its last leg"]
+    # SUI long has the price at its band but nothing else lining up (tracked traders are short): no candidate
+    assert sui["why_long"][:2] == ["inside its band", "gave back 50% of its last leg"] and sui["independent_long"] == 1
+    assert screen.candidates(t) == []
 
 
 def test_levels_for_every_liquid_coin_are_read_once_a_day(tmp_path):
@@ -72,9 +72,9 @@ def test_levels_for_every_liquid_coin_are_read_once_a_day(tmp_path):
     now = time.mktime(time.strptime("2026-11-03 06:00", "%Y-%m-%d %H:%M")) - time.timezone
     assert lv.refresh_due(now)
     hl = FakeHL()
-    assert asyncio.run(lv.refresh_all(hl, ["BTC", "SOL"], now, pace_s=0)) == 2 and hl.calls == 4
+    assert asyncio.run(lv.refresh_all(hl, ["BTC", "SOL"], now, pace_s=0)) == 2 and hl.calls == 2
     assert not lv.refresh_due(now + 60)                                  # done for today
-    assert asyncio.run(lv.refresh_all(hl, ["BTC", "SOL"], now + 60, pace_s=0)) == 0 and hl.calls == 4
+    assert asyncio.run(lv.refresh_all(hl, ["BTC", "SOL"], now + 60, pace_s=0)) == 0 and hl.calls == 2
 
 
 def test_a_stretched_z_score_with_shorts_building_is_a_short_setup_even_in_an_uptrend():
@@ -83,11 +83,13 @@ def test_a_stretched_z_score_with_shorts_building_is_a_short_setup_even_in_an_up
     r = screen.coin_row("HYPE", lv, 105.0, {"funding_apr_pct": 40.0}, pos)
     assert r["band"]["state"] == "extended" and r["z_1d"] == 2.8
     assert r["score_short"] == 35 + 10 + 20 + 5 + 5
-    assert r["why_short"] == ["stretched: daily z 2.8 (the engine's blow-off line is 2.5)", "25% over its band",
+    assert r["why_short"] == ["stretched: daily z 2.8, blow-off (2.5); the engine is trimming", "25% over its band",
                               "1 conviction bet short in 7 days", "tracked traders lean short", "longs paying 40% a year"]
     assert r["score_long"] == 0 and "stretched: daily z 2.8, buying here is chasing" in r["why_long"]
     past_trim = screen.coin_row("HYPE", lv, 105.0, None, {"z_1d": 3.2})
-    assert past_trim["score_short"] == 50 and past_trim["why_short"][0].endswith("(the engine trims from 3)")
+    assert past_trim["score_short"] == 50 and past_trim["why_short"][0] == "stretched: daily z 3.2, past trim (3)"
+    hard = screen.coin_row("HYPE", lv, 105.0, None, {"z_1d": 3.6})
+    assert hard["score_short"] == 55 and hard["z_line"] == "past hard trim (3.5)"
     calm = screen.coin_row("HYPE", lv, 105.0, None, {"z_1d": 1.2})
     assert calm["score_short"] == 0                                     # not stretched, not under the 200-day
 

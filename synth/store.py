@@ -191,6 +191,12 @@ CREATE TABLE IF NOT EXISTS market_index (
     basket REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS briefs_kind_ts ON briefs(kind, ts);
+CREATE TABLE IF NOT EXISTS screen_log (
+    day TEXT NOT NULL,
+    coin TEXT NOT NULL,
+    body TEXT NOT NULL,
+    PRIMARY KEY (day, coin)
+);
 """
 
 # brief kinds that are bookkeeping, kept 90 days; reads, picks and the trader records are never pruned
@@ -331,11 +337,20 @@ class Store:
 
     def open_picks(self, now: float | None = None) -> list[dict]:
         rows = self._db.execute(
-            "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d, ret_14d, ret_30d FROM picks "
-            "WHERE entry_price IS NOT NULL AND (ret_7d IS NULL OR (origin='position' AND ret_30d IS NULL AND ts > ?))",
+            "SELECT id, ts, origin, coin, direction, entry_price, ret_1d, ret_3d, ret_7d, ret_14d, ret_30d, state "
+            "FROM picks WHERE entry_price IS NOT NULL AND (ret_7d IS NULL OR (origin='position' AND ret_30d IS NULL "
+            "AND ts > ?))",
             ((now or time.time()) - 38 * 86400,),   # a 30-day price stays in the hourly copy for 8 days
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["state"] = json.loads(d.get("state") or "{}") or {}
+            except ValueError:
+                d["state"] = {}
+            out.append(d)
+        return out
 
     def set_pick_return(self, pick_id: int, horizon: str, ret: float) -> None:
         assert horizon in ("1d", "3d", "7d", "14d", "30d")
@@ -345,7 +360,7 @@ class Store:
 
     def picks(self, limit: int = 100, origin: str | None = None, since: float = 0) -> list[dict]:
         q = ("SELECT id, ts, origin, coin, direction, conviction, entry_price, thesis, ret_1d, ret_3d, ret_7d, "
-             "ret_14d, ret_30d, mkt_1d, mkt_3d, mkt_7d, mkt_14d, mkt_30d "
+             "ret_14d, ret_30d, mkt_1d, mkt_3d, mkt_7d, mkt_14d, mkt_30d, state "
              "FROM picks WHERE ts>=?")
         args: list[Any] = [since]
         if origin:
@@ -353,7 +368,41 @@ class Store:
             args.append(origin)
         q += " ORDER BY ts DESC LIMIT ?"
         args.append(limit)
-        return [dict(r) for r in self._db.execute(q, args).fetchall()]
+        out = []
+        for r in self._db.execute(q, args).fetchall():
+            d = dict(r)
+            try:
+                d["state"] = json.loads(d.get("state") or "{}") or {}
+            except ValueError:
+                d["state"] = {}
+            out.append(d)
+        return out
+
+    def update_pick_state(self, pick_id: int, more: dict) -> None:
+        """Merge `more` into a pick's state (what was learnt about it after it was logged, e.g. its path)."""
+        with self._lock:
+            row = self._db.execute("SELECT state FROM picks WHERE id=?", (pick_id,)).fetchone()
+            try:
+                st = json.loads(row["state"] or "{}") if row else {}
+            except ValueError:
+                st = {}
+            self._db.execute("UPDATE picks SET state=? WHERE id=?", (json.dumps({**st, **more}), pick_id))
+            self._db.commit()
+
+    # the screen, one row per coin a day (synth/screen.py): the record a later test of the screen reads ------------
+    def screen_log_add(self, day: str, rows: list[tuple[str, dict]]) -> None:
+        with self._lock:
+            self._db.executemany("INSERT OR REPLACE INTO screen_log(day, coin, body) VALUES(?,?,?)",
+                                 [(day, c, json.dumps(b, separators=(",", ":"))) for c, b in rows])
+            self._db.commit()
+
+    def screen_log(self, coin: str | None = None, since_day: str = "") -> list[dict]:
+        q, args = "SELECT day, coin, body FROM screen_log WHERE day>=?", [since_day]
+        if coin:
+            q += " AND coin=?"
+            args.append(coin.upper())
+        return [{"day": r["day"], "coin": r["coin"], **json.loads(r["body"])}
+                for r in self._db.execute(q + " ORDER BY day, coin", args).fetchall()]
 
     def first_pick_ts(self) -> float | None:
         return self._db.execute("SELECT MIN(ts) FROM picks").fetchone()[0]

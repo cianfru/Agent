@@ -30,6 +30,8 @@ MAX_ALERTS_PER_CYCLE = 2  # bounds noise and model spend if a feed glitch fires 
 HORIZONS = {"1d": 86400, "3d": 3 * 86400, "7d": 7 * 86400}
 LONG_HORIZONS = {"14d": 14 * 86400, "30d": 30 * 86400}  # position traders' picks (study S3)
 SERIES_KEEP_S = 8 * 86400  # per-poll positioning rows for the live flow
+TAKER_FEE = 0.00045        # Hyperliquid's base taker fee a side: what a round trip costs before spread
+PATH_ORIGINS = ("read", "screen", "random")   # picks whose path to each horizon is recorded (S5 Amendment 3, S6)
 
 
 class Agent:
@@ -472,7 +474,7 @@ class Agent:
             horizons = dict(HORIZONS)
             if p.get("origin") == "position":
                 horizons.update(LONG_HORIZONS)
-            hl_entry = p.get("origin") in ("group", "position", "read")
+            hl_entry = p.get("origin") in ("group", "position", "read", "screen", "random")
             for h, secs in horizons.items():
                 at = p["ts"] + secs
                 if p[f"ret_{h}"] is not None or now < at:
@@ -492,8 +494,37 @@ class Agent:
                 if p["direction"] == "short":
                     ret = -ret
                 self.store.set_pick_return(p["id"], h, round(ret, 5))
+                if p.get("origin") in PATH_ORIGINS and h in HORIZONS:
+                    st = self.path_stats(p, at, ret, now)
+                    if st:
+                        self.store.update_pick_state(p["id"], {f"path_{h}": st})
                 n += 1
         return n
+
+    def path_stats(self, p: dict, at: float, ret: float, now: float) -> dict | None:
+        """What happened on the way to a horizon, from the hourly copies: the worst and best move the pick's way, whether
+        it touched the level its setup named as wrong (and after how many hours), the funding it paid, its return
+        after a taker round trip and that funding, and BTC's move over the same hours (for the beta-adjusted record).
+        Hourly closes understate the extremes a little."""
+        sign = 1 if p["direction"] == "long" else -1
+        path = self.levels.path(p["coin"].upper(), p["ts"], at, now)
+        if len(path) < 2 or not p["entry_price"]:
+            return None
+        moves = [sign * (px / p["entry_price"] - 1) for _, px, _ in path]
+        funding = sum(f for _, _, f in path) * sign               # a long pays positive funding, a short receives it
+        out = {"n": len(path), "mae_pct": round(100 * min(0.0, min(moves)), 2),
+               "mfe_pct": round(100 * max(0.0, max(moves)), 2), "funding_pct": round(100 * funding, 3),
+               "net_pct": round(100 * (ret - 2 * TAKER_FEE - funding), 2)}
+        off = (((p.get("state") or {}).get("risk") or {}).get("off") or {}).get("level")
+        if off:
+            hit = next((t for t, px, _ in path if (px <= off if sign > 0 else px >= off)), None)
+            out["off_hit"] = hit is not None
+            if hit is not None:
+                out["off_hit_h"] = round((hit - p["ts"]) / 3600, 1)
+        b0, b1 = self.levels.price_at("BTC", p["ts"], now=now), self.levels.price_at("BTC", at, now=now)
+        if b0 and b1:
+            out["btc_pct"] = round(100 * (b1 / b0 - 1), 2)
+        return out
 
 
 # ------------------------------------------------------------------ helpers --

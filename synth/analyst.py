@@ -23,6 +23,7 @@ import bisect
 import datetime as dt
 import json
 import logging
+import random
 import re
 import time
 from typing import Any
@@ -53,6 +54,7 @@ SIGNAL = {"STRONG_LONG": "strong up-setup", "LIGHT_LONG": "leaning up", "ACCUMUL
 REGIME = {"MARKUP": "trending up", "BLOWOFF": "overheated", "REACC": "cooling off", "ACCUM": "building a base",
           "MARKDOWN": "trending down", "CAP": "washed out", "FLAT": "no regime yet"}
 STRENGTH = {1: "light", 2: "firm", 3: "strong"}
+OFF_LEVELS = ("band low", "band high", "200-day average", "swing low", "swing high", "recent high", "pattern", "event")
 TURN_MARKS = {"median_z_turned_down", "rolled_over", "median_z_turned_up", "turned_up"}   # the cycle's own turns
 
 SYSTEM = """You are Outrider, the owner's market companion. Through the day the code scans the market and hands \
@@ -74,14 +76,22 @@ A good read:
 - Connects the traders and the chart: who is moving, on which side, and what the price is doing where.
 - Weighs each piece by the evidence above. A crowd lean alone is never the story, nor is the tracked traders' lean.
 - Picks its setups mostly from the candidates, checking the code's reasons against the rest of the scan; a coin \
-from elsewhere in the scan is fine when it is better.
+from elsewhere in the scan is fine when it is better and two things line up for it too.
 - Gives up to two setups worth a look (views): a coin, long or short, why, and what to look at on the chart (the band, \
 the 200-day average, the swing low, a pattern's neckline). A setup is worth sending when at least two independent \
-things line up: traders positioning (above all a proven trader's conviction bet, or several tracked traders adding) \
-with price action (a pullback into the band, the 200-day average or a swing low after a real retracement; a pattern \
-forming or just confirmed), or either of those with the engine. Do not wait for everything to line up: that almost \
-never happens. Light, firm or strong says how convinced you are. Every setup is logged and scored after 1, 3 and 7 \
-days. When nothing lines up, no setup; when the market is weak, say so and still name a setup if one stands out.
+things line up: traders positioning (above all a proven trader's conviction bet, or several tracked traders adding; \
+crowded funding or open interest against the price), price at a level (a pullback into the band, the 200-day average \
+or a swing low after a real retracement; a stretched z-score for a short; a pattern forming or just confirmed), or \
+either of those with the engine. The code counts them for the candidates (lined_up, independent); every candidate \
+has two or more. A short the owner watches most: z past its blow-off line with shorts building. Do not wait for \
+everything to line up: that almost never happens. Light, firm or strong says how convinced you are. Every setup is \
+logged and scored after 1, 3 and 7 days. When nothing lines up, no setup; when the market is weak, say so: a setup \
+still needs two things.
+- Each setup names where it is wrong (off_level: the band, the 200-day average, a swing level, the recent high; the \
+code fills the price and its distance from the coin's risk frame) and changes_if: the event that would end it (a \
+conviction bet closed, the engine turning). Prefer setups whose room to the next level is at least the risk to the \
+off level; if not, say why it is still worth a look. Two setups that are the same bet (same side, coins that move \
+together, beta over 1.5 to BTC) count as one: give the better one.
 - His positions are his decisions. Do not brief him on them and never tell him to close, trim or hold: he asks you in \
 the chat when he wants that. Mention one only when it is part of a setup, in one factual sentence.
 - Says what is new since your last read, and says so plainly when an earlier setup of yours is now wrong.
@@ -103,11 +113,13 @@ SCHEMA = {
         "market_lean": {"type": "string", "enum": ["long", "short", "neutral"]},
         "views": {"type": "array", "description": "setups worth a look", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["coin", "lean", "strength", "why", "chart", "changes_if"],
+            "required": ["coin", "lean", "strength", "why", "chart", "off_level", "changes_if"],
             "properties": {"coin": {"type": "string"}, "lean": {"type": "string", "enum": ["long", "short"]},
                            "strength": {"type": "integer", "enum": [1, 2, 3]}, "why": {"type": "string"},
                            "chart": {"type": "string", "description": "what to look at on the chart"},
-                           "changes_if": {"type": "string"}}}},
+                           "off_level": {"type": "string", "enum": list(OFF_LEVELS),
+                                         "description": "the level where the setup is wrong; the code fills the price"},
+                           "changes_if": {"type": "string", "description": "the event that would end it"}}}},
     },
     "required": ["send", "headline", "read", "market_lean", "views"],
     "additionalProperties": False,
@@ -172,7 +184,10 @@ def engine_words(rows: dict) -> dict:
            "regime": REGIME.get(d.get("regime") or "", None), "regime_4h": REGIME.get(h.get("regime") or "", None),
            "heat": d.get("heat"), "zscore": round(d["zscore"], 2) if d.get("zscore") is not None else None,
            "exhaustion": d.get("exhaustion_state") if d.get("exhaustion_state") not in (None, "NEUTRAL") else None,
-           "why_daily": (d.get("signal_reason") or "")[:120] or None, "sector": d.get("sector") or h.get("sector")}
+           "why_daily": (d.get("signal_reason") or "")[:120] or None, "sector": d.get("sector") or h.get("sector"),
+           # the engine's own z lines for this coin: the owner's 2.5 / 3 / 3.5 scaled by its volatility (0.85x-1.25x)
+           "engine_z_lines": {"blow_off": round(2.5 * d["vol_scale"], 2), "trim": round(3 * d["vol_scale"], 2),
+                              "hard_trim": round(3.5 * d["vol_scale"], 2)} if d.get("vol_scale") else None}
     return {k: v for k, v in out.items() if v is not None}
 
 
@@ -182,10 +197,16 @@ def _options(cow: dict, coin: str) -> dict | None:
         return None
     lean = {"up": "long", "defensive": "short", "neutral": "flat"}
     w7, w30 = c.get("wallets_7d") or {}, c.get("wallets_30d") or {}
+    iv = c.get("atm_iv_30d")
+    pct = lambda x: round(100 * x, 1) if x is not None else None   # noqa: E731
     out = {"wallets_7d": lean.get(w7.get("state") or ""), "wallets_30d": lean.get(w30.get("state") or ""),
            "wallets_net_delta_usd": w7.get("net_delta_usd") if w7.get("state") else w30.get("net_delta_usd"),
            "options_7d": lean.get((c.get("options_7d") or {}).get("state") or ""),
-           "skew_30d": c.get("rr25_30d"), "iv_30d": c.get("atm_iv_30d"), "funding_ann": c.get("funding_ann")}
+           "skew_30d_pct": pct(c.get("rr25_30d")), "iv_30d_pct": pct(iv),
+           # the move option prices imply (one standard deviation), never a forecast
+           "priced_move_3d_pct": round(100 * iv * (3 / 365) ** 0.5, 1) if iv else None,
+           "priced_move_7d_pct": round(100 * iv * (7 / 365) ** 0.5, 1) if iv else None,
+           "derive_funding_apr_pct": pct(c.get("funding_ann"))}
     return {k: v for k, v in out.items() if v is not None} or None
 
 
@@ -321,6 +342,11 @@ def scan(agent, now: float | None = None) -> dict:
     k = home["kpi"]
     cy = k.get("cycle") or {}
     table = screen.build(agent, now, board)
+    by_row = {r["coin"]: r for r in table["rows"]}
+    for r in direction + coins:
+        q = by_row.get(r["coin"])
+        if q:
+            r["screen"] = quant(q)
     return {
         "ts": now,
         "time": time.strftime("%a %d %b %H:%M UTC", time.gmtime(now)),
@@ -343,6 +369,108 @@ def scan(agent, now: float | None = None) -> dict:
                        if a["ts"] >= now - DAY][:8],
         "data_age_min": round((now - tss[-1]) / 60) if tss else None,
     }
+
+
+QUANT_KEYS = ("z_line", "atr_pct", "rv30_pct", "rel_vol", "near_pct", "rs_30d_pct", "rs_rank_30d", "beta_btc",
+              "corr_btc", "oi_class_24h", "oi_class_7d", "spread_bps", "thin", "sector", "exhaustion", "climax",
+              "new_high", "new_low")
+
+
+def quant(row: dict) -> dict:
+    """A screen row's figures a read needs beside a coin: volatility, strength against BTC, who is acting, liquidity,
+    each side's score and risk frame."""
+    out = {k: row[k] for k in QUANT_KEYS if row.get(k) is not None}
+    out["at"] = levels_at(row)
+    for side in ("long", "short"):
+        out[side] = {"score": row[f"score_{side}"], "independent": row[f"independent_{side}"],
+                     **row.get(f"levels_{side}", {})}
+    return out
+
+
+def levels_at(row: dict) -> dict:
+    """A screen row's named levels, so a view's off level can be named and priced in code."""
+    band = row.get("band") or {}
+    at = {"band low": band.get("low"), "band high": band.get("high"), "200-day average": row.get("ma200d"),
+          "swing low": row.get("swing_low"), "swing high": row.get("swing_high"), "recent high": row.get("high")}
+    return {k: v for k, v in at.items() if v}
+
+
+def risk_frame(cur: dict, coin: str, side: str, name: str | None) -> dict | None:
+    """The view's risk in code: the price, where it is wrong (the level the model named when the coin has it on the
+    wrong side of the price, else the screen's own), the next level the other way, the room over the risk, and the
+    coin's z-score and band state."""
+    row, frame = None, None
+    for c in cur.get("candidates") or []:
+        if c["coin"] == coin:
+            row = c
+            if c["side"] == side:
+                frame = {k: c[k] for k in ("off", "next", "room_over_risk") if c.get(k)}
+            at = levels_at(c)
+            break
+    else:
+        for r in (cur.get("direction") or []) + (cur.get("coins") or []):
+            if r["coin"] == coin and r.get("screen"):
+                row = r
+                frame = {k: v for k, v in r["screen"][side].items() if k in ("off", "next", "room_over_risk")}
+                at = r["screen"].get("at") or {}
+                break
+    if row is None:
+        return None
+    price = row.get("price")
+    q = row.get("screen") or row
+    out: dict[str, Any] = {"price": price, **(frame or {})}
+    lv = at.get(name or "")
+    if price and lv and (lv < price if side == "long" else lv > price):
+        out["off"] = screen._level(price, lv, name, q.get("atr_pct"))
+        nxt = out.get("next")
+        out.pop("room_over_risk", None)
+        if nxt and out["off"]["pct"]:
+            out["room_over_risk"] = round(abs(nxt["pct"]) / abs(out["off"]["pct"]), 1)
+    z = (row.get("engine") or {}).get("z_daily", row.get("z_1d"))
+    if z is not None:
+        out["z"] = z
+    st = (row.get("band") or {}).get("state") or (((row.get("trend") or {}).get("bull_market_support_band") or {})
+                                                  .get("state"))
+    if st:
+        out["band"] = st
+    return out
+
+
+def _fmt_px(x: float | None) -> str:
+    from .groups import px
+    return px(x) if x else "-"
+
+
+def setup_lines(v: dict) -> list[str]:
+    """A setup in three short lines: the facts (built in code), the why and the chart, where it is wrong and the next
+    level the other way."""
+    k = v.get("risk") or {}
+    head = [f"{v['coin']} {v['lean']}", STRENGTH.get(v["strength"], "light")]
+    if k.get("price"):
+        head.append(_fmt_px(k["price"]))
+    if k.get("z") is not None:
+        zw = screen.z_word(k["z"])
+        head.append(f"z {k['z']:.1f}" + (f" {zw.split(' (')[0]}" if zw else ""))
+    if k.get("band"):
+        head.append(f"{k['band']} band" if k["band"] in ("inside", "below") else f"{k['band']} its band")
+    lines = [" · ".join(head)]
+    body = v["why"].strip().rstrip(".") + "."
+    if (v.get("chart") or "").strip():
+        body += f" Chart: {v['chart'].strip().rstrip('.')}."
+    lines.append(body)
+    tail = []
+    off, nxt = k.get("off"), k.get("next")
+    if off:
+        tail.append(f"Off {'below' if v['lean'] == 'long' else 'above'} {_fmt_px(off['level'])} ({off['name']}, "
+                    f"{off['pct']:+.1f}%" + (f", {off['atr']:g} ATR" if off.get("atr") is not None else "") + ")")
+    if nxt:
+        tail.append(f"next level {_fmt_px(nxt['level'])} ({nxt['name']}, {nxt['pct']:+.1f}%)")
+    if k.get("room_over_risk") is not None:
+        room = k["room_over_risk"]
+        tail.append(f"room {'10x+' if room >= 10 else f'{room:g}x'} the risk")
+    end = (v.get("changes_if") or "").strip().rstrip(".")
+    lines.append((" · ".join(tail) + ". " if tail else "") + (f"Ends if {end}." if end else ""))
+    return [ln.strip() for ln in lines if ln.strip()]
 
 
 def _alerts(store, since: float) -> dict[str, list[str]]:
@@ -560,12 +688,10 @@ def format_read(r: dict, now: float, rec: dict | None = None, held: int = 0) -> 
     lines = [f"Outrider · {time.strftime('%H:%M', time.gmtime(now))} UTC", r["headline"].strip(), "", r["read"].strip()]
     if r.get("views"):
         lines += ["", "Setups to look at"]
-        for v in r["views"]:
-            line = (f"{v['coin']} {v['lean']} · {STRENGTH.get(v['strength'], 'light')}: "
-                    f"{v['why'].strip().rstrip('.')}.")
-            if (v.get("chart") or "").strip():
-                line += f" Chart: {v['chart'].strip().rstrip('.')}."
-            lines.append(line + f" Off if {v['changes_if'].strip().rstrip('.')}.")
+        for i, v in enumerate(r["views"]):
+            if i:
+                lines.append("")
+            lines += setup_lines(v)
     rt = record_text(rec) if rec else None
     if rt:
         lines += ["", rt]
@@ -674,7 +800,13 @@ class Analyst:
         send = bool(out["send"]) or reason == "morning" or force_send
         held = self.store.count_briefs("push_held", now - DAY) if reason == "morning" else 0
         text = format_read(out, now, rec if reason == "morning" else None, held)
-        logged = self.log_views(out["views"], now, reason) if send else []
+        logged = self.log_views(out["views"], now, reason, cur) if send else []
+        if send:
+            try:
+                table = await asyncio.to_thread(screen.build, self.agent, now)
+                self.log_shadows(out["views"], now, table)
+            except Exception as e:  # noqa: BLE001 - the controls never hold up a read
+                log.warning("shadow picks failed: %s", e)
         self.store.put_snapshot("read_scan", cur)
         self.store.add_brief("read", {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4),
                                       "changes": [c["text"] for c in ch], "logged": logged})
@@ -726,16 +858,23 @@ class Analyst:
         notes = self.store.chat_notes()
         prev = None
         if last and last.get("headline"):
-            prev = {k: last.get(k) for k in ("headline", "read", "views", "positions", "market_lean", "sent")}
+            prev = {k: last.get(k) for k in ("headline", "read", "views", "market_lean", "sent")}
+            prev["views"] = [{k: v.get(k) for k in ("coin", "lean", "strength", "why")} for v in prev["views"] or []]
             prev["when"] = time.strftime("%a %H:%M UTC", time.gmtime(last["ts"]))
+        # his positions are his decisions (owner, 3 November 2026): the read sees what he holds, not a briefing on it
+        scan_for_read = {**cur, "my_positions": [{k: m.get(k) for k in ("coin", "side", "source")}
+                                                 for m in cur.get("my_positions") or []]}
+        market_changes = [c for c in ch if not c.get("owner")]
         parts = [f"Why this read runs: {reason}." + (" This is the morning read: always send it and set up the day."
                                                      if reason == "morning" else ""),
-                 "<changes_since_last_read>\n" + ("\n".join(f"- {c['text']}" for c in ch) or "- nothing material")
-                 + "\n</changes_since_last_read>",
+                 "<changes_since_last_read>\n" + ("\n".join(f"- {c['text']}" for c in market_changes)
+                                                   or "- nothing material") + "\n</changes_since_last_read>",
                  f"<your_last_read>\n{json.dumps(prev) if prev else 'none yet'}\n</your_last_read>",
-                 f"<your_record>\n{json.dumps(rec)}\n</your_record>",
+                 "<your_record>\n" + (record_text(rec) or "Fewer than 3 setups scored at 3 days: too few to say "
+                                       "anything.") + " Thin samples swing: do not chase the last week's side."
+                 + "\n</your_record>",
                  "<notes_on_him>\n" + ("\n".join(n["text"] for n in notes) or "none") + "\n</notes_on_him>",
-                 f"<scan>\n{json.dumps(cur, default=str, separators=(',', ':'))}\n</scan>"]
+                 f"<scan>\n{json.dumps(scan_for_read, default=str, separators=(',', ':'))}\n</scan>"]
         if not cur.get("my_positions"):
             parts.append("No wallet positions and an empty watch list: use the notes for what he holds, if any.")
         return "\n\n".join(parts)
@@ -777,15 +916,22 @@ class Analyst:
                 if shown is not None and coin not in shown:
                     dropped.append(coin)
                     continue
-                views.append({**v, "coin": coin, "strength": int(v.get("strength") or 1)})
+                v = {**v, "coin": coin, "strength": int(v.get("strength") or 1)}
+                if cur is not None:
+                    risk = risk_frame(cur, coin, v["lean"], v.get("off_level"))
+                    if risk:
+                        v["risk"] = risk
+                views.append(v)
         return {**out, "views": views, **({"dropped_views": dropped} if dropped else {})}
 
-    def log_views(self, views: list[dict], now: float, reason: str) -> list[int]:
+    def log_views(self, views: list[dict], now: float, reason: str, cur: dict | None = None) -> list[int]:
         """Each view as a pick at Hyperliquid's mid, scored after 1, 3 and 7 days; a repeat within a day is not
-        logged again."""
+        logged again. With it, what the setup said (chart, where it is wrong, the next level) and the coin's figures
+        then (z, band, its rank among the candidates, beta, volatility), so the record can be read by them later."""
         from .service import price_of
         snaps = {n: s for n in ("cowboy", "reflex") if (s := self.store.get_snapshot(n))}
         recent = {(p["coin"], p["direction"]) for p in self.store.picks(limit=200, origin="read", since=now - REPEAT_S)}
+        rank = {(c["coin"], c["side"]): i + 1 for i, c in enumerate((cur or {}).get("candidates") or [])}
         ids = []
         for v in views:
             if (v["coin"], v["lean"]) in recent:
@@ -793,7 +939,48 @@ class Analyst:
             px = self.agent.price_now(v["coin"], now) or price_of(v["coin"], snaps)
             if not px:
                 continue
-            ids.append(self.store.add_pick("read", v["coin"], v["lean"], v["strength"], px,
-                                           v["why"][:300], {"changes_if": v["changes_if"], "reason": reason}))
+            q = self._quant(cur, v["coin"])
+            state = {"changes_if": v["changes_if"], "reason": reason, "chart": v.get("chart"),
+                     "off_level": v.get("off_level"), "risk": v.get("risk"),
+                     "candidate_rank": rank.get((v["coin"], v["lean"])),
+                     **{k: q[k] for k in ("beta_btc", "atr_pct", "rs_30d_pct", "sector") if q.get(k) is not None}}
+            ids.append(self.store.add_pick("read", v["coin"], v["lean"], v["strength"], px, v["why"][:300],
+                                           {k: x for k, x in state.items() if x is not None}))
             recent.add((v["coin"], v["lean"]))
+        return ids
+
+    @staticmethod
+    def _quant(cur: dict | None, coin: str) -> dict:
+        for r in ((cur or {}).get("candidates") or []) + ((cur or {}).get("direction") or []) + \
+                ((cur or {}).get("coins") or []):
+            if r["coin"] == coin:
+                return r.get("screen") or r
+        return {}
+
+    def log_shadows(self, views: list[dict], now: float, table: dict) -> list[int]:
+        """Matched controls, never sent to him: the code's own two best candidates ('screen') and, for each view, a
+        liquid coin drawn at random from the screen on the same side ('random'). Scored like the views, so how much the
+        read adds over the code, and the code over chance, can be measured (study S6, proposed). Once a day per coin
+        and side, as the views."""
+        rows = [r for r in table.get("rows") or [] if not r.get("thin") and r.get("price")]
+        recent = {(p["origin"], p["coin"], p["direction"]) for o in ("screen", "random")
+                  for p in self.store.picks(limit=500, origin=o, since=now - REPEAT_S)}
+        ids: list[int] = []
+
+        def log_one(origin: str, coin: str, side: str, state: dict) -> None:
+            if (origin, coin, side) in recent:
+                return
+            px = self.agent.price_now(coin, now)
+            if px:
+                ids.append(self.store.add_pick(origin, coin, side, None, px, f"shadow {origin}", state))
+                recent.add((origin, coin, side))
+
+        for i, c in enumerate(screen.candidates(table)[:2]):
+            log_one("screen", c["coin"], c["side"], {"rank": i + 1, "score": c["score"], "why": c["why"][:4],
+                                                     "risk": {k: c[k] for k in ("off", "next") if c.get(k)}})
+        rng = random.Random(int(now))
+        for v in views:
+            pool = [r["coin"] for r in rows if r["coin"] != v["coin"]]
+            if pool:
+                log_one("random", rng.choice(pool), v["lean"], {"matched_to": v["coin"]})
         return ids

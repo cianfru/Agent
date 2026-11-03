@@ -22,6 +22,17 @@ def _num(x: Any) -> float | None:
         return None
 
 
+def _impact_bps(c: dict) -> float | None:
+    """What a market order of Hyperliquid's impact size pays across the book, bid to ask, in basis points of the mid:
+    how thin the coin is to trade."""
+    try:
+        bid, ask = (float(x) for x in c.get("impactPxs") or [])
+        mid = float(c.get("midPx") or c.get("markPx"))
+    except (TypeError, ValueError):
+        return None
+    return round(1e4 * (ask - bid) / mid, 1) if mid and ask >= bid > 0 else None
+
+
 def move(side: str, entry: float | None, size: float | None, upnl: float | None) -> float | None:
     """How far the price has moved the trader's way since entry (0.5 = +50%), leverage aside."""
     cost = (entry or 0) * (size or 0)
@@ -64,7 +75,8 @@ class HL:
         volume in dollars."""
         meta, ctxs = await self._post({"type": "metaAndAssetCtxs"})
         return {u["name"].upper(): {"px": _num(c.get("markPx")), "oi": _num(c.get("openInterest")),
-                                    "funding": _num(c.get("funding")), "vol": _num(c.get("dayNtlVlm"))}
+                                    "funding": _num(c.get("funding")), "vol": _num(c.get("dayNtlVlm")),
+                                    "impact_bps": _impact_bps(c)}
                 for u, c in zip(meta.get("universe") or [], ctxs or []) if not u.get("isDelisted")}
 
     async def top_coins(self, n: int) -> list[str]:
@@ -136,10 +148,11 @@ class HL:
         return sorted(out, key=lambda f: f["time"])
 
     async def candles(self, coin: str, interval: str, start_ms: int, end_ms: int) -> list[list[float]]:
-        """[[t_ms, open, high, low, close], ...]"""
+        """[[t_ms, open, high, low, close, volume in coins], ...]"""
         raw = await self._post({"type": "candleSnapshot", "req": {
             "coin": self.name(coin), "interval": interval, "startTime": int(start_ms), "endTime": int(end_ms)}})
-        return [[c["t"], float(c["o"]), float(c["h"]), float(c["l"]), float(c["c"])] for c in raw or []]
+        return [[c["t"], float(c["o"]), float(c["h"]), float(c["l"]), float(c["c"]), float(c.get("v") or 0)]
+                for c in raw or []]
 
     async def aclose(self) -> None:
         await self.http.aclose()

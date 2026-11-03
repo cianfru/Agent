@@ -27,7 +27,8 @@ def test_record_by_kind_with_longs_shorts_and_the_market_apart(tmp_path):
     assert journal.text(rows[:1]).splitlines() == [
         "Outrider's setups (since 3 Nov): 4 since " + read["since"] + " (2 long, 2 short)",
         "  3d: 2 of 4 right (50%), median +0.5%; beat the market 1 of 4 (25%), median -1.5%",
-        "  longs 0/2 right, shorts 2/2 right"]
+        "  longs 0/2 right, shorts 2/2 right",
+        "  95% interval for right 15-85% · 2 separate bets over 1 day"]     # the same coin and side on one day: one bet
     assert rows[1]["shown"] == "30d" and journal.text(rows[1:2]).splitlines()[1] == "  30d: none scored yet"
 
 
