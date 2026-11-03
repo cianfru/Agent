@@ -49,7 +49,7 @@ class Settings:
     read_model: str = field(default_factory=lambda: _env("SYNTH_READ_MODEL", "claude-sonnet-5-5"))
     read_effort: str = field(default_factory=lambda: _env("SYNTH_READ_EFFORT", "medium"))
     read_daily_usd: float = field(default_factory=lambda: _float("SYNTH_READ_DAILY_USD", 0.5))
-    reads_per_day: int = field(default_factory=lambda: int(_float("SYNTH_READS_PER_DAY", 6)))
+    reads_per_day: int = field(default_factory=lambda: int(_float("SYNTH_READS_PER_DAY", 3)))
     # UTC hours without reads on market changes ("22-6"); a group turning against his position still comes through.
     read_quiet_utc: str = field(default_factory=lambda: _env("SYNTH_READ_QUIET_UTC", "22-6"))
     # His own Hyperliquid wallets (comma-separated addresses), read each poll so the reads can speak to his positions.
@@ -72,6 +72,15 @@ class Settings:
     alert_min_score: float = field(default_factory=lambda: _float("SYNTH_ALERT_MIN_SCORE", 60))
     # At most this many Telegram alerts per rolling 24h (strongest first); the rest stay on the dashboard.
     max_alerts_per_day: int = field(default_factory=lambda: int(_float("SYNTH_MAX_ALERTS_PER_DAY", 6)))
+    # What pings Telegram besides the reads (owner, 3 November 2026: only essential and important updates):
+    # conviction (a proven trader's 2x-size bet), build (several tracked traders adding to one coin), smart
+    # (smart-money events and toxic flow), group (profitable traders opening together). A muted kind is still logged,
+    # scored and read by Outrider; updates on a group you follow always come.
+    pushes: frozenset = field(default_factory=lambda: frozenset(
+        p.lower() for p in _list("SYNTH_PUSH", "conviction")))
+    # Outrider's X drafts (persona posts, the daily desk post, the Monday scorecard): off until wanted (owner,
+    # 3 November 2026). SYNTH_X_DRAFTS=on brings them back; /draft still makes one on request.
+    x_drafts: bool = field(default_factory=lambda: _env("SYNTH_X_DRAFTS").lower() in ("on", "1", "yes"))
     # Minimum USD delta change for a single wallet move to count as an event.
     wallet_move_min_usd: float = field(
         default_factory=lambda: _float("SYNTH_WALLET_MOVE_MIN_USD", 100_000)

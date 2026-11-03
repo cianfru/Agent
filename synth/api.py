@@ -44,8 +44,9 @@ async def _loop(agent: Agent) -> None:
             else:
                 await _maybe_daily_brief(agent)
                 await _maybe_pulse(agent)
-            await _maybe_desk_posts(agent)
-            await _maybe_persona(agent)
+            if agent.s.x_drafts:                   # X drafts are off unless SYNTH_X_DRAFTS=on
+                await _maybe_desk_posts(agent)
+                await _maybe_persona(agent)
             await _maybe_reflex_history(agent)
             if agent.positions.enabled and agent.positions.discover_due():
                 asyncio.create_task(_discover(agent))   # daily, in the background (about 15 minutes)

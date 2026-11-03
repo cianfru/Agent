@@ -132,7 +132,8 @@ def test_group_announced_followed_and_close_reported(tmp_path, monkeypatch):
 
     monkeypatch.setattr(notify, "telegram", fake_text)
     monkeypatch.setattr(notify, "telegram_photo", fake_photo)
-    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1")
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1",
+                 pushes=frozenset({"conviction", "build", "smart", "group"}))
     store = Store(s.db_path)
     hl = FakeHL()
     tr = tracking.GroupTracker(s, store, FakeReflex(), hl)
@@ -203,7 +204,8 @@ def test_derive_group_from_two_publications(tmp_path, monkeypatch):
         sent.append(text)
 
     monkeypatch.setattr(notify, "telegram", fake_text)
-    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1", derive_groups=True)
+    s = Settings(db_path=str(tmp_path / "t.db"), telegram_token="t", telegram_chat_id="1", derive_groups=True,
+                 pushes=frozenset({"conviction", "build", "smart", "group"}))
     store = Store(s.db_path)
     tr = tracking.GroupTracker(s, store, None, FakeHL())
     base = {"BTC-20261030-85000-C": {"und": "BTC", "net": 250, "delta_usd": 7.7e6}}
