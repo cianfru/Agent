@@ -180,6 +180,18 @@ With a model key, Outrider reads the market instead of posting the same numbers 
 - It replaces the code-built pulse and daily brief below; `SYNTH_READS=off` brings them back. `/now` still shows the
   pulse picture.
 
+### What the read is checked for, in code
+
+- **Its figures:** every level in a setup's chart note, or in what would end it, must be one of that coin's own levels
+  in the scan (within 0.75%); a sentence with any other level (a round number, his own entry, another coin's level) is
+  dropped before it is sent. Figures in the headline and the read that match nothing in the scan are noted in the
+  read's brief (`lint`). No second model call.
+- **What brings one:** the crowd's and big money's swings are context (study S2): told to a read, never the reason for
+  one. A new setup in the screen (two independent things lining up, liquid) counts for a read.
+- **No codes:** the engine's regime, signal and consensus codes reach the model in words.
+- **Paths:** each scored setup's worst and best move and whether its off level was touched use Hyperliquid's hourly
+  highs and lows (one candle request per pick), not only the hourly closes.
+
 ### Pictures, at no cost
 
 `synth/chart.py` and `synth/pictures.py` draw in code (matplotlib, no paid service), sized for a phone: 1,200 px
@@ -235,6 +247,11 @@ days, and for each side a score with the reasons and a risk frame.
   price 5); the engine (15, or -10 against); crowding on the day's average funding (-5, or +5 for a short when longs
   pay 30%+ a year); strength against BTC over 30 days (+5 or -5). A long under its band or extended over it, or a short
   15%+ under it, gets no location points.
+- **Funding in context:** each coin's funding against its own last 20 days (in standard deviations; one Hyperliquid
+  request per coin with its daily levels) and against Binance and Bybit (one request an hour for every coin): a jump
+  for that coin counts as crowding, and funding high only on Hyperliquid is local leverage.
+- **Breadth over time:** each coin's band and 200-day state for each of the last 90 days is rebuilt from the candles its
+  levels already read, so the board says where breadth was a week ago (today's coins only, so it carries survivorship).
 - **Two independent things:** each side's reasons are kept by family (price at a level, traders positioning, the
   engine, which counts only beside one of the others). A candidate needs two, 40 points, at least $3M a day of volume
   and a book no wider than 15 basis points.

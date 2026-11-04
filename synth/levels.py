@@ -81,6 +81,37 @@ def weekly_closes(bars: list[list[float]]) -> list[float]:
     return out
 
 
+BAND_CODE = {"below": "b", "inside": "i", "just above": "j", "above": "a", "extended": "e"}
+
+
+def band_history(bars: list[list[float]], now: float, days: int = 90) -> dict:
+    """Daily bars (forming one included) -> for each of the last `days` closed days, where the close sat against the
+    band as it stood that day (b below, i inside, j just above, a above, e extended, - too short) and whether it was over
+    its 200-day average (1, 0, -): the market's breadth can then be rebuilt for any past day from what is read today."""
+    closed = [b for b in bars if b[0] / 1000 + DAY <= now]
+    if len(closed) < 30:
+        return {}
+    closes = [b[4] for b in closed]
+    wk = [int((b[0] / 1000 - 4 * DAY) // WEEK) for b in closed]
+    last_of_week: dict[int, float] = {}
+    order: list[int] = []
+    for w, c in zip(wk, closes):
+        if w not in last_of_week:
+            order.append(w)
+        last_of_week[w] = c
+    prefix = [0.0]
+    for c in closes:
+        prefix.append(prefix[-1] + c)
+    band, over = [], []
+    for i in range(max(0, len(closed) - days), len(closed)):
+        weekly = [last_of_week[w] for w in order if w < wk[i]] + [closes[i]]
+        a, e = sma(weekly, 20), ema(weekly, 21)
+        band.append(BAND_CODE[band_state(closes[i], min(a, e), max(a, e))] if a and e else "-")
+        over.append(("1" if closes[i] > (prefix[i + 1] - prefix[i - 199]) / 200 else "0") if i >= 199 else "-")
+    return {"band_hist": "".join(band), "over200_hist": "".join(over),
+            "hist_to": time.strftime("%Y-%m-%d", time.gmtime(closed[-1][0] / 1000))}
+
+
 def vol_stats(bars: list[list[float]]) -> dict:
     """Closed daily bars oldest first -> the 14-day average true range (Wilder) as a share of the last close, the
     30-day realised volatility (yearly, from daily log returns) and the last day's volume over its 20-day median."""
@@ -233,6 +264,11 @@ class Levels:
             return False
         self.store.add_series("hl_ctx", {"c": {c: [v["px"], v["oi"], v["funding"]] for c, v in ctx.items()
                                                if v.get("px") and v.get("oi") is not None}}, now)
+        try:                                   # once an hour: the same coins' funding on Binance and Bybit
+            if hasattr(hl, "predicted_fundings"):
+                self.store.put_snapshot("funding_venues", {"ts": now, "c": await hl.predicted_fundings()})
+        except Exception as e:  # noqa: BLE001 - the last reading stands
+            log.warning("other venues' funding failed: %s", e)
         return True
 
     def _rows(self, now: float) -> tuple[list[float], list[dict]]:
@@ -291,6 +327,17 @@ class Levels:
                "funding_apr_pct": round(cur["funding"] * 24 * 365 * 100, 1) if cur.get("funding") is not None else None,
                "funding_24h_avg_apr_pct": round(sum(last_day) / len(last_day) * 24 * 365 * 100, 1) if last_day else None,
                "volume_24h_usd": round(cur["vol"]) if cur.get("vol") else None}
+        # against the coin's own last 20 days (read with its levels) and against Binance and Bybit now
+        lv = (self.store.get_snapshot("trend_levels") or {}).get(coin) or {}
+        avg = out["funding_24h_avg_apr_pct"] if out["funding_24h_avg_apr_pct"] is not None else out["funding_apr_pct"]
+        if avg is not None and lv.get("funding_20d_sd_apr"):
+            out["funding_z"] = round((avg - lv["funding_20d_mean_apr"]) / lv["funding_20d_sd_apr"], 1)
+            out["funding_20d_mean_apr_pct"] = lv["funding_20d_mean_apr"]
+        ven = (((self.store.get_snapshot("funding_venues") or {}).get("c") or {}).get(coin) or {})
+        cex = [ven[v] for v in ("binance", "bybit") if ven.get(v) is not None]
+        if cex and out["funding_apr_pct"] is not None:
+            out["funding_cex_apr_pct"] = round(sum(cex) / len(cex), 1)
+            out["funding_vs_cex_apr_pct"] = round(out["funding_apr_pct"] - out["funding_cex_apr_pct"], 1)
         return {k: v for k, v in out.items() if v is not None}
 
     def market(self, now: float | None = None, top: int = 50) -> dict | None:
@@ -326,7 +373,17 @@ class Levels:
         if not daily:
             return None
         closed = [b for b in daily if b[0] / 1000 + DAY <= now] or daily      # today's forming bar left out
-        lv = {**trend_levels([b[4] for b in daily], weekly_closes(daily)), **price_structure(closed),
+        fund: dict = {}
+        if hasattr(hl, "funding_history"):     # the coin's own funding norm: 20 days, hourly, as a year's worth
+            try:
+                rates = await hl.funding_history(coin, end - 20 * DAY * 1000)
+                if len(rates) >= 48:
+                    aprs = [r * 24 * 365 * 100 for r in rates]
+                    fund = {"funding_20d_mean_apr": round(statistics.fmean(aprs), 1),
+                            "funding_20d_sd_apr": round(statistics.pstdev(aprs), 1)}
+            except Exception as e:  # noqa: BLE001 - the levels stand without it
+                log.warning("funding history for %s failed: %s", coin, e)
+        lv = {**fund, **band_history(daily, now), **trend_levels([b[4] for b in daily], weekly_closes(daily)), **price_structure(closed),
               **vol_stats(closed), "closes": [_sig(b[4]) for b in closed[-91:]],
               "closes_to": time.strftime("%Y-%m-%d", time.gmtime(closed[-1][0] / 1000)), "day": day, "ts": now}
         # read again after the awaits: another read (the daily refresh, a question) may have written meanwhile, and
@@ -353,7 +410,7 @@ class Levels:
         return (not st.get("running") or now - (st.get("ts") or 0) > 3600) and st.get("day") != day \
             and time.gmtime(now).tm_hour * 60 + time.gmtime(now).tm_min >= 30 and now - (st.get("failed") or 0) > 1800
 
-    async def refresh_all(self, hl, coins: list[str], now: float | None = None, pace_s: float = 6.0) -> int:
+    async def refresh_all(self, hl, coins: list[str], now: float | None = None, pace_s: float = 8.0) -> int:
         """Read the levels of every coin not read today, a few seconds apart (about 45 weight each of the 1,200 a
         minute Hyperliquid allows an address). Returns how many were read. The day counts as done only when at most
         one coin in ten failed (or after a third attempt), so a bad night is tried again half an hour later for the

@@ -229,5 +229,23 @@ class HL:
         return [[c["t"], float(c["o"]), float(c["h"]), float(c["l"]), float(c["c"]), float(c.get("v") or 0)]
                 for c in raw or []]
 
+    async def funding_history(self, coin: str, start_ms: int) -> list[float]:
+        """The coin's hourly funding rates since `start_ms`, oldest first (Hyperliquid answers 500 at most: 20 days)."""
+        raw = await self._post({"type": "fundingHistory", "coin": self.name(coin), "startTime": int(start_ms)})
+        return [float(x["fundingRate"]) for x in raw or [] if x.get("fundingRate") is not None]
+
+    async def predicted_fundings(self) -> dict[str, dict[str, float]]:
+        """Each perp's next funding on Hyperliquid, Binance and Bybit, as a year's worth in percent."""
+        raw = await self._post({"type": "predictedFundings"})
+        names = {"HlPerp": "hl", "BinPerp": "binance", "BybitPerp": "bybit"}
+        out: dict[str, dict[str, float]] = {}
+        for coin, venues in raw or []:
+            for venue, v in venues or []:
+                if venue in names and v and v.get("fundingRate") is not None:
+                    hours = float(v.get("fundingIntervalHours") or 1) or 1
+                    out.setdefault(str(coin).upper(), {})[names[venue]] = round(
+                        float(v["fundingRate"]) / hours * 24 * 365 * 100, 1)
+        return out
+
     async def aclose(self) -> None:
         await self.http.aclose()

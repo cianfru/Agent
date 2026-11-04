@@ -63,6 +63,7 @@ class Agent:
         self.levels = Levels(store)         # open interest, funding, 200-day average, support band (synth/levels.py)
         self.last_cycle: dict[str, Any] = {}
         self._pruned = 0.0
+        self._refine: list[tuple[int, str, float]] = []    # scored picks whose path awaits hourly highs and lows
         self.sources: dict[str, dict] = {}   # per source: last success, last error, failures in a row (status)
 
     def mark(self, name: str, ok: bool, err: Exception | str | None = None, now: float | None = None) -> None:
@@ -221,6 +222,10 @@ class Agent:
             except Exception as e:  # noqa: BLE001 - the last reading stands until the next poll
                 log.warning("open interest and funding read failed: %s", e)
                 self.mark("hyperliquid", False, e)
+            try:
+                await self.refine_paths(hl)
+            except Exception as e:  # noqa: BLE001 - the hourly closes stand
+                log.warning("path refine failed: %s", e)
             try:
                 mids = self.tracker.fresh_mids(started)
                 if self.market.ready and mids:
@@ -579,8 +584,41 @@ class Agent:
                     st = self.path_stats(p, at, ret, now)
                     if st:
                         self.store.update_pick_state(p["id"], {f"path_{h}": st})
+                        self._refine.append((p["id"], h, at))   # exact highs and lows next, from hourly candles
                 n += 1
         return n
+
+    async def refine_paths(self, hl, limit: int = 8) -> int:
+        """The worst and best move on the way to a horizon from Hyperliquid's hourly highs and lows (the hourly copies
+        only hold closes, which understate them), and whether the setup's off level was touched intrabar. A few picks a
+        poll, one candle request each."""
+        done = 0
+        while self._refine and done < limit:
+            pid, h, at = self._refine.pop(0)
+            p = self.store.pick(pid)
+            if not p or not p.get("entry_price"):
+                continue
+            await hl.ensure_names()
+            bars = await hl.candles(p["coin"], "1h", int((p["ts"] - 3600) * 1000), int((at + 3600) * 1000))
+            bars = [b for b in bars if b[0] / 1000 + 3600 > p["ts"] and b[0] / 1000 < at]
+            if not bars:
+                continue
+            sign, e = (1, p["entry_price"]) if p["direction"] == "long" else (-1, p["entry_price"])
+            worst = min(b[3] for b in bars) if sign > 0 else max(b[2] for b in bars)
+            best = max(b[2] for b in bars) if sign > 0 else min(b[3] for b in bars)
+            st = dict(((p.get("state") or {}).get(f"path_{h}")) or {})
+            st.update({"mae_pct": round(100 * min(0.0, sign * (worst / e - 1)), 2),
+                       "mfe_pct": round(100 * max(0.0, sign * (best / e - 1)), 2), "exact": True})
+            off = (((p.get("state") or {}).get("risk") or {}).get("off") or {}).get("level")
+            if off:
+                hit = next((b for b in bars if (b[3] <= off if sign > 0 else b[2] >= off)), None)
+                st["off_hit"] = hit is not None
+                st.pop("off_hit_h", None)
+                if hit is not None:
+                    st["off_hit_h"] = round(max(0.0, hit[0] / 1000 - p["ts"]) / 3600, 1)
+            self.store.update_pick_state(pid, {f"path_{h}": st})
+            done += 1
+        return done
 
     def path_stats(self, p: dict, at: float, ret: float, now: float) -> dict | None:
         """What happened on the way to a horizon, from the hourly copies: the worst and best move the pick's way, whether

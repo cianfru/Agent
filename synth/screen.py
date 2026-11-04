@@ -197,7 +197,8 @@ def coin_row(coin: str, lv: dict, price: float, ctx: dict | None, pos: dict, ext
         r["swing_high"], r["swing_high_pct"] = min(highs), _pct(min(highs), price)
     if ctx:
         r.update({k: ctx[k] for k in ("oi_change_24h_pct", "oi_change_7d_pct", "funding_apr_pct",
-                                      "funding_24h_avg_apr_pct", "volume_24h_usd", "open_interest_usd", "spread_bps")
+                                      "funding_24h_avg_apr_pct", "funding_z", "funding_vs_cex_apr_pct",
+                                      "volume_24h_usd", "open_interest_usd", "spread_bps")
                   if ctx.get(k) is not None})
         dead = r.get("atr_pct") or 2.0
         c24 = oi_class(ctx.get("price_change_24h_pct"), ctx.get("oi_change_24h_pct"), 0.5 * dead)
@@ -318,13 +319,17 @@ def _score(r: dict, side: str) -> tuple[int, list[str], dict, str | None]:
         why.append(f"engine against: {SIGNAL_WORD.get(sig, sig)}")
     f = r.get("funding_24h_avg_apr_pct")
     f = r.get("funding_apr_pct") if f is None else f        # the day's average, not one hour's print
-    if f is not None and (f > 50 if long else f < -50):
+    fz = r.get("funding_z")                                   # against the coin's own last 20 days
+    hot = fz is not None and fz >= 2 and (f or 0) > 10
+    cold = fz is not None and fz <= -2 and (f or 0) < -10
+    norm = f" ({fz:+.1f} sd from its 20-day norm)" if fz is not None and abs(fz) >= 2 else ""
+    if f is not None and ((f > 50 or hot) if long else (f < -50 or cold)):
         pts -= 5
-        why.append(f"crowded: funding {f:+.0f}% a year")
-    elif f is not None and not long and f >= 30:
+        why.append(f"crowded: funding {f:+.0f}% a year{norm}")
+    elif f is not None and not long and (f >= 30 or hot):
         pts += 5
-        why.append(f"longs paying {f:.0f}% a year")
-        if f >= 50:
+        why.append(f"longs paying {f:.0f}% a year{norm}")
+        if f >= 50 or (fz is not None and fz >= 2.5):
             fam["positioning"].append(why[-1])
     rank = r.get("rs_rank_30d")
     if rank is not None and r.get("rs_30d_pct") is not None:
@@ -523,3 +528,29 @@ def log_day(agent, now: float | None = None) -> int:
     agent.store.screen_log_add(day, [(r["coin"], log_row(r)) for r in t["rows"]]
                                + [("*", {**t["breadth"], "coins": t["coins"]})])
     return len(t["rows"])
+
+
+def breadth_history(lvs: dict[str, dict], days: int = 90) -> list[dict]:
+    """The market's breadth day by day, rebuilt from each coin's band and 200-day history read with its levels: per day,
+    the coins under, inside and over their band and over their 200-day average. Today's universe only, so it carries
+    survivorship (coins that fell out of the most traded are missing)."""
+    import calendar
+    out: dict[str, dict] = {}
+    for lv in lvs.values():
+        hist, over, to = lv.get("band_hist") or "", lv.get("over200_hist") or "", lv.get("hist_to")
+        if not hist or not to:
+            continue
+        end = calendar.timegm(time.strptime(to, "%Y-%m-%d"))
+        for k, code in enumerate(hist):
+            day = time.strftime("%Y-%m-%d", time.gmtime(end - (len(hist) - 1 - k) * 86400))
+            d = out.setdefault(day, {"day": day, "below": 0, "inside": 0, "over": 0, "over_200d": 0,
+                                     "with_200d": 0, "coins": 0})
+            if code == "-":
+                continue
+            d["coins"] += 1
+            d["below" if code == "b" else "inside" if code == "i" else "over"] += 1
+            o = over[k] if k < len(over) else "-"
+            if o != "-":
+                d["with_200d"] += 1
+                d["over_200d"] += o == "1"
+    return [out[d] for d in sorted(out)][-days:]
