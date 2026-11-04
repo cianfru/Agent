@@ -36,7 +36,9 @@ def test_charts_fit_a_phone_and_telegram():
     risk = {"off": {"level": b[-1][4] * 0.95, "name": "band low", "pct": -5.0},
             "next": {"level": b[-1][4] * 1.1, "name": "swing high", "pct": 10.0}}
     z = [((b[-1][0] - (59 - i) * DAY) / 1000, 1 + math.sin(i / 9) * 1.8) for i in range(60)]
-    for png in (chart.setup_chart("SOL", "long", "firm", b, risk, z, [((b[-6][0]) / 1000, b[-6][4], "long")]),
+    crowd = [{"since": b[-6][0] / 1000, "entry": b[-6][4], "side": "long", "value": 2e6},
+             {"since": None, "entry": b[-300][4], "side": "short", "value": 5e5}]
+    for png in (chart.setup_chart("SOL", "long", "firm", b, risk, z, crowd),
                 chart.setup_chart("SOL", "short", "light", b[-80:], None, z[:3]),           # short history, no z panel
                 chart.market_map([{"coin": f"C{i}", "price": 100 + i, "band": {"low": 100, "high": 105},
                                    "z_1d": i / 20 - 1, "open_interest_usd": 1e6 * i} for i in range(60)],
@@ -124,6 +126,71 @@ def test_patterns_cycle_and_breadth_draw_for_a_phone():
     assert size(chart.breadth_chart(days))[0] == 1800 and chart.breadth_chart(days[:3]) is None
 
 
+def test_the_crowd_reads_by_money_and_by_side():
+    longs = [{"since": 1.0, "entry": 100.0, "side": "long", "value": 1e6},
+             {"since": 3.0, "entry": 110.0, "side": "long", "value": 3e6}]
+    shorts = [{"since": None, "entry": 130.0, "side": "short", "value": 2e6}]
+    s = chart.crowd_summary(chart.crowd_positions(longs + shorts), 120.0)
+    assert s["long"]["avg"] == 107.5                                  # weighted by money, so by coins held
+    assert round(s["long"]["pnl"], 2) == 11.63                        # the price now over their average entry
+    assert round(s["short"]["pnl"], 2) == 7.69                        # a short under its entry is in profit
+    assert round(s["long_share"], 1) == 66.7 and s["n"] == 3 and s["sized"]
+    assert s["long"]["since_median"] == 3.0 and s["short"]["since_median"] is None
+    old = chart.crowd_positions([(1.0, 100.0, "long"), (2.0, 90.0, "short"), (3.0, 95.0, "sideways")])
+    assert [p["value"] for p in old] == [1.0, 1.0]                    # no sizes: one each, said "by count"
+    assert not chart.crowd_summary(old, 100.0)["sized"]
+    assert chart.crowd_positions([{"entry": 0, "side": "long", "value": 5}]) == []
+
+
+def test_crowded_triangles_merge_without_losing_money():
+    size = lambda v: 100.0                                            # noqa: E731  10 points a side
+    to_pt = lambda c: (c["x"], c["y"])                                # noqa: E731  already in points
+    near = [{"x": 0.0, "y": 0.0, "v": 1.0, "n": 1}, {"x": 5.0, "y": 0.0, "v": 3.0, "n": 1},
+            {"x": 300.0, "y": 0.0, "v": 2.0, "n": 1}]
+    out = sorted(chart.crowd_clusters(near, size, to_pt, cap=4), key=lambda c: c["x"])
+    assert len(out) == 2 and out[0]["n"] == 2 and out[0]["v"] == 4.0
+    assert out[0]["x"] == 3.75                                        # their money-weighted mean
+    many = [{"x": 100.0 * i, "y": 0.0, "v": 1.0, "n": 1} for i in range(9)]
+    capped = chart.crowd_clusters(many, size, to_pt, cap=3)
+    assert len(capped) == 3 and sum(c["n"] for c in capped) == 9 and sum(c["v"] for c in capped) == 9.0
+
+
+def test_every_crowd_fits_a_phone():
+    b = bars()
+    risk = {"off": {"level": b[-1][4] * 0.95, "name": "band low", "pct": -5.0},
+            "next": {"level": b[-1][4] * 1.1, "name": "swing high", "pct": 10.0}}
+    z = [((b[-1][0] - (59 - i) * DAY) / 1000, 1.0) for i in range(60)]
+    t = lambda i: b[i][0] / 1000                                      # noqa: E731
+    burst = [{"since": t(-1 - i % 10), "entry": b[-1 - i % 10][4], "side": "long" if i % 3 else "short",
+              "value": 1e5 * (i + 1)} for i in range(60)]
+    far = [{"since": None, "entry": b[-1][4] * 9, "side": "short", "value": 1e6},     # far outside the candles
+           {"since": t(-350), "entry": b[-350][4], "side": "long", "value": 2e6}]     # before the days shown
+    for crowd in ([], burst, far, burst[:1], [p for p in burst if p["side"] == "long"]):
+        for zz in (z, None):
+            w, h = size(chart.setup_chart("SOL", "long", "firm", b, risk, zz, crowd))
+            assert w == 1800 and h <= 2560
+
+
 def test_the_pattern_shapes_never_reach_the_model():
     cur = {"coins": [{"coin": "SOL", "patterns": [{"pattern": "cup and handle", "anchors": [[1, 2.0]]}]}]}
     assert analyst._no_anchors(cur) == {"coins": [{"coin": "SOL", "patterns": [{"pattern": "cup and handle"}]}]}
+
+
+def test_the_chart_gets_every_position_on_the_coin():
+    from synth import pictures
+
+    class Positions:
+        def board(self, now):
+            return {"traders": [
+                {"tier": "proven", "positions": [{"coin": "SOL", "side": "long", "entry": 150.0, "value": 2_000_000,
+                                                  "since": 1.0e9},
+                                                 {"coin": "ETH", "side": "long", "entry": 3000.0, "value": 9}]},
+                {"tier": "riding", "positions": [{"coin": "SOL", "side": "short", "entry": 170.0, "value": 500_000,
+                                                  "since": None}]}]}
+
+    class Agent:
+        positions = Positions()
+
+    got = pictures.entries(Agent(), "sol", 0)
+    assert got == [{"since": 1.0e9, "entry": 150.0, "side": "long", "value": 2_000_000, "tier": "proven"},
+                   {"since": None, "entry": 170.0, "side": "short", "value": 500_000, "tier": "riding"}]
