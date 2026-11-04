@@ -390,6 +390,17 @@ class Store:
             out.append(d)
         return out
 
+    def pick(self, pick_id: int) -> dict | None:
+        r = self._db.execute("SELECT * FROM picks WHERE id=?", (pick_id,)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        try:
+            d["state"] = json.loads(d.get("state") or "{}") or {}
+        except ValueError:
+            d["state"] = {}
+        return d
+
     def update_pick_state(self, pick_id: int, more: dict) -> None:
         """Merge `more` into a pick's state (what was learnt about it after it was logged, e.g. its path)."""
         with self._lock:

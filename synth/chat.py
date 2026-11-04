@@ -60,6 +60,9 @@ days (rs_30d_pct, rs_rank_30d from 0 weakest to 100 strongest) and beta to BTC: 
 is a buyable pullback, on one lagging it a falling knife; a short with a beta over 1.5 is mostly a bet on BTC. Open \
 interest against price (longs or shorts building, short covering, long liquidation) says who is acting. Context, \
 not tested here.
+- Funding against the coin's own last 20 days (funding_z, in standard deviations) and against Binance and Bybit \
+(funding_vs_cex_apr_pct): a jump for that coin matters more than a high level it always has, and funding high only on \
+Hyperliquid is local leverage, not the whole market's. Context, not tested here.
 - Risk frame (code, per side): where the setup is wrong (off: the level the price sits on, with its distance in % and \
 in average true ranges), the next level the other way and the room to it over the risk. Plain levels, never targets. \
 A coin under $3M a day of volume or with a wide book is too thin to be a setup.
@@ -186,8 +189,8 @@ TOOLS = [
      "profit, leverage, liquidation price) and from his watch list (entry, move since entry), with what each group "
      "does on those coins and what is against each, plus his notes.",
      "input_schema": {"type": "object", "properties": {}}},
-    {"name": "latest_read", "description": "Outrider's latest reads of the market (headline, read, views, what it "
-     "said on his positions) and the record of its past views after 1, 3 and 7 days.",
+    {"name": "latest_read", "description": "Outrider's latest reads of the market (headline, read, setups with where "
+     "each is wrong) and the record of its setups against S5's bar.",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "watch_add", "description": "Put a position (or a coin) on his watch list: Outrider follows it in every "
      "read whatever his wallets show, and says when a group turns against it.",
@@ -291,18 +294,20 @@ class Chat:
         self.store.chat_add(chat_id, "assistant", answer, now, round(cost, 5))
         return answer
 
-    def _system(self) -> str:
+    def _system(self) -> list[dict]:
+        """The instructions (cached with the tools) and his notes in a block of their own after them, so a note
+        added or dropped never rewrites the cached prefix."""
         notes = self.store.chat_notes()
-        if not notes:
-            return SYSTEM + "\n\nNotes you hold: none yet."
-        return SYSTEM + "\n\nNotes you hold:\n" + "\n".join(f"{n['id']}. {n['text']}" for n in notes)
+        text = ("Notes you hold:\n" + "\n".join(f"{n['id']}. {n['text']}" for n in notes)) if notes else \
+            "Notes you hold: none yet."
+        return [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": text}]
 
-    def _create(self, system: str, messages: list[dict]):
+    def _create(self, system: list[dict], messages: list[dict]):
         # the system breakpoint caches tools and instructions; the top-level one caches the conversation so far, so
         # each tool round reads the earlier rounds from the cache instead of paying for them again
         params = {"model": self.model, "max_tokens": 16000, "tools": TOOLS, "messages": messages,
-                  "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                  "cache_control": {"type": "ephemeral"}, "output_config": {"effort": self.effort}}
+                  "system": system, "cache_control": {"type": "ephemeral"}, "output_config": {"effort": self.effort}}
         if self.model in FALLBACK_MODELS:
             return self.client.beta.messages.create(**params, betas=["server-side-fallback-2026-07-01"],
                                                     fallbacks="default")
@@ -507,7 +512,7 @@ class Chat:
     def t_latest_read(self, now: float) -> dict:
         from .analyst import record
         reads = [{"when": time.strftime("%a %d %b %H:%M UTC", time.gmtime(b["ts"])),
-                  **{k: b["body"].get(k) for k in ("reason", "sent", "headline", "read", "positions", "views")}}
+                  **{k: b["body"].get(k) for k in ("reason", "sent", "headline", "read", "views")}}
                  for b in self.store.briefs_since("read", now - 3 * 86400) if not b["body"].get("error")]
         return {"reads": reads[-4:], "record": record(self.store)}
 

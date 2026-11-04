@@ -108,8 +108,10 @@ def test_a_read_goes_out_with_setups_then_waits_for_change(tmp_path, monkeypatch
     text = sent[0]
     assert text.splitlines()[1] == READ["headline"]
     assert "Yours" not in text                                        # his positions are his: on request only
-    assert ("Setups to look at\nSUI short · firm\nProven traders adding, engine stretched. Chart: back under the "
-            "20-week SMA at 1.95.\nEnds if they cut those shorts.") in text
+    # 1.95 is his own entry, not one of SUI's levels in the scan: the chart note is dropped, not sent as a level
+    assert ("Setups to look at\nSUI short · firm\nProven traders adding, engine stretched.\nEnds if they cut those "
+            "shorts.") in text
+    assert agent.store.latest_brief("read")["lint"] == ["SUI chart: 1.95 is not one of its levels"]
     assert "Record" not in text                                       # the record rides on the morning read only
     first, = agent.analyst.client.calls                                # one call, no tools: the scan holds it all
     assert first["output_config"]["effort"] == "medium" and first["output_config"]["format"]["type"] == "json_schema"

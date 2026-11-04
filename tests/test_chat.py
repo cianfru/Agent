@@ -78,7 +78,7 @@ def test_notes_live_in_the_system_prompt(tmp_path):
                             response([text_block("Noted.")]), response([text_block("You hold ENA.")])])
     agent.chat.run("1", "remember I hold ENA long from 0.09", NOW)
     agent.chat.run("1", "what do I hold?", NOW + 5)
-    system = agent.chat.client.calls[-1]["system"][0]["text"]
+    system = agent.chat.client.calls[-1]["system"][1]["text"]          # its own block, after the cached instructions
     assert "1. Holds ENA long from 0.09" in system
     assert json.loads(agent.chat.execute("forget", {"note_id": 1}, NOW)) == {"dropped": True}
     assert agent.store.chat_notes() == []

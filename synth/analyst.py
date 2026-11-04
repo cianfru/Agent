@@ -177,14 +177,22 @@ def _engine(snap: dict, cow: dict, coin: str, every: dict | None = None) -> dict
     return out or None
 
 
+def _words(text: str) -> str:
+    """The engine's codes inside a sentence turned into words (MARKUP -> trending up)."""
+    for code, word in sorted({**REGIME, **SIGNAL}.items(), key=lambda kv: -len(kv[0])):
+        text = re.sub(rf"\b{code}\b", word, text)
+    return text
+
+
 def engine_words(rows: dict) -> dict:
     """Reflex's scan rows for one coin (`reflex.engine_rows`) in plain words, as the scan carries the engine."""
     d, h = rows.get("1d") or {}, rows.get("4h") or {}
     out = {"daily": SIGNAL.get(d.get("signal") or "", None), "4h": SIGNAL.get(h.get("signal") or "", None),
            "regime": REGIME.get(d.get("regime") or "", None), "regime_4h": REGIME.get(h.get("regime") or "", None),
            "heat": d.get("heat"), "zscore": round(d["zscore"], 2) if d.get("zscore") is not None else None,
-           "exhaustion": d.get("exhaustion_state") if d.get("exhaustion_state") not in (None, "NEUTRAL") else None,
-           "why_daily": (d.get("signal_reason") or "")[:120] or None, "sector": d.get("sector") or h.get("sector"),
+           "exhaustion": str(d["exhaustion_state"]).lower().replace("_", " ")
+           if d.get("exhaustion_state") not in (None, "NEUTRAL") else None,
+           "why_daily": _words((d.get("signal_reason") or "")[:120]) or None, "sector": d.get("sector") or h.get("sector"),
            # the engine's own z lines for this coin: the owner's 2.5 / 3 / 3.5 scaled by its volatility (0.85x-1.25x)
            "engine_z_lines": {"blow_off": round(2.5 * d["vol_scale"], 2), "trim": round(3 * d["vol_scale"], 2),
                               "hard_trim": round(3.5 * d["vol_scale"], 2)} if d.get("vol_scale") else None}
@@ -358,8 +366,9 @@ def scan(agent, now: float | None = None) -> dict:
             "cycle": {x: cy.get(x) for x in ("type", "age_days", "uptrend", "median_days", "reached_age",
                                              "lasted_30_more")} if cy else None,
             "turns": k.get("turns"),
-            "reflex": snap.get("market"), "cowboy": cow.get("market"), "oi_funding": agent.levels.market(now),
-            "breadth": {**table["breadth"], "coins": table["coins"]} if table["coins"] else None,
+            "reflex": in_words(snap.get("market")), "cowboy": in_words(cow.get("market")),
+            "oi_funding": agent.levels.market(now),
+            "breadth": {**table["breadth"], "coins": table["coins"], **breadth_then(store)} if table["coins"] else None,
             "z_extremes": {
                 "stretched": [[r["coin"], r["z_1d"]] for r in sorted(
                     (r for r in table["rows"] if (r.get("z_1d") or 0) >= screen.Z_BLOWOFF and not r.get("thin")),
@@ -380,7 +389,7 @@ def scan(agent, now: float | None = None) -> dict:
 
 QUANT_KEYS = ("z_line", "atr_pct", "rv30_pct", "rel_vol", "near_pct", "rs_30d_pct", "rs_rank_30d", "beta_btc",
               "corr_btc", "oi_class_24h", "oi_class_7d", "spread_bps", "thin", "sector", "exhaustion", "climax",
-              "new_high", "new_low")
+              "new_high", "new_low", "funding_z", "funding_vs_cex_apr_pct")
 
 
 def quant(row: dict) -> dict:
@@ -393,6 +402,21 @@ def quant(row: dict) -> dict:
     for side in ("long", "short"):
         out[side] = {"score": row[f"score_{side}"], "independent": row[f"independent_{side}"],
                      **row.get(f"levels_{side}", {})}
+    return out
+
+
+def breadth_then(store) -> dict:
+    """How many coins (in %) sat over their band and over their 200-day a week and a month ago, rebuilt from each
+    coin's history: whether breadth is improving or rolling over."""
+    hist = screen.breadth_history(store.get_snapshot("trend_levels") or {})
+    out = {}
+    for label, back in (("week_ago", 7), ("month_ago", 30)):
+        if len(hist) > back:
+            d = hist[-1 - back]
+            if d["coins"]:
+                out[f"over_band_pct_{label}"] = round(100 * d["over"] / d["coins"])
+            if d["with_200d"]:
+                out[f"over_200d_pct_{label}"] = round(100 * d["over_200d"] / d["with_200d"])
     return out
 
 
@@ -448,6 +472,70 @@ def risk_frame(cur: dict, coin: str, side: str, name: str | None) -> dict | None
     return out
 
 
+NUM = re.compile(r"(?<![\w.])[-+]?\$?(\d[\d,]*(?:\.\d+)?)\s*([kKmMbB](?![a-zA-Z])|%)?")
+NOT_A_LEVEL = ("-day", "-week", " day", " days", "day", "days", " week", " weeks", "w ", "h ", "h,", "h.", "x",
+               " of ", " hour", " traders", " setups", " coins", " bets", "st ", "nd ", "rd ", "th ")
+
+
+def _numbers(obj, out: list[float] | None = None) -> list[float]:
+    """Every number in a scan row (any depth): what a level or figure the model writes may be."""
+    out = [] if out is None else out
+    if isinstance(obj, bool):
+        return out
+    if isinstance(obj, (int, float)):
+        out.append(abs(float(obj)))
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _numbers(v, out)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _numbers(v, out)
+    return out
+
+
+def _written(text: str, levels_only: bool = False) -> list[float]:
+    """The figures in a sentence the model wrote, $K/$M/$B scaled; with `levels_only`, only what reads as a price
+    level (not a count of days, weeks, hours, traders or a percentage)."""
+    out = []
+    for m in NUM.finditer(text or ""):
+        tail = (text[m.end():m.end() + 8]).lower()
+        unit = m.group(2) or ""
+        v = float(m.group(1).replace(",", ""))
+        if levels_only and (unit == "%" or tail.startswith(NOT_A_LEVEL) or (v < 10 and "." not in m.group(1))):
+            continue
+        out.append(v * {"k": 1e3, "m": 1e6, "b": 1e9}.get(unit.lower(), 1.0))
+    return out
+
+
+def _known(v: float, pool: list[float], tol: float) -> bool:
+    return any(abs(v - p) <= tol * max(abs(p), 1e-12) for p in pool if p)
+
+
+def read_lint(out: dict, cur: dict) -> dict:
+    """Checks the read's figures against the scan, in code: a level in a setup's chart note or in what would end it
+    must be one of that coin's own figures (within 0.75%); a sentence with a level that is not is dropped. Figures in
+    the headline and the read that match nothing in the scan are noted in the brief. No second model call."""
+    problems = []
+    every = _numbers(cur)
+    for v in out.get("views") or []:
+        rows = [r for r in (cur.get("candidates") or []) + (cur.get("direction") or []) + (cur.get("coins") or [])
+                if r.get("coin") == v["coin"]]
+        pool = _numbers(rows) + _numbers(v.get("risk") or {})
+        for field in ("chart", "changes_if"):
+            bad = [x for x in _written(v.get(field) or "", levels_only=True) if not _known(x, pool, 0.0075)]
+            if bad:
+                problems.append(f"{v['coin']} {field}: {', '.join(f'{x:g}' for x in bad)} is not one of its levels")
+                v[field] = ""
+    for field in ("headline", "read"):
+        bad = [x for x in _written(out.get(field) or "") if x >= 10 and not _known(x, every, 0.02)
+               and not _known(x / 100, every, 0.02)]
+        if bad:
+            problems.append(f"{field}: {', '.join(f'{x:g}' for x in bad[:4])} not found in the scan")
+    if problems:
+        out["lint"] = problems
+    return out
+
+
 def _fmt_px(x: float | None) -> str:
     from .groups import px
     return px(x) if x else "-"
@@ -483,6 +571,28 @@ def setup_lines(v: dict) -> list[str]:
     end = (v.get("changes_if") or "").strip().rstrip(".")
     lines.append((" · ".join(tail) + ". " if tail else "") + (f"Ends if {end}." if end else ""))
     return [ln.strip() for ln in lines if ln.strip()]
+
+
+CONSENSUS = {"RISK-ON": "risk-on", "RISK-OFF": "risk-off", "RISK_ON": "risk-on", "RISK_OFF": "risk-off",
+             "NEUTRAL": "neutral", "MIXED": "mixed", "ACCUMULATION": "accumulating", "DISTRIBUTION": "distributing"}
+
+
+def in_words(m: dict | None) -> dict | None:
+    """A source's market block with the engine's codes in words (the read is told to write no codes, so it is not fed
+    them): regimes, signals and consensus."""
+    if not m:
+        return m
+    out = {}
+    for k, v in m.items():
+        if isinstance(v, str) and (k.endswith("regime") or "regime_" in k):
+            out[k] = REGIME.get(v, v.lower().replace("_", " "))
+        elif isinstance(v, str) and ("signal" in k):
+            out[k] = SIGNAL.get(v, v.lower().replace("_", " "))
+        elif isinstance(v, str) and k.startswith("consensus"):
+            out[k] = CONSENSUS.get(v.upper(), v.lower().replace("_", " "))
+        else:
+            out[k] = v
+    return out
 
 
 def _alerts(store, since: float) -> dict[str, list[str]]:
@@ -579,11 +689,15 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
         out.append({"w": w, "text": text, "owner": owner, **more})
 
     pm, cm = prev.get("market") or {}, cur.get("market") or {}
-    for key, label, step in (("crowd_long_pct", "profitable traders", 5), ("big_money_long_pct", "big money", 8),
-                             ("tracked_long_pct", "tracked traders", 8)):
+    # the crowd's and big money's leans are context (S2: the crowd leans against the last move): they are told to the
+    # read when one runs, but never bring a read on their own
+    for key, label, step, ctx in (("crowd_long_pct", "profitable traders", 5, True),
+                                  ("big_money_long_pct", "big money", 8, True),
+                                  ("tracked_long_pct", "tracked traders", 8, False)):
         a, b = pm.get(key), cm.get(key)
         if a is not None and b is not None and abs(b - a) >= step:
-            add(3 if abs(b - a) >= 2 * step else 2, f"{label} {b - a:+.0f} points long ({a:.0f}% to {b:.0f}%)")
+            add(3 if abs(b - a) >= 2 * step else 2, f"{label} {b - a:+.0f} points long ({a:.0f}% to {b:.0f}%)",
+                context=ctx)
     before = {r["coin"]: r for r in (prev.get("direction") or []) + (prev.get("coins") or [])}
     for d in cur.get("direction") or []:
         p = before.get(d["coin"]) or {}
@@ -599,7 +713,8 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
         for group, w in (("tracked", 2), ("big_money", 1), ("crowd", 1)):
             a, b = (p.get(group) or {}).get("lean"), (r.get(group) or {}).get("lean")
             if a != b and b in ("long", "short"):
-                add(w, f"{r['coin']}: {group.replace('_', ' ')} now lean {b} (were {_lean_word(a)})")
+                add(w, f"{r['coin']}: {group.replace('_', ' ')} now lean {b} (were {_lean_word(a)})",
+                    context=group != "tracked")
         for side in ("long", "short"):
             n = ((r.get("tracked_24h") or {}).get(side) or {}).get("adders", 0)
             n0 = ((p.get("tracked_24h") or {}).get(side) or {}).get("adders", 0)
@@ -615,6 +730,12 @@ def changes(prev: dict | None, cur: dict) -> list[dict]:
         for mark, on in (t1.get("marks") or {}).items():
             if on and not (t0.get("marks") or {}).get(mark):
                 add(3 if mark in TURN_MARKS else 2, f"{t1['state']}: {mark.replace('_', ' ')} now")
+    # a new setup in the screen (two independent things lining up, liquid): what a read is for
+    had = {(c["coin"], c["side"]) for c in prev.get("candidates") or []}
+    fresh = [c for c in cur.get("candidates") or [] if (c["coin"], c["side"]) not in had]
+    if fresh:
+        add(min(4, 2 * len(fresh)), "new setups in the screen: " + ", ".join(
+            f"{c['coin']} {c['side']} ({c['score']})" for c in fresh[:3]))
     seen = set(prev.get("alerts_24h") or [])
     new_alerts = [a for a in cur.get("alerts_24h") or [] if a not in seen]
     if new_alerts:
@@ -713,7 +834,11 @@ def board_text(cur: dict) -> str:
         lines.append(" · ".join(bits))
     b = m.get("breadth")
     if b:
-        lines.append(f"Breadth: {b['above'] + b['just above'] + b['extended']} over the band · {b['inside']} inside · "
+        over = b["above"] + b["just above"] + b["extended"]
+        then = ""
+        if b.get("over_band_pct_week_ago") is not None and b.get("coins"):
+            then = f" ({round(100 * over / b['coins'])}% now, {b['over_band_pct_week_ago']}% a week ago)"
+        lines.append(f"Breadth: {over} over the band{then} · {b['inside']} inside · "
                      f"{b['below']} under · {b['over_200d']} of {b['with_200d']} over the 200-day")
     zx = m.get("z_extremes")
     if zx:
@@ -802,7 +927,9 @@ class Analyst:
         gap = now - last["ts"] if last else float("inf")
         if sum(1 for b in today if b["body"].get("sent") and b["body"].get("reason") != "asked") >= self.per_day:
             return None, ch
-        market = sum(c["w"] for c in ch if not c["owner"])    # his positions never bring a read of their own
+        # his positions never bring a read of their own, nor do the crowd's swings (context, S2); they count only
+        # beside something that does
+        market = sum(c["w"] for c in ch if not c["owner"] and not c.get("context"))
         if hour not in self.quiet and market >= TRIGGER and gap >= MIN_GAP_S:
             return "market changed", ch
         return None, ch
@@ -885,7 +1012,7 @@ class Analyst:
                                       f"({type(e).__name__}). /read tries again.", "read", must=True)
             raise
         try:
-            out = self.clean(out, cur)
+            out = read_lint(self.clean(out, cur), cur)
             send = bool(out["send"]) or reason == "morning" or force_send
             held = self.store.count_briefs("push_held", now - DAY) if reason == "morning" else 0
             text = format_read(out, now, rec if reason == "morning" else None, held, reason, ch,
@@ -1009,8 +1136,9 @@ class Analyst:
             raise ReadFailed(f"the read was not valid JSON: {e}", cost) from e
 
     def _create(self, messages: list[dict]):
+        # no cache breakpoint: reads run hours apart, past the cache's 5 minutes, so writing it only cost more
         params = {"model": self.model, "max_tokens": 16000, "messages": messages,
-                  "system": [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                  "system": [{"type": "text", "text": SYSTEM}],
                   "output_config": {"effort": self.effort, "format": {"type": "json_schema", "schema": SCHEMA}}}
         if self.model in FALLBACK_MODELS:
             return self.client.beta.messages.create(**params, betas=["server-side-fallback-2026-07-01"],
