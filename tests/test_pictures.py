@@ -42,7 +42,7 @@ def test_charts_fit_a_phone_and_telegram():
                                    "z_1d": i / 20 - 1, "open_interest_usd": 1e6 * i} for i in range(60)],
                                  [{"coin": "C5", "side": "long"}], ["C9"])):
         w, h = size(png)
-        assert w == 1200 and h <= 1280                    # Telegram does not shrink it; text stays readable
+        assert w == 1800 and h <= 2560                    # sharp on a phone, within a Telegram photo
 
 
 def test_the_record_chart_waits_for_a_scored_setup():
@@ -51,7 +51,7 @@ def test_the_record_chart_waits_for_a_scored_setup():
     picks = [{"ts": t0 + i * 86400, "ret_3d": (-1) ** i * 0.02, "mkt_3d": 0.0, "direction": "long", "coin": f"C{i}"}
              for i in range(9)]
     png = chart.journal_chart(picks, {"n": 60, "right_pct": 62, "median_pct": 1.0}, t0)
-    assert size(png)[0] == 1200
+    assert size(png)[0] == 1800
 
 
 def test_renders_in_two_threads_do_not_mix():
@@ -64,7 +64,7 @@ def test_renders_in_two_threads_do_not_mix():
     ts = [threading.Thread(target=run) for _ in range(3)]
     [t.start() for t in ts]
     [t.join() for t in ts]
-    assert len(out) == 3 and all(size(p)[0] == 1200 for p in out)
+    assert len(out) == 3 and all(size(p)[0] == 1800 for p in out)
 
 
 def test_pictures_go_with_the_text_as_one_counted_message(tmp_path, monkeypatch):
@@ -110,7 +110,7 @@ def test_patterns_cycle_and_breadth_draw_for_a_phone():
     pats = [{"pattern": "inverse head and shoulders", "status": "forming", "direction": "up",
              "break_level": [b[-1][4] * 1.05], "fails_beyond": b[-1][4] * 0.9,
              "anchors": [[t0 + i * 6 * 86400, b[-40 + i * 6][4]] for i in range(5)]}]
-    assert size(chart.setup_chart("SOL", "long", "firm", b, None, None, None, 120, pats))[0] == 1200
+    assert size(chart.setup_chart("SOL", "long", "firm", b, None, None, None, 120, pats))[0] == 1800
     import datetime as dt
     day0 = dt.date(2025, 9, 1)
     hist = {"rows": [[(day0 + dt.timedelta(days=i)).isoformat(), 40 + 20 * math.sin(i / 30), 60_000 + 50 * i,
@@ -118,10 +118,10 @@ def test_patterns_cycle_and_breadth_draw_for_a_phone():
             "cycle": {"start": (day0 + dt.timedelta(days=380)).isoformat(), "threshold": 0.55,
                       "runs": [[(day0 + dt.timedelta(days=100)).isoformat(), 40, 70]]}}
     png = chart.cycle_chart(hist, {"state": "broad uptrend", "run_day": 20})
-    assert size(png)[0] == 1200 and chart.cycle_chart({"rows": hist["rows"][:5]}) is None
+    assert size(png)[0] == 1800 and chart.cycle_chart({"rows": hist["rows"][:5]}) is None
     days = [{"day": (day0 + dt.timedelta(days=i)).isoformat(), "below": 30, "inside": 10, "over": 60 - i % 5,
              "over_200d": 50, "with_200d": 90, "coins": 100} for i in range(90)]
-    assert size(chart.breadth_chart(days))[0] == 1200 and chart.breadth_chart(days[:3]) is None
+    assert size(chart.breadth_chart(days))[0] == 1800 and chart.breadth_chart(days[:3]) is None
 
 
 def test_the_pattern_shapes_never_reach_the_model():
