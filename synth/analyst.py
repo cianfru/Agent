@@ -663,7 +663,8 @@ def record(store) -> dict:
     out: dict[str, Any] = {"since": "3 Nov 2026", "logged": len(picks),
                            "longs": sum(p["direction"] == "long" for p in picks),
                            "shorts": sum(p["direction"] == "short" for p in picks),
-                           "bar": journal.S5_BAR, "views_before_3_nov": journal.block(before, "3d")}
+                           "bar": journal.S5_BAR, "views_before_3_nov": journal.block(before, "3d"),
+                           "s5": journal.s5(picks)}          # the verdict as Amendment 3 judges it
     for h in ("1d", "3d", "7d"):
         out[h] = {"all": journal.block(picks, h),
                   "firm_or_strong": journal.block([p for p in picks if (p.get("conviction") or 0) >= 2], h),
@@ -673,20 +674,13 @@ def record(store) -> dict:
 
 
 def record_text(rec: dict) -> str | None:
-    """The setups' record against S5's declared bar, so a share is never read as a verdict on its own."""
-    a = rec["3d"]["all"]
+    """The setups' record against S5's declared bar (Amendment 3: separate bets, beyond the market), so a share is
+    never read as a verdict on its own."""
+    v = rec.get("s5") or {}
     b = rec.get("views_before_3_nov") or {}
-    if a["n"] < 3 and not b.get("n"):
+    if not v.get("scored_bets_raw") and not b.get("n") and rec["3d"]["all"]["n"] < 3:
         return None
-    bar = rec.get("bar") or journal.S5_BAR
-    line = f"Setups since 3 Nov (S5): {a['n']} scored at 3 days, {bar['n']} needed"
-    if a["n"]:
-        line += (f" · {a['right']} right ({a['right_pct']}%, bar {bar['right_pct']}%)"
-                 f" · median {a['median_pct']:+.1f}% (bar +{bar['median_pct']:g}%)")
-        v = a["vs_market"]
-        if v["n"]:
-            line += f" · beat the market {v['right']} of {v['n']}"
-    line += " · " + journal.verdict(a)
+    line = journal.s5_text(v) if v else f"Setups since 3 Nov (S5): {rec['3d']['all']['n']} scored at 3 days"
     if b.get("n"):
         line += f". Views before 3 Nov: {b['right']} of {b['n']} right"
     return line + "."
@@ -1081,7 +1075,7 @@ class Analyst:
     def log_shadows(self, views: list[dict], now: float, table: dict) -> list[int]:
         """Matched controls, never sent to him: the code's own two best candidates ('screen') and, for each view, a
         liquid coin drawn at random from the screen on the same side ('random'). Scored like the views, so how much the
-        read adds over the code, and the code over chance, can be measured (study S6, proposed). Once a day per coin
+        read adds over the code, and the code over chance, can be measured (study S6). Once a day per coin
         and side, as the views."""
         rows = [r for r in table.get("rows") or [] if not r.get("thin") and r.get("price")]
         recent = {(p["origin"], p["coin"], p["direction"]) for o in ("screen", "random")

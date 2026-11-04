@@ -48,7 +48,8 @@ def test_charts_fit_a_phone_and_telegram():
 def test_the_record_chart_waits_for_a_scored_setup():
     assert chart.journal_chart([], {"n": 60, "right_pct": 62, "median_pct": 1.0}, 0) is None
     t0 = time.time() - 30 * 86400
-    picks = [{"ts": t0 + i * 86400, "ret_3d": (-1) ** i * 0.02, "mkt_3d": 0.0, "direction": "long"} for i in range(9)]
+    picks = [{"ts": t0 + i * 86400, "ret_3d": (-1) ** i * 0.02, "mkt_3d": 0.0, "direction": "long", "coin": f"C{i}"}
+             for i in range(9)]
     png = chart.journal_chart(picks, {"n": 60, "right_pct": 62, "median_pct": 1.0}, t0)
     assert size(png)[0] == 1200
 

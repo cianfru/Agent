@@ -73,7 +73,17 @@ every setup from this date (and for the earlier views where the data exists):
 Each setup now carries a risk frame built in code (where it is wrong, the next level the other way, the room to it over
 the risk), and every setup must sit on a coin the read was shown; a view on any other coin is dropped and noted.
 
-Proposed, for the owner to decide before more 3-day results come in (not adopted): judge the verdict on separate bets
-rather than picks, on the 3-day move beyond the market rather than the raw move, with the share right and the mean
-averaged per day and a verdict only when the lower end of their 95% interval clears the bar; firm and strong reported
-as description only. The raw bar, met in a one-way market by repeated views of a few coins, can pass with no skill.
+## Amendment 3, part two (4 November 2026): the verdict on separate bets, beyond the market
+
+Adopted on 4 November 2026, the owner having left the choice to the agent's judgement, before any setup since
+Amendment 2 had a 3-day result (the first falls on 6 November). The raw bar above, met in a one-way market by
+repeated views of a few coins, could pass with no skill; from this date the verdict is:
+
+- **Unit:** separate bets. One coin and side logged again within 3 days of the one before is the same bet, scored from
+  its first entry.
+- **Outcome:** the 3-day move beyond the market (the basket of synth/market.py, its move turned to the bet's side).
+- **Useful** only when all four hold: at least 60 separate bets with a 3-day market move; at least 62% of them beat
+  the market; their median move beyond it is at least +1%; and the lower end of the 95% interval of their mean move
+  beyond it is above zero (bets averaged per day, days resampled 2,000 times with a fixed seed).
+- Firm and strong setups, longs and shorts, and the raw share right are reported beside it as description, not tested.
+- Below that, or before 60 bets: context, not a signal. The views before 3 November stay reported apart, raw.

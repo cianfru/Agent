@@ -401,8 +401,19 @@ class PositionTraders:
                                     p.get("roe"), p.get("lev"))
                 young = now - row["opened_ts"] <= CONVICTION_WINDOW_S if row["known_open"] else False
                 if young and not row["conviction"] and not row["baseline"] and self._is_conviction(t, _cost(p)):
-                    res["conviction"] += await self._conviction(t, row["id"], row.get("pick_id"),
+                    # S3 amendment (4 November 2026): grown into a conviction bet after the open, it is a pick of its
+                    # own at the price now, the moment a follower could see it; the open's pick stays an ordinary one
+                    late = None
+                    if p["notional"] >= MIN_NEW_USD:
+                        late = self.store.add_pick(
+                            "position", coin, p["side"], 2, self._mids.get(coin) or p["entry_px"] or None,
+                            f"pt {a} {coin} {p['side']} grown to conviction",
+                            {"wallet": a, "size_usd": round(p["notional"]), "upgraded_from": row.get("pick_id"),
+                             "secs_after_open": round(now - row["opened_ts"])})
+                    res["conviction"] += await self._conviction(t, row["id"], None,
                                                                 {**p, "coin": coin, "value": p["notional"]}, lev)
+                    if late and row.get("pick_id"):
+                        self.store.update_pick_state(row["pick_id"], {"grew_to_conviction": late})
                 continue
             since = seed_since.get(f"{coin}:{p['side'].upper()}")
             baseline = first_look
@@ -431,6 +442,29 @@ class PositionTraders:
             self.store.pt_add_flow(now, row["address"], row["coin"], row["side"], -row["value"],
                                    self._mids.get(row["coin"]) or 0.0)
         self.store.pt_close(row["id"], now)
+
+    def mark_late_upgrades(self) -> int:
+        """Once: conviction picks logged before S3's amendment (4 November 2026) whose position grew to conviction size
+        after the agent first saw it carry the open's price, not the price when the bet was knowable. They are marked
+        and reported apart (journal kind 'conviction_late'). Returns how many were marked."""
+        from .journal import S3_LATE_FROM
+        if (self.store.get_snapshot("s3_late_marked") or {}).get("done"):
+            return 0
+        alerts: dict[tuple, list[float]] = {}
+        for b in self.store.briefs_since("pt_alert", 0):
+            body = b["body"]
+            alerts.setdefault((str(body.get("address", "")).lower(), body.get("coin"), body.get("side")), []).append(
+                b["ts"])
+        n = 0
+        for r in self.store.pt_conviction_rows(before=S3_LATE_FROM):
+            ts = [x for x in alerts.get((r["address"].lower(), r["coin"], r["side"]), [])
+                  if r["first_seen"] - 60 <= x <= r["first_seen"] + CONVICTION_WINDOW_S + 3600]
+            if ts and min(ts) - r["first_seen"] > 600:
+                self.store.update_pick_state(r["pick_id"], {"upgraded_late": True,
+                                                            "secs_after_open": round(min(ts) - r["first_seen"])})
+                n += 1
+        self.store.put_snapshot("s3_late_marked", {"done": True, "marked": n})
+        return n
 
     def against_his(self, coin: str, side: str) -> str:
         """A line when this goes against one of his positions (his wallets or his watch list), else ''. Facts only:

@@ -305,3 +305,28 @@ def test_a_build_up_against_his_position_comes_even_when_build_ups_are_muted(tmp
     builds = [m for m in sent if m.startswith("Building")]
     assert len(builds) == 1 and builds[0].endswith("This goes against your GRASS short. Ask me if you want the full picture.")
     assert pt.against_his("GRASS", "short") == "" and pt.against_his("SOL", "long") == ""
+
+
+def test_a_late_upgrade_is_its_own_pick_and_earlier_ones_are_reported_apart(tmp_path, monkeypatch):
+    from synth import journal
+    pt, store, hl, sent = setup(tmp_path, monkeypatch)
+    asyncio.run(pt.step(now=1_790_000_000.0))
+    hl.books[A]["ZEC"] = pos("short", 200_000, 666, entry=300.0)
+    asyncio.run(pt.step(now=1_790_000_600.0, mids={"ZEC": 301.0, "LIT": 2.6}))
+    hl.books[A]["ZEC"] = pos("short", 1_200_000, 4_000, entry=300.0)          # grows to conviction size later
+    asyncio.run(pt.step(now=1_790_003_600.0, mids={"ZEC": 290.0, "LIT": 2.6}))
+    picks = {p["conviction"]: p for p in store.picks(origin="position")}
+    assert picks[1]["entry_price"] == 301.0 and picks[1]["state"]["grew_to_conviction"] == picks[2]["id"]
+    assert picks[2]["entry_price"] == 290.0 and picks[2]["state"]["secs_after_open"] == 3000   # the price when knowable
+    # before the amendment: a conviction pick whose alert came long after the open is marked and reported apart
+    old = store.add_pick("position", "HYPE", "long", 2, 40.0, "pt", {})
+    rid = store.pt_open_position(A, "HYPE", "long", 1_700_000_000.0, 1, 1_700_000_000.0, 1e6, 40.0, 0, 0, old)
+    store.pt_mark_conviction(rid)
+    with store._lock:
+        store._db.execute("UPDATE briefs SET ts=? WHERE kind='pt_alert'", (1_790_003_600.0,))
+        store._db.execute("INSERT INTO briefs(ts, kind, body) VALUES(?, 'pt_alert', ?)",
+                          (1_700_000_000.0 + 7200, '{"address": "%s", "coin": "HYPE", "side": "long"}' % A))
+        store._db.commit()
+    assert pt.mark_late_upgrades() == 1 and pt.mark_late_upgrades() == 0      # once
+    kinds = {r["origin"]: r for r in journal.record(store)}
+    assert kinds["conviction_late"]["logged"] == 1 and kinds["conviction"]["logged"] == 1

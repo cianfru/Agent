@@ -216,7 +216,7 @@ async def handle(agent, update: dict) -> None:
         return
     if cmd == ["/record"]:
         from . import journal, pictures
-        text = journal.text(journal.record(store), journal.reads(store))
+        text = await asyncio.to_thread(journal.full_text, store)
         png = await pictures.journal_png(store)
         await notify.send_with_pictures(s.telegram_token, chat, text, [png] if png else [])
         return

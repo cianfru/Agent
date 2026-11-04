@@ -1,7 +1,8 @@
-# S6: does the screen rank, and does the read add to it? (proposed 3 November 2026, awaiting the owner's approval)
+# S6: does the screen rank, and does the read add to it? (declared 4 November 2026)
 
-Nothing in this study has been computed. The data it needs is being kept from 3 November 2026; the rules below are
-fixed only once the owner approves them, and no result is looked at before that.
+Drafted 3 November 2026 and declared on 4 November 2026, the owner having left the choice to the agent's judgement.
+Nothing had been computed: the data is kept from 3 November 2026 and no 3-day result existed. The rules below are fixed;
+`synth/s6.py` computes them and `/record` shows how far each question is from its bar.
 
 ## Why
 
@@ -19,12 +20,14 @@ among its candidates, or from the market's direction. The owner pays a few cents
   each view, a liquid coin drawn at random from the screen on the same side (`random`). Logged, priced and scored
   exactly as the read's setups (Hyperliquid's mid, 1, 3 and 7 days, against the market).
 
-## Questions and declared bars (proposed)
+## Questions and declared bars
 
 1. **Does the screen rank?** For each day in `screen_log`, among coins not too thin: the Spearman correlation between
-   each side's score and the coin's next 3-day move that way less the basket's move (synth/market.py). Reported:
+   each side's score and the coin's next 3-day move that way (on one day, the move beyond the basket ranks the coins the
+   same way, so it is not needed). Reported:
    the mean over days, t = mean / standard deviation x square root of the number of days, and the top fifth against
-   the bottom fifth. The same for each family's points and for the daily z-score alone (short side).
+   the bottom fifth. The same for whether each family lines up (price at a level, traders positioning, the engine)
+   and for the daily z-score alone (short side), as description.
    **The screen ranks** only when the mean correlation is at least 0.03 with t of at least 2 over at least 60 days;
    otherwise context, not a signal. Weights change only after this verdict, and the change is declared first.
 2. **Does the read add to the screen, and the screen to chance?** The 3-day move beyond the market of the read's
