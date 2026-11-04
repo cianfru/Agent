@@ -44,7 +44,7 @@ def test_charts_fit_a_phone_and_telegram():
                                    "z_1d": i / 20 - 1, "open_interest_usd": 1e6 * i} for i in range(60)],
                                  [{"coin": "C5", "side": "long"}], ["C9"])):
         w, h = size(png)
-        assert w == 1800 and h <= 2560                    # sharp on a phone, within a Telegram photo
+        assert 1600 <= w <= 1800 and h <= 2560            # sharp on a phone, within a Telegram photo
 
 
 def test_the_record_chart_waits_for_a_scored_setup():
@@ -135,7 +135,8 @@ def test_the_crowd_reads_by_money_and_by_side():
     assert round(s["long"]["pnl"], 2) == 11.63                        # the price now over their average entry
     assert round(s["short"]["pnl"], 2) == 7.69                        # a short under its entry is in profit
     assert round(s["long_share"], 1) == 66.7 and s["n"] == 3 and s["sized"]
-    assert s["long"]["since_median"] == 3.0 and s["short"]["since_median"] is None
+    assert s["long"]["half_in"] == 3.0                               # by day 3, half the longs' money was in
+    assert s["short"]["half_in"] is None and s["short"]["before_tracking"]
     old = chart.crowd_positions([(1.0, 100.0, "long"), (2.0, 90.0, "short"), (3.0, 95.0, "sideways")])
     assert [p["value"] for p in old] == [1.0, 1.0]                    # no sizes: one each, said "by count"
     assert not chart.crowd_summary(old, 100.0)["sized"]
@@ -143,16 +144,17 @@ def test_the_crowd_reads_by_money_and_by_side():
 
 
 def test_crowded_triangles_merge_without_losing_money():
-    size = lambda v: 100.0                                            # noqa: E731  10 points a side
-    to_pt = lambda c: (c["x"], c["y"])                                # noqa: E731  already in points
-    near = [{"x": 0.0, "y": 0.0, "v": 1.0, "n": 1}, {"x": 5.0, "y": 0.0, "v": 3.0, "n": 1},
-            {"x": 300.0, "y": 0.0, "v": 2.0, "n": 1}]
-    out = sorted(chart.crowd_clusters(near, size, to_pt, cap=4), key=lambda c: c["x"])
+    to_pt = lambda c: (10 * c["x"], c["y"])                           # noqa: E731  ten points a day
+    near = [{"x": 0.0, "y": 0.0, "v": 1.0, "n": 1}, {"x": 0.5, "y": 0.0, "v": 3.0, "n": 1},
+            {"x": 30.0, "y": 0.0, "v": 2.0, "n": 1}]
+    out = sorted(chart.crowd_clusters(near, to_pt, cap=4), key=lambda c: c["x"])
     assert len(out) == 2 and out[0]["n"] == 2 and out[0]["v"] == 4.0
-    assert out[0]["x"] == 3.75                                        # their money-weighted mean
-    many = [{"x": 100.0 * i, "y": 0.0, "v": 1.0, "n": 1} for i in range(9)]
-    capped = chart.crowd_clusters(many, size, to_pt, cap=3)
+    assert out[0]["x"] == 0.375                                       # their money-weighted mean day
+    many = [{"x": 3.0 * i, "y": 0.0, "v": 1.0, "n": 1} for i in range(9)]       # 30 points apart, 3 days apart
+    capped = chart.crowd_clusters(many, to_pt, cap=3)
     assert len(capped) == 3 and sum(c["n"] for c in capped) == 9 and sum(c["v"] for c in capped) == 9.0
+    apart = [{"x": 40.0 * i, "y": 0.0, "v": 1.0, "n": 1} for i in range(6)]     # weeks apart: never merged
+    assert len(chart.crowd_clusters(apart, to_pt, cap=2)) == 6
 
 
 def test_every_crowd_fits_a_phone():
@@ -168,7 +170,7 @@ def test_every_crowd_fits_a_phone():
     for crowd in ([], burst, far, burst[:1], [p for p in burst if p["side"] == "long"]):
         for zz in (z, None):
             w, h = size(chart.setup_chart("SOL", "long", "firm", b, risk, zz, crowd))
-            assert w == 1800 and h <= 2560
+            assert 1600 <= w <= 1800 and h <= 2560
 
 
 def test_the_pattern_shapes_never_reach_the_model():

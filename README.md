@@ -204,16 +204,22 @@ next level in cyan, each level labelled on a tag at the right edge.
   and under it the daily z-score against the owner's lines once enough of its history is kept (from the daily screen
   log, so it fills over the weeks). One candle request per coin. `/chart SOL` (or `/chart SOL short`) for any coin.
   When tracked traders hold the coin, the crowd reads at a glance:
-  - Under the title: who holds it ("Traders 71% long by money", "split" between 45% and 55%), a mint and coral bar
-    split by money with each side's traders and dollars, and each side's average entry (weighted by money, so by the
-    coins held) against the price now, in profit or under water (the price move only, before leverage and funding).
-  - On the chart: each side's average entry as a solid line, starting on the day by which half its money was in, and
-    its positions as triangles (up mint for longs, down coral for shorts) at their open day and average entry. Their
-    area is proportional to money. Triangles that would crowd each other merge, at most four a side, at their
-    members' money-weighted day and entry, with the number of traders on or beside them.
-  - Under the chart: the money in positions opened each week, longs up and shorts down.
+  - Under the title: who holds it ("Traders 71% long by money", "split" between 45% and 55%, never rounding a
+    minority away), a mint and coral bar split by money with each side's traders and dollars, and per side its
+    average entry (weighted by money, so by the coins held), the price now against it ("price +10.3% · in profit":
+    the price move only, before leverage and funding) and when half its money was in ("half in by 19 Jul", or "over
+    half from before tracking").
+  - On the chart: each side's average entry as a solid line from that day, and its positions as triangles (up mint
+    for longs, down coral for shorts) at their open day (by UTC day, on its candle) and average entry. Their area is
+    proportional to money. Triangles that would cover each other merge, then down to four a side but only within
+    three weeks of each other, at their members' money-weighted day and entry, with the number of traders on or beside
+    them where it covers nothing else. The panel widens at either end so every triangle sits whole.
+  - Under the chart: the money in positions opened each week (the last week ending today), longs up and shorts down.
   - Positions opened before the 120 days shown, or before tracking began, sit in an "earlier" column at the left,
-    one triangle a side. One far outside the candles is pinned to the edge with its price written.
+    one triangle a side. An entry or an average far outside the candles (more than 35% of their range) is pinned to
+    the edge with its price, so one old position never squashes the candles.
+  - A tall page renders at a lower dpi so its long side stays within 2,560 pixels.
+
 - **The market map**, with the morning read: every screened coin by where it sits against its band and its daily
   z-score, the owner's lines drawn, the corners named (stretched over the band, washed out under it), long candidates
   mint and short coral with a halo, sized by open interest, names placed so none covers another. `/map`.
