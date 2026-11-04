@@ -378,7 +378,7 @@ The agent has no token. Launching one on Orbio waits until the posts show they a
 Open the service's root URL (`/`). If `SYNTH_API_KEY` is set, the page asks for the key once and keeps it in the
 browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/dashboard.html`, `synth/desk.py`).
 
-- **Desk** (home, `GET /desk`, `GET /board`):
+- **Desk** (home, `GET /desk`, `GET /desk/board`):
   - the latest read's headline and the board (the same lines as the morning read), then Outrider's setups of the
     last 14 days: entry, price now, the move its way, where each is wrong, and its 1, 3 and 7-day results;
   - six tiles (crowd long, big money long, tracked long, uptrend share and run age, BTC, alerts in 24 hours);

@@ -157,3 +157,15 @@ def test_a_read_he_asked_for_while_one_ran_follows_unless_that_one_reached_him(t
     asyncio.run(go())
     reasons = [b["body"]["reason"] for b in agent.store.briefs_since("read", 0)]
     assert reasons == ["market changed", "asked"] and len(sent) == 1   # the held-back read did not reach him
+
+
+def test_every_get_route_has_one_handler():
+    from synth import api
+    seen = {}
+    for r in api.app.routes:
+        for m in getattr(r, "methods", None) or ():
+            key = (m, r.path)
+            assert key not in seen, f"{m} {r.path} is served twice"
+            seen[key] = r
+    assert ("GET", "/board") in seen and ("GET", "/desk/board") in seen
+    assert hasattr(api.board, "smart_board")                       # the board module is not shadowed

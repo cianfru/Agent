@@ -600,22 +600,28 @@ class Agent:
                 continue
             await hl.ensure_names()
             bars = await hl.candles(p["coin"], "1h", int((p["ts"] - 3600) * 1000), int((at + 3600) * 1000))
-            bars = [b for b in bars if b[0] / 1000 + 3600 > p["ts"] and b[0] / 1000 < at]
+            # only hours wholly after the entry and before the horizon: a wick before the pick, or after its horizon,
+            # is not its path; the partial hours at either end keep what the hourly copy saw
+            bars = [b for b in bars if b[0] / 1000 >= p["ts"] and b[0] / 1000 + 3600 <= at]
             if not bars:
                 continue
             sign, e = (1, p["entry_price"]) if p["direction"] == "long" else (-1, p["entry_price"])
             worst = min(b[3] for b in bars) if sign > 0 else max(b[2] for b in bars)
             best = max(b[2] for b in bars) if sign > 0 else min(b[3] for b in bars)
             st = dict(((p.get("state") or {}).get(f"path_{h}")) or {})
-            st.update({"mae_pct": round(100 * min(0.0, sign * (worst / e - 1)), 2),
-                       "mfe_pct": round(100 * max(0.0, sign * (best / e - 1)), 2), "exact": True})
+            st.update({"mae_pct": round(min(st.get("mae_pct", 0.0), 100 * min(0.0, sign * (worst / e - 1))), 2),
+                       "mfe_pct": round(max(st.get("mfe_pct", 0.0), 100 * max(0.0, sign * (best / e - 1))), 2),
+                       "exact": True})
             off = (((p.get("state") or {}).get("risk") or {}).get("off") or {}).get("level")
             if off:
                 hit = next((b for b in bars if (b[3] <= off if sign > 0 else b[2] >= off)), None)
-                st["off_hit"] = hit is not None
+                hours = [x for x in (st.get("off_hit_h") if st.get("off_hit") else None,
+                                     round((hit[0] / 1000 - p["ts"]) / 3600, 1) if hit is not None else None)
+                         if x is not None]
+                st["off_hit"] = bool(st.get("off_hit")) or hit is not None
                 st.pop("off_hit_h", None)
-                if hit is not None:
-                    st["off_hit_h"] = round(max(0.0, hit[0] / 1000 - p["ts"]) / 3600, 1)
+                if hours:
+                    st["off_hit_h"] = min(hours)
             self.store.update_pick_state(pid, {f"path_{h}": st})
             done += 1
         return done

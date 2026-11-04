@@ -115,7 +115,7 @@ def test_patterns_cycle_and_breadth_draw_for_a_phone():
     day0 = dt.date(2025, 9, 1)
     hist = {"rows": [[(day0 + dt.timedelta(days=i)).isoformat(), 40 + 20 * math.sin(i / 30), 60_000 + 50 * i,
                       math.sin(i / 20)] for i in range(400)],
-            "cycle": {"start": (day0 + dt.timedelta(days=380)).isoformat(), "threshold": 55,
+            "cycle": {"start": (day0 + dt.timedelta(days=380)).isoformat(), "threshold": 0.55,
                       "runs": [[(day0 + dt.timedelta(days=100)).isoformat(), 40, 70]]}}
     png = chart.cycle_chart(hist, {"state": "broad uptrend", "run_day": 20})
     assert size(png)[0] == 1200 and chart.cycle_chart({"rows": hist["rows"][:5]}) is None

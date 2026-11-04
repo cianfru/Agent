@@ -406,7 +406,7 @@ class PositionTraders:
                     late = None
                     if p["notional"] >= MIN_NEW_USD:
                         late = self.store.add_pick(
-                            "position", coin, p["side"], 2, self._mids.get(coin) or p["entry_px"] or None,
+                            "position", coin, p["side"], 2, self._px(coin, p) or None,
                             f"pt {a} {coin} {p['side']} grown to conviction",
                             {"wallet": a, "size_usd": round(p["notional"]), "upgraded_from": row.get("pick_id"),
                              "secs_after_open": round(now - row["opened_ts"])})
@@ -447,23 +447,33 @@ class PositionTraders:
         """Once: conviction picks logged before S3's amendment (4 November 2026) whose position grew to conviction size
         after the agent first saw it carry the open's price, not the price when the bet was knowable. They are marked
         and reported apart (journal kind 'conviction_late'). Returns how many were marked."""
-        from .journal import S3_LATE_FROM
-        if (self.store.get_snapshot("s3_late_marked") or {}).get("done"):
+        if (self.store.get_snapshot("s3_late_marked_v2") or {}).get("done"):
             return 0
         alerts: dict[tuple, list[float]] = {}
         for b in self.store.briefs_since("pt_alert", 0):
             body = b["body"]
             alerts.setdefault((str(body.get("address", "")).lower(), body.get("coin"), body.get("side")), []).append(
                 b["ts"])
+        traders = self.traders
         n = 0
-        for r in self.store.pt_conviction_rows(before=S3_LATE_FROM):
+        # every promoted pick there is: the new code never promotes the open's pick, so none of these is from after it
+        for r in self.store.pt_conviction_rows(before=time.time()):
+            if (r.get("state") or {}).get("upgraded_late"):
+                continue
             ts = [x for x in alerts.get((r["address"].lower(), r["coin"], r["side"]), [])
                   if r["first_seen"] - 60 <= x <= r["first_seen"] + CONVICTION_WINDOW_S + 3600]
-            if ts and min(ts) - r["first_seen"] > 600:
-                self.store.update_pick_state(r["pick_id"], {"upgraded_late": True,
-                                                            "secs_after_open": round(min(ts) - r["first_seen"])})
+            late = bool(ts) and min(ts) - r["first_seen"] > 600
+            if not ts:                         # no alert kept (the old cap wrote none): the size at the open decides
+                med = (traders.get(r["address"].lower()) or traders.get(r["address"]) or {}).get("median_size")
+                size = (r.get("state") or {}).get("size_usd")
+                late = bool(med and size and size < CONVICTION_X * med)
+            if late:
+                more = {"upgraded_late": True}
+                if ts:
+                    more["secs_after_open"] = round(min(ts) - r["first_seen"])
+                self.store.update_pick_state(r["pick_id"], more)
                 n += 1
-        self.store.put_snapshot("s3_late_marked", {"done": True, "marked": n})
+        self.store.put_snapshot("s3_late_marked_v2", {"done": True, "marked": n})
         return n
 
     def against_his(self, coin: str, side: str) -> str:
@@ -685,9 +695,13 @@ class PositionTraders:
 
     def forward(self) -> dict:
         """The forward record of positions opened since tracking began (S3's confirmation)."""
-        picks = self.store.picks(limit=100_000, origin="position")
+        # S3's amendment: picks promoted after the open before 4 November are reported apart, and a position that grew
+        # into a conviction bet (two picks: the open's and the conviction one) counts once among all positions
+        picks = [p for p in self.store.picks(limit=100_000, origin="position")
+                 if not (p.get("state") or {}).get("upgraded_late")]
+        alls = [p for p in picks if not (p.get("state") or {}).get("grew_to_conviction")]
         out = {}
-        for name, sel in (("all", picks), ("conviction", [p for p in picks if (p.get("conviction") or 0) >= 2])):
+        for name, sel in (("all", alls), ("conviction", [p for p in picks if (p.get("conviction") or 0) >= 2])):
             row: dict[str, Any] = {"logged": len(sel)}
             for h in ("14d", "30d"):
                 v = [p[f"ret_{h}"] for p in sel if p.get(f"ret_{h}") is not None]

@@ -379,8 +379,10 @@ class Levels:
                 rates = await hl.funding_history(coin, end - 20 * DAY * 1000)
                 if len(rates) >= 48:
                     aprs = [r * 24 * 365 * 100 for r in rates]
+                    # a coin pinned at Hyperliquid's resting rate has almost no spread: 2 points a year at least,
+                    # so a one-point move off the rest is not read as several standard deviations
                     fund = {"funding_20d_mean_apr": round(statistics.fmean(aprs), 1),
-                            "funding_20d_sd_apr": round(statistics.pstdev(aprs), 1)}
+                            "funding_20d_sd_apr": round(max(statistics.pstdev(aprs), 2.0), 1)}
             except Exception as e:  # noqa: BLE001 - the levels stand without it
                 log.warning("funding history for %s failed: %s", coin, e)
         lv = {**fund, **band_history(daily, now), **trend_levels([b[4] for b in daily], weekly_closes(daily)), **price_structure(closed),

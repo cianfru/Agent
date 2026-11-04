@@ -466,23 +466,29 @@ def cycle_chart(hist: dict, turns: dict | None = None) -> bytes | None:
     fig.patch.set_facecolor(GROUND)
     if len(z) >= 30:
         gs = fig.add_gridspec(2, 1, height_ratios=[2.4, 1], hspace=0.1, left=0.1, right=0.88, top=0.84, bottom=0.1)
-        ax, zx = fig.add_subplot(gs[0]), fig.add_subplot(gs[1])
+        ax = fig.add_subplot(gs[0])
+        zx = fig.add_subplot(gs[1], sharex=ax)
         _style(zx)
     else:
         ax, zx = fig.add_axes((0.1, 0.1, 0.78, 0.74)), None
     _style(ax)
+    shade = DOWN if cyc.get("type") == "off" else UP       # past runs of the current kind: uptrends or downturns
     for r in cyc.get("runs") or []:
         try:
             a = day(r[0])
             b = a + _dt.timedelta(days=int(r[1] or 0))
-            ax.axvspan(a, b, color=UP, alpha=0.08, linewidth=0)
         except (TypeError, ValueError):
             continue
+        if b < t[0]:
+            continue                                        # runs before the window would stretch it
+        ax.axvspan(max(a, t[0]), min(b, t[-1]), color=shade, alpha=0.08, linewidth=0)
     if cyc.get("start"):
-        ax.axvspan(day(cyc["start"]), t[-1], color=ACCENT, alpha=0.14, linewidth=0)
+        ax.axvspan(max(day(cyc["start"]), t[0]), t[-1], color=ACCENT, alpha=0.14, linewidth=0)
     ax.plot(t, share, color=TEXT, linewidth=1.4)
+    ax.set_xlim(t[0], t[-1])
     if cyc.get("threshold") is not None:
-        ax.axhline(cyc["threshold"], color=MUTED, linewidth=0.9, linestyle="--")
+        thr = float(cyc["threshold"])                      # Reflex sends a fraction (0.55); the axis is in percent
+        ax.axhline(100 * thr if thr <= 1 else thr, color=MUTED, linewidth=0.9, linestyle="--")
     ax.set_ylim(0, 100)
     ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
     btc = [(day(r[0]), r[2]) for r in rows if len(r) > 2 and r[2]]

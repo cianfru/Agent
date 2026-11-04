@@ -330,3 +330,22 @@ def test_a_late_upgrade_is_its_own_pick_and_earlier_ones_are_reported_apart(tmp_
     assert pt.mark_late_upgrades() == 1 and pt.mark_late_upgrades() == 0      # once
     kinds = {r["origin"]: r for r in journal.record(store)}
     assert kinds["conviction_late"]["logged"] == 1 and kinds["conviction"]["logged"] == 1
+
+
+def test_review_fixes_forward_counts_a_position_once_and_finds_late_upgrades_without_an_alert(tmp_path, monkeypatch):
+    pt, store, hl, sent = setup(tmp_path, monkeypatch)
+    asyncio.run(pt.step(now=1_790_000_000.0))
+    hl.books[A]["ZEC"] = pos("short", 200_000, 666, entry=300.0)
+    asyncio.run(pt.step(now=1_790_000_600.0, mids={"ZEC": 301.0, "LIT": 2.6}))
+    hl.books[A]["ZEC"] = pos("short", 1_200_000, 4_000, entry=300.0)
+    asyncio.run(pt.step(now=1_790_003_600.0, mids={}))                 # no mid: the late pick at the mark, not entry
+    f = pt.forward()
+    assert f["all"]["logged"] == 1 and f["conviction"]["logged"] == 1
+    late = next(p for p in store.picks(origin="position") if p["conviction"] == 2)
+    assert late["entry_price"] == 300.0                                  # 1.2M / 4,000: the mark of that read
+    # an old promoted pick with no alert kept (the old cap wrote none), logged under conviction size: marked
+    old = store.add_pick("position", "HYPE", "long", 2, 40.0, "pt", {"size_usd": 100_000})
+    rid = store.pt_open_position(A, "HYPE", "long", 1_700_000_000.0, 1, 1_700_000_000.0, 1e6, 40.0, 0, 0, old)
+    store.pt_mark_conviction(rid)
+    assert pt.mark_late_upgrades() == 1 and store.pick(old)["state"]["upgraded_late"]
+    assert pt.forward()["conviction"]["logged"] == 1                      # the marked one is apart
