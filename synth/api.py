@@ -400,8 +400,8 @@ def list_reads(days: float = 3):
     return {"reads": agent.store.briefs_since("read", time.time() - days * 86400), "record": record(agent.store)}
 
 
-@app.get("/board", dependencies=[Depends(auth)])
-def board():
+@app.get("/desk/board", dependencies=[Depends(auth)])
+def desk_board():
     """The desk's top: the board built in code, the latest read, and Outrider's setups of the last 14 days with where
     each stands now (entry, price now, move its way, its scores, what it said to watch and where it is wrong)."""
     from .analyst import board_text, scan

@@ -83,23 +83,64 @@ def test_the_worst_move_comes_from_hourly_highs_and_lows(tmp_path):
     s = Settings(db_path=str(tmp_path / "t.db"))
     store = Store(s.db_path)
     a = service.Agent(s, store)
-    t0 = 1_793_000_000.0
+    hour = 1_792_998_000.0                               # on the hour; the pick comes at :50
+    t0 = hour + 3000
     pid = store.add_pick("read", "SOL", "short", 2, 100.0, "why", {"risk": {"off": {"level": 104.0}},
                                                                    "path_1d": {"mae_pct": -1.0, "net_pct": 1.0}})
     with store._lock:
         store._db.execute("UPDATE picks SET ts=? WHERE id=?", (t0, pid))
         store._db.commit()
 
+    def bar(h):
+        hi = 106.0 if h == 0 else 104.5 if h == 5 else 101.0     # a wick before the pick, in its own hour
+        lo = 90.0 if h == 24 else 97.0 if h == 9 else 99.0      # a drop after the horizon
+        return [(hour + h * 3600) * 1000, 100, hi, lo, 100, 0]
+
     class HL:
         async def ensure_names(self):
             pass
 
         async def candles(self, coin, interval, start_ms, end_ms):
-            return [[(t0 + h * 3600) * 1000, 100, 104.5 if h == 5 else 101, 97 if h == 9 else 99, 100, 0]
-                    for h in range(24)]
+            return [bar(h) for h in range(26)]
 
     a._refine.append((pid, "1d", t0 + DAY))
     assert asyncio.run(a.refine_paths(HL())) == 1
     p = store.pick(pid)["state"]["path_1d"]
-    assert p["mae_pct"] == -4.5 and p["mfe_pct"] == 3.0 and p["off_hit"] and p["off_hit_h"] == 5.0
+    assert p["mae_pct"] == -4.5 and p["mfe_pct"] == 3.0                # neither the wick nor the later drop
+    assert p["off_hit"] and p["off_hit_h"] == round((hour + 5 * 3600 - t0) / 3600, 1)
     assert p["exact"] and p["net_pct"] == 1.0                           # what the hourly copy gave stays
+
+
+def test_review_fixes_lint_keeps_dates_counts_and_z_lines():
+    cur = {"candidates": [{"coin": "SOL", "side": "long", "price": 93.0, "band": {"low": 92.0, "high": 96.0},
+                           "swing_low": 90.5}], "direction": [], "coins": [], "my_positions": []}
+    notes = ["band low 92 holding for 48 hours", "back over 92 with 12 traders adding",
+             "the band low 92 over the next 20 weeks", "the 28 Oct swing low at 90.5", "the Oct 28 low at 90.5",
+             "the 2025 low under 90.5", "since 2025-10-28 above 92", "z 2.8, past its 2.5 blow-off line"]
+    for n in notes:
+        out = analyst.read_lint({"views": [{"coin": "SOL", "lean": "long", "chart": n, "changes_if": ""}]}, cur)
+        assert out["views"][0]["chart"] == n and "lint" not in out, n
+    out = analyst.read_lint({"views": [{"coin": "SOL", "lean": "long", "chart": "the band low at 92, then 88.1",
+                                        "changes_if": ""}]}, cur)
+    assert out["views"][0]["chart"] == "the band low at 92"              # only the clause with the invented level goes
+
+
+def test_review_fixes_funding_at_rest_is_not_crowding():
+    r = screen.coin_row("XYZ", LV, 70.0, {"funding_apr_pct": 12.0, "funding_24h_avg_apr_pct": 11.5, "funding_z": 2.5},
+                        {})
+    assert not any("funding" in w or "paying" in w for w in r["why_short"] + r["why_long"])
+    assert "positioning" not in r["lined_up_short"]
+
+
+def test_review_fixes_breadth_compares_the_same_coins_on_the_same_day(tmp_path, monkeypatch):
+    store = Store(str(tmp_path / "t.db"))
+    now = time.time()
+    to = time.strftime("%Y-%m-%d", time.gmtime(now - DAY))
+    # ten coins over the band every day for 30 days
+    store.put_snapshot("trend_levels", {f"C{i}": {"band_hist": "a" * 30, "over200_hist": "1" * 30, "hist_to": to}
+                                        for i in range(10)})
+    got = analyst.breadth_then(store)
+    assert got["over_band_pct_week_ago"] == 100
+    cur = {"market": {"breadth": {"below": 0, "inside": 0, "just above": 0, "above": 10, "extended": 0,
+                                  "over_200d": 10, "with_200d": 10, "coins": 15, **got}}, "direction": []}
+    assert "(100% now, 100% a week ago)" in analyst.board_text(cur)        # five coins with no band left out of now

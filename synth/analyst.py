@@ -408,15 +408,17 @@ def quant(row: dict) -> dict:
 def breadth_then(store) -> dict:
     """How many coins (in %) sat over their band and over their 200-day a week and a month ago, rebuilt from each
     coin's history: whether breadth is improving or rolling over."""
-    hist = screen.breadth_history(store.get_snapshot("trend_levels") or {})
+    by_day = {d["day"]: d for d in screen.breadth_history(store.get_snapshot("trend_levels") or {})}
     out = {}
+    now = time.time()
     for label, back in (("week_ago", 7), ("month_ago", 30)):
-        if len(hist) > back:
-            d = hist[-1 - back]
-            if d["coins"]:
-                out[f"over_band_pct_{label}"] = round(100 * d["over"] / d["coins"])
-            if d["with_200d"]:
-                out[f"over_200d_pct_{label}"] = round(100 * d["over_200d"] / d["with_200d"])
+        d = by_day.get(time.strftime("%Y-%m-%d", time.gmtime(now - back * DAY)))
+        if not d:
+            continue
+        if d["coins"]:
+            out[f"over_band_pct_{label}"] = round(100 * d["over"] / d["coins"])
+        if d["with_200d"]:
+            out[f"over_200d_pct_{label}"] = round(100 * d["over_200d"] / d["with_200d"])
     return out
 
 
@@ -472,9 +474,12 @@ def risk_frame(cur: dict, coin: str, side: str, name: str | None) -> dict | None
     return out
 
 
-NUM = re.compile(r"(?<![\w.])[-+]?\$?(\d[\d,]*(?:\.\d+)?)\s*([kKmMbB](?![a-zA-Z])|%)?")
-NOT_A_LEVEL = ("-day", "-week", " day", " days", "day", "days", " week", " weeks", "w ", "h ", "h,", "h.", "x",
-               " of ", " hour", " traders", " setups", " coins", " bets", "st ", "nd ", "rd ", "th ")
+NUM = re.compile(r"(?<![\w.:-])[-+]?\$?(\d[\d,]*(?:\.\d+)?)(?:\s*([kKmMbB](?![a-zA-Z])|%))?")
+NOT_A_LEVEL = ("-day", "-week", "day", "week", "month", "hour", "h ", "h,", "h.", "h)", "x ", "x,", "x.", "of ",
+               "trader", "tracked", "setup", "coin", "bet", "st ", "nd ", "rd ", "th ", "utc", "points", "pts",
+               "sd ", "atr", "times")
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+DATE_OR_TIME = re.compile(r"\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}")
 
 
 def _numbers(obj, out: list[float] | None = None) -> list[float]:
@@ -497,14 +502,31 @@ def _written(text: str, levels_only: bool = False) -> list[float]:
     """The figures in a sentence the model wrote, $K/$M/$B scaled; with `levels_only`, only what reads as a price
     level (not a count of days, weeks, hours, traders or a percentage)."""
     out = []
-    for m in NUM.finditer(text or ""):
-        tail = (text[m.end():m.end() + 8]).lower()
-        unit = m.group(2) or ""
-        v = float(m.group(1).replace(",", ""))
-        if levels_only and (unit == "%" or tail.startswith(NOT_A_LEVEL) or (v < 10 and "." not in m.group(1))):
+    text = text or ""
+    skip = [(m.start(), m.end()) for m in DATE_OR_TIME.finditer(text)]       # dates and clock times are not levels
+    for m in NUM.finditer(text):
+        if any(a <= m.start() < b for a, b in skip):
             continue
+        tail = text[m.end():m.end() + 12].lower().lstrip()
+        head = text[max(0, m.start() - 6):m.start()].lower().rstrip()
+        unit = m.group(2) or ""
+        raw = m.group(1).replace(",", "")
+        v = float(raw)
+        if levels_only:
+            if (unit == "%" or tail.startswith(NOT_A_LEVEL) or tail.startswith(MONTHS) or head.endswith(MONTHS)
+                    or head.endswith(("z", "z of", "beta")) or (v < 10 and "." not in raw)
+                    or ("." not in raw and not unit and "$" not in text[max(0, m.start() - 1):m.start() + 1]
+                        and 2000 <= v <= 2100)):
+                continue
         out.append(v * {"k": 1e3, "m": 1e6, "b": 1e9}.get(unit.lower(), 1.0))
     return out
+
+
+def _drop_clauses(text: str, bad: list[float]) -> str:
+    """The sentence without the clauses that carry a figure not in the scan; the rest of it stays."""
+    parts = [c for c in re.split(r"\s*[;,]\s*|(?<=[a-z0-9])\.\s+", text or "") if c.strip()]
+    keep = [c for c in parts if not any(_known(x, bad, 1e-9) for x in _written(c, levels_only=True))]
+    return ", ".join(keep)
 
 
 def _known(v: float, pool: list[float], tol: float) -> bool:
@@ -520,12 +542,12 @@ def read_lint(out: dict, cur: dict) -> dict:
     for v in out.get("views") or []:
         rows = [r for r in (cur.get("candidates") or []) + (cur.get("direction") or []) + (cur.get("coins") or [])
                 if r.get("coin") == v["coin"]]
-        pool = _numbers(rows) + _numbers(v.get("risk") or {})
+        pool = _numbers(rows) + _numbers(v.get("risk") or {}) + [2.5, 3.0, 3.5, 1.0]   # and the owner's z lines
         for field in ("chart", "changes_if"):
             bad = [x for x in _written(v.get(field) or "", levels_only=True) if not _known(x, pool, 0.0075)]
             if bad:
                 problems.append(f"{v['coin']} {field}: {', '.join(f'{x:g}' for x in bad)} is not one of its levels")
-                v[field] = ""
+                v[field] = _drop_clauses(v.get(field) or "", bad)
     for field in ("headline", "read"):
         bad = [x for x in _written(out.get(field) or "") if x >= 10 and not _known(x, every, 0.02)
                and not _known(x / 100, every, 0.02)]
@@ -899,9 +921,10 @@ def board_text(cur: dict) -> str:
     b = m.get("breadth")
     if b:
         over = b["above"] + b["just above"] + b["extended"]
+        banded = sum(b.get(s, 0) for s in screen.BAND_STATES)            # coins with a band, as the history counts
         then = ""
-        if b.get("over_band_pct_week_ago") is not None and b.get("coins"):
-            then = f" ({round(100 * over / b['coins'])}% now, {b['over_band_pct_week_ago']}% a week ago)"
+        if b.get("over_band_pct_week_ago") is not None and banded:
+            then = f" ({round(100 * over / banded)}% now, {b['over_band_pct_week_ago']}% a week ago)"
         lines.append(f"Breadth: {over} over the band{then} · {b['inside']} inside · "
                      f"{b['below']} under · {b['over_200d']} of {b['with_200d']} over the 200-day")
     zx = m.get("z_extremes")

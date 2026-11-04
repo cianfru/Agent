@@ -69,6 +69,7 @@ SIGNAL_WORD = {"STRONG_LONG": "strong up-setup", "LIGHT_LONG": "leaning up", "AC
 SORTS = ("score", "band", "ma200", "retrace", "oi", "funding", "z", "rs")
 BAND_STATES = ("below", "inside", "just above", "above", "extended")
 MIN_VOL_USD = 3_000_000        # a day's volume under this: too thin to be a setup
+REST_APR = 10.95               # Hyperliquid's funding at rest, 0.00125% an hour, as a year's worth
 MAX_SPREAD_BPS = 15.0          # an impact-size order paying more than this across the book: too thin
 ENGINE_KEEP = ("sector", "atr_regime", "rel_vol", "exhaustion", "climax", "divergence", "floor_confirmed")
 
@@ -320,8 +321,10 @@ def _score(r: dict, side: str) -> tuple[int, list[str], dict, str | None]:
     f = r.get("funding_24h_avg_apr_pct")
     f = r.get("funding_apr_pct") if f is None else f        # the day's average, not one hour's print
     fz = r.get("funding_z")                                   # against the coin's own last 20 days
-    hot = fz is not None and fz >= 2 and (f or 0) > 10
-    cold = fz is not None and fz <= -2 and (f or 0) < -10
+    # and 10 points a year beyond Hyperliquid's resting rate (0.00125% an hour, about 11% a year), so a coin moving
+    # off its rest is not crowding
+    hot = fz is not None and fz >= 2 and (f or 0) >= REST_APR + 10
+    cold = fz is not None and fz <= -2 and (f or 0) <= -10
     norm = f" ({fz:+.1f} sd from its 20-day norm)" if fz is not None and abs(fz) >= 2 else ""
     if f is not None and ((f > 50 or hot) if long else (f < -50 or cold)):
         pts -= 5
@@ -329,7 +332,7 @@ def _score(r: dict, side: str) -> tuple[int, list[str], dict, str | None]:
     elif f is not None and not long and (f >= 30 or hot):
         pts += 5
         why.append(f"longs paying {f:.0f}% a year{norm}")
-        if f >= 50 or (fz is not None and fz >= 2.5):
+        if f >= 50 or (fz is not None and fz >= 2.5 and f >= 30):
             fam["positioning"].append(why[-1])
     rank = r.get("rs_rank_30d")
     if rank is not None and r.get("rs_30d_pct") is not None:

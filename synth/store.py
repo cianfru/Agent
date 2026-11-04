@@ -484,10 +484,18 @@ class Store:
 
     def pt_conviction_rows(self, before: float) -> list[dict]:
         """Tracked positions marked as conviction bets with a pick, first seen before `before`."""
-        rows = self._db.execute("SELECT t.address, t.coin, t.side, t.first_seen, t.opened_ts, t.pick_id "
+        rows = self._db.execute("SELECT t.address, t.coin, t.side, t.first_seen, t.opened_ts, t.pick_id, p.state "
                                 "FROM pt_positions t JOIN picks p ON p.id=t.pick_id WHERE t.conviction=1 "
                                 "AND p.conviction>=2 AND t.first_seen<?", (before,)).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["state"] = json.loads(d.get("state") or "{}") or {}
+            except ValueError:
+                d["state"] = {}
+            out.append(d)
+        return out
 
     def pt_open(self, address: str) -> list[dict]:
         rows = self._db.execute("SELECT * FROM pt_positions WHERE address=? AND status='open'", (address,)).fetchall()
