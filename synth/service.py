@@ -55,6 +55,10 @@ class Agent:
         )
         self.tracker = GroupTracker(settings, store, self.reflex)
         self.positions = PositionTraders(settings, store)
+        try:
+            self.positions.mark_late_upgrades()   # once: S3's amendment, earlier late upgrades reported apart
+        except Exception as e:  # noqa: BLE001 - tried again at the next start
+            log.warning("marking late conviction upgrades failed: %s", e)
         self.market = MarketIndex(store)    # the market's move beside every pick's (synth/market.py)
         self.levels = Levels(store)         # open interest, funding, 200-day average, support band (synth/levels.py)
         self.last_cycle: dict[str, Any] = {}

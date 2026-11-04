@@ -161,13 +161,15 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   from 0.09" does the same. Watched positions count like wallet positions: an alert against one says so.
 - **Its record:** every view sent is logged at Hyperliquid's mid (only a mid read within the last two polls) and scored
   at 1, 3 and 7 days at the price of that hour: from the hourly copy of every coin's price (kept 8 days), or the price
-  now while the horizon is under two hours old; never at a later price as if it were the horizon's (study S5, declared
-  before any result: useful only after 60 setups with 62%+ right at 3 days and a median +1% their way). The setups
-  since S5's Amendment 2 (3 November 2026) are reported apart from the views before it, as the study says; each read
-  and `/record` show the setups against the declared bar. Beside it (S5 Amendment 3, display only): the 95% interval
-  for the share right, how many separate bets (the same coin and side within 3 days counts once) over how many days,
-  the return after a taker round trip and the funding paid, how often the setup's own off level was touched before the
-  horizon, and the move beyond the coin's beta to BTC.
+  now while the horizon is under two hours old; never at a later price as if it were the horizon's. The setups since
+  S5's Amendment 2 (3 November 2026) are reported apart from the views before it. The verdict (S5 Amendment 3,
+  4 November 2026, before any setup had a 3-day result) is judged on separate bets (the same coin and side within 3
+  days counts once) and their 3-day move beyond the market: useful only after 60 bets, 62% beating the market, a
+  median +1% beyond it, and the lower end of the 95% interval of the mean above zero; until then context, not a
+  signal. Each read and `/record` show how far the setups are from that bar, with the raw share right beside it, the
+  return after a taker round trip and the funding paid, how often the setup's own off level was touched before the
+  horizon, and the move beyond the coin's beta to BTC. `/record` also shows study S6: whether the screen ranks coins,
+  and whether the read beats the code's own picks and random coins.
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
   list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
@@ -245,7 +247,7 @@ days, and for each side a score with the reasons and a risk frame.
   `GET /screen?sort=band&band=inside`.
 - **Kept for a test:** once a day after the levels refresh, every coin's row as the screen saw it (scores by family,
   risk frames, band, z, strength) goes into `screen_log`, and at each read the code's top two candidates and a random
-  liquid coin on each view's side are logged as shadow picks (never sent). Study S6 (proposed, awaiting the owner)
+  liquid coin on each view's side are logged as shadow picks (never sent). Study S6 (declared 4 November 2026)
   would test from these whether the screen ranks and whether the read adds anything over the code and over chance.
 
 ### Open interest, funding, the 200-day average and the support band

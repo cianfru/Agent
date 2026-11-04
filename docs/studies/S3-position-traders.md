@@ -154,3 +154,19 @@ Widened the same day (owner: "we should track everyone that has an open position
 solid principle"): the daily scan reads every account of $10K+ in profit all-time, not market makers (about 14,400,
 against 4,500 in the refresh pool), and a position up 200%+ on margin also qualifies (beside 30%+ on price), still
 open 14+ days with $10K+ of profit.
+
+## Amendment (4 November 2026): bets that grow into conviction after the open
+
+Found by the quant audit: a position the agent saw open under conviction size and that grew past 2x the trader's usual
+size within 4 hours was promoted to a conviction pick, keeping the open's price. Gains made between the open and the
+moment the bet became a conviction bet (when a follower could first see it) counted for it, which flatters the forward
+record. From 4 November 2026 (the owner left the choice to the agent's judgement):
+
+- Conviction is judged on the dollars traded (size at the trader's average entry), as the backtest sized positions,
+  not on the mark, so a price move alone cannot promote a position.
+- A position that grows into a conviction bet after the open is logged as its own conviction pick at the price then;
+  the open's pick stays an ordinary new position.
+- Conviction picks logged before this date whose alert came more than 10 minutes after the agent first saw the
+  position are marked and reported apart ("upgraded after the open"), not mixed into the forward record.
+
+The verdict rule is unchanged.

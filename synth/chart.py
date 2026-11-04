@@ -380,29 +380,30 @@ def market_map(rows: list[dict], cands: list[dict], label: list[str] = (), title
 
 
 def journal_chart(picks: list[dict], bar: dict, since: float, label: str = "Setups since 3 Nov (S5)") -> bytes | None:
-    """The record against its declared bar, not a sum of returns: the running share right and the share that beat the
-    market, setup by setup, with the bar (62%) and the number needed (60); under it each setup's 3-day move its way and
-    the running median against the +1% bar. None until one setup is scored."""
+    """The record against its declared bar (S5 Amendment 3), not a sum of returns: over separate bets, the running
+    share that beat the market (the verdict's line) with the raw share right beside it, the bar (62%) and the number
+    needed (60); under it each bet's 3-day move beyond the market and the running median against the +1% bar. None
+    until one bet is scored."""
     import statistics
-    got = sorted([p for p in picks if p["ts"] >= since and p.get("ret_3d") is not None], key=lambda p: p["ts"])
+    from .journal import excess, first_bets, s5
+    got = [p for p in first_bets([p for p in picks if p["ts"] >= since]) if p.get("ret_3d") is not None]
     if not got:
         return None
-    from .journal import excess
     n = list(range(1, len(got) + 1))
     right = [100 * sum(p["ret_3d"] > 0 for p in got[:i]) / i for i in n]
-    beat_pts = [(i, x) for i, p in enumerate(got, 1) if (x := excess(p, "3d")) is not None]
-    beat = [(i, 100 * sum(x > 0 for _, x in beat_pts[:k]) / k) for k, (i, _) in enumerate(beat_pts, 1)]
-    moves = [max(-15, min(15, 100 * p["ret_3d"])) for p in got]
-    med = [statistics.median(moves[:i]) for i in n]
+    xs = [(i, x) for i, p in enumerate(got, 1) if (x := excess(p, "3d")) is not None]
+    beat = [(i, 100 * sum(x > 0 for _, x in xs[:k]) / k) for k, (i, _) in enumerate(xs, 1)]
+    moves = [(i, max(-15.0, min(15.0, 100 * x))) for i, x in xs]
+    med = [(i, statistics.median(m for _, m in moves[:k])) for k, (i, _) in enumerate(moves, 1)]
     fig = Figure(figsize=(W_IN, 5.0), dpi=DPI)
     fig.patch.set_facecolor(GROUND)
     gs = fig.add_gridspec(2, 1, height_ratios=[1.4, 1], hspace=0.12, left=0.12, right=0.95, top=0.84, bottom=0.1)
     ax, mx = fig.add_subplot(gs[0]), fig.add_subplot(gs[1])
     _style(ax)
     _style(mx)
-    ax.plot(n, right, color=TEXT, linewidth=1.6, label="right")
     if beat:
-        ax.plot([i for i, _ in beat], [v for _, v in beat], color=ACCENT, linewidth=1.4, label="beat the market")
+        ax.plot([i for i, _ in beat], [v for _, v in beat], color=ACCENT, linewidth=1.8, label="beat the market")
+    ax.plot(n, right, color=MUTED, linewidth=1.2, linestyle="--", label="right (raw)")
     ax.axhline(bar["right_pct"], color=UP, linewidth=1, linestyle="--")
     ax.axhline(50, color=MUTED, linewidth=0.8, linestyle=":")
     xmax = max(bar["n"], len(got)) + 2
@@ -413,17 +414,18 @@ def journal_chart(picks: list[dict], bar: dict, since: float, label: str = "Setu
     ax.set_xlim(0, xmax)
     ax.tick_params(labelbottom=False)
     ax.legend(loc="lower left", fontsize=8.5, frameon=False, labelcolor=TEXT)
-    sides = [UP if p["direction"] == "long" else DOWN for p in got]
-    mx.scatter(n, moves, s=18, color=sides, zorder=3)
-    mx.plot(n, med, color=TEXT, linewidth=1.3)
+    if moves:
+        cols = [UP if got[i - 1]["direction"] == "long" else DOWN for i, _ in moves]
+        mx.scatter([i for i, _ in moves], [m for _, m in moves], s=18, color=cols, zorder=3)
+        mx.plot([i for i, _ in med], [m for _, m in med], color=TEXT, linewidth=1.3)
     mx.axhline(bar["median_pct"], color=UP, linewidth=1, linestyle="--")
     mx.axhline(0, color=MUTED, linewidth=0.8, linestyle=":")
     mx.set_xlim(0, xmax)
-    mx.set_ylabel("3-day move %", color=MUTED, fontsize=9)
-    mx.set_xlabel("setup", color=MUTED, fontsize=9)
-    from .journal import meets
-    met = meets(len(got), sum(p["ret_3d"] > 0 for p in got), statistics.median(p["ret_3d"] for p in got), bar)
-    fig.text(0.03, 0.955, f"{label}: {len(got)} scored", color=TEXT, fontsize=13, fontweight="bold", va="center")
+    mx.set_ylabel("beyond the market %", color=MUTED, fontsize=9)
+    mx.set_xlabel("separate bet", color=MUTED, fontsize=9)
+    met = s5(got, bar=bar)["verdict"] == "meets the declared bar"
+    fig.text(0.03, 0.955, f"{label}: {len(got)} bets scored", color=TEXT, fontsize=13, fontweight="bold",
+             va="center")
     fig.text(0.03, 0.905, "Meets the declared bar" if met else "Context, not a signal: under the declared bar",
              color=UP if met else MUTED, fontsize=9, va="center")
     fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")

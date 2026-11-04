@@ -418,7 +418,10 @@ def picks(limit: int = 100, origin: str | None = None):
 def pick_record():
     """How each kind of pick did over every pick logged: per horizon, share right and median, longs and shorts apart."""
     from . import journal
-    return {"kinds": journal.record(agent.store), "reads": journal.reads(agent.store)}
+    from . import s6
+    setups = [p for p in agent.store.picks(limit=1_000_000, origin="read") if p["ts"] >= journal.S5_SETUPS_FROM]
+    return {"kinds": journal.record(agent.store), "reads": journal.reads(agent.store),
+            "s5": journal.s5(setups), "s6": s6.report(agent.store)}
 
 
 @app.get("/posts", dependencies=[Depends(auth)])

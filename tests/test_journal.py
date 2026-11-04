@@ -44,3 +44,41 @@ def test_reads_summary_tells_a_thin_record_from_a_broken_one(tmp_path):
     assert journal.reads_text(r) == ("Outrider's reads, 7 days: 4 ran (3 market changed, 1 morning) · 2 sent · 1 held "
                                      "back · 1 failed · 1 sent with no view · 1 views logged. Last failure: Expecting "
                                      "value: line 1")
+
+
+def test_s5_judges_separate_bets_beyond_the_market_with_an_interval():
+    t = 1_793_000_000.0
+    # 70 bets on 35 days, each beating a flat market by 2%: meets the bar
+    ok = [{"coin": f"C{i}", "direction": "long", "ts": t + (i // 2) * 86400, "ret_3d": 0.02, "mkt_3d": 0.0}
+          for i in range(70)]
+    v = journal.s5(ok)
+    assert v["bets"] == 70 and v["beat_pct"] == 100 and v["mean_low_pct"] == 2.0 and v["verdict"] == "meets the declared bar"
+    # the same coin and side repeated on following days is one bet, scored from its first entry
+    rep = [{"coin": "SOL", "direction": "short", "ts": t + i * 86400, "ret_3d": 0.03, "mkt_3d": -0.05}
+           for i in range(5)]
+    assert journal.s5(rep)["bets"] == 1 and journal.s5(rep)["beat"] == 0     # shorting a falling market is no skill
+    # a few big days carry the mean, most bets lose: under the bar
+    mixed = [{"coin": f"C{i}", "direction": "long", "ts": t + i * 86400, "ret_3d": 0.30 if i < 5 else -0.01,
+              "mkt_3d": 0.0} for i in range(65)]
+    assert journal.s5(mixed)["verdict"] == "context, not a signal"
+    assert journal.s5_text(journal.s5(ok)).startswith("Setups since 3 Nov (S5): 70 separate bets scored at 3 days")
+
+
+def test_s6_ranks_the_screen_and_compares_the_read_with_the_code_and_chance(tmp_path):
+    from synth import s6
+    store = Store(str(tmp_path / "t.db"))
+    days = [time.strftime("%Y-%m-%d", time.gmtime(1_793_750_400 + i * 86400)) for i in range(8)]
+    # ten coins; a higher long score goes with a bigger rise three days later
+    for i, d in enumerate(days):
+        rows = []
+        for c in range(10):
+            price = 100 * (1 + 0.01 * c) ** i
+            rows.append((f"C{c}", {"price": price, "z_1d": c / 5, "long": {"score": 10 * c, "lined_up": ["price"]},
+                                   "short": {"score": 100 - 10 * c, "lined_up": []}}))
+        store.screen_log_add(d, rows)
+    rep = s6.screen_ranking(store)
+    assert rep["long"]["days"] == 5 and rep["long"]["mean_ic"] == 1.0 and rep["short"]["mean_ic"] == 1.0
+    assert rep["long"]["verdict"] == "context, not a signal"            # five days of 60
+    assert rep["long"]["top_minus_bottom_pct"] > 0
+    txt = s6.text(s6.report(store))
+    assert txt.startswith("S6, does the screen rank: 5 days of 60") and "the read against the code" in txt

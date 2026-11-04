@@ -514,7 +514,7 @@ def log_row(r: dict) -> dict:
 
 def log_day(agent, now: float | None = None) -> int:
     """Once a day after the levels refresh: every coin's screen row, and the market's breadth (coin '*'), kept as the
-    screen saw them, so the screen can be tested against what came next without hindsight (study S6, proposed)."""
+    screen saw them, so the screen can be tested against what came next without hindsight (study S6)."""
     now = now or time.time()
     t = build(agent, now)
     if not t["rows"]:

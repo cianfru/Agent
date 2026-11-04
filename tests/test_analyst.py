@@ -164,8 +164,9 @@ def test_record_counts_views_their_way(tmp_path, monkeypatch):
     a = rec["3d"]["all"]
     assert (a["n"], a["right"], a["median_pct"], a["vs_market"]["n"]) == (6, 4, 1.5, 0)   # no market move yet
     assert rec["3d"]["firm_or_strong"]["n"] == 3 and (rec["shorts"], rec["3d"]["short"]["right"]) == (6, 4)
-    assert analyst.record_text(rec) == ("Setups since 3 Nov (S5): 6 scored at 3 days, 60 needed · 4 right (67%, bar 62%)"
-                                        " · median +1.5% (bar +1%) · context, not a signal.")
+    # S5 Amendment 3: six SUI shorts logged together are one bet, and with no market move yet none is judged
+    assert analyst.record_text(rec) == ("Setups since 3 Nov (S5): 0 separate bets scored at 3 days, 60 needed · "
+                                        "context, not a signal. Raw: 1 of 1 right.")
     # views logged before Amendment 2 (3 November 2026) are reported apart, never mixed into the setups' record
     old = agent.store.add_pick("read", "ENA", "long", 1, 0.9, "why", {})
     agent.store.set_pick_return(old, "3d", -0.04)
@@ -174,7 +175,7 @@ def test_record_counts_views_their_way(tmp_path, monkeypatch):
         agent.store._db.commit()
     rec = analyst.record(agent.store)
     assert rec["3d"]["all"]["n"] == 6 and rec["views_before_3_nov"]["n"] == 1
-    assert analyst.record_text(rec).endswith("context, not a signal. Views before 3 Nov: 0 of 1 right.")
+    assert analyst.record_text(rec).endswith("Raw: 1 of 1 right. Views before 3 Nov: 0 of 1 right.")
 
 
 def test_chat_sees_his_positions_and_the_latest_read(tmp_path, monkeypatch):
