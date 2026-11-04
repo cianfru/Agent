@@ -82,3 +82,55 @@ def test_s6_ranks_the_screen_and_compares_the_read_with_the_code_and_chance(tmp_
     assert rep["long"]["top_minus_bottom_pct"] > 0
     txt = s6.text(s6.report(store))
     assert txt.startswith("S6, does the screen rank: 5 days of 60") and "the read against the code" in txt
+
+
+def _log_days(store, n, ours, theirs):
+    """n days of ten coins; a higher coin number rises more over the next days. ours/theirs(c, i): the screen's long
+    score and Reflex's priority score for coin c on day i."""
+    days = [time.strftime("%Y-%m-%d", time.gmtime(1_793_750_400 + i * 86400)) for i in range(n)]
+    for i, d in enumerate(days):
+        store.screen_log_add(d, [(f"C{c}", {"price": 100 * (1 + 0.01 * c) ** i, "priority_1d": theirs(c, i),
+                                            "long": {"score": ours(c, i), "lined_up": []},
+                                            "short": {"score": 0, "lined_up": []}}) for c in range(10)])
+
+
+def test_s6_compares_the_screen_with_reflexs_priority_on_the_same_coins(tmp_path):
+    from synth import s6
+    mixed = lambda c, i: 10 * ((7 * c + i) % 10)                       # noqa: E731  an order that changes daily
+    right = lambda c, i: 10 * c                                        # noqa: E731  the order of what came next
+    store = Store(str(tmp_path / "a.db"))
+    _log_days(store, 65, right, mixed)
+    rep = s6.against_reflex(store)
+    assert rep["days"] == 62 and rep["screen"]["mean_ic"] == 1.0 and rep["diff"] > 0.02
+    assert rep["verdict"] == "the screen ranks longs better"
+    store = Store(str(tmp_path / "b.db"))
+    _log_days(store, 65, mixed, right)
+    rep = s6.against_reflex(store)
+    assert rep["verdict"] == "Reflex's priority ranks longs better" and rep["reflex"]["top_minus_bottom_pct"] > 0
+    store = Store(str(tmp_path / "c.db"))
+    _log_days(store, 20, right, mixed)                                 # 17 days scored: under the 60 needed
+    rep = s6.against_reflex(store)
+    assert rep["days"] == 17 and rep["verdict"] == "context, not a signal"
+    assert "S6, the screen against Reflex's priority (longs): 17 days of 60" in s6.text(s6.report(store))
+    store = Store(str(tmp_path / "d.db"))
+    store.screen_log_add("2026-11-03", [("C1", {"price": 1.0, "long": {"score": 5}})])    # no Reflex score yet
+    assert "no day scored yet" in s6.text(s6.report(store))
+
+
+def test_reflexs_priority_is_kept_and_logged_but_not_given_to_the_read():
+    import asyncio
+    from synth import screen
+    from synth.sources import reflex
+
+    class RC:
+        async def get(self, path):
+            return {"results": [{"symbol": "SOL/USDT", "market_kind": "perpetual", "zscore": 1.2, "signal": "WAIT",
+                                 "regime": "MARKUP", "priority_score": 71.46}]}
+
+    got = asyncio.run(reflex.engine_all(RC()))
+    assert got["SOL"]["priority_1d"] == 71.5
+    r = screen.coin_row("SOL", {}, 100.0, None, {"priority_1d": 71.5})
+    assert screen.log_row(r)["priority_1d"] == 71.5
+    r.update(score_long=60, independent_long=2, thin=False)
+    picked = screen.candidates({"rows": [r]})
+    assert picked and "priority_1d" not in picked[0]

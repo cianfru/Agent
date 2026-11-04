@@ -372,7 +372,7 @@ def positioning(agent, now: float, board: dict | None = None) -> dict[str, dict]
         d = out.setdefault(c, {})
         if e.get("signal_1d"):
             d["engine_code"], d["engine"] = e["signal_1d"], SIGNAL_WORD.get(e["signal_1d"], e["signal_1d"])
-        for k in ("z_1d", "z_4h", "heat_1d", "regime_1d", *ENGINE_KEEP):
+        for k in ("z_1d", "z_4h", "heat_1d", "regime_1d", "priority_1d", *ENGINE_KEEP):
             if e.get(k) is not None:
                 d[k] = e[k]
     return out
@@ -495,7 +495,7 @@ def candidates(table: dict, n: int = 6, floor: int = 40) -> list[dict]:
         side = max(sides, key=lambda s: r[f"score_{s}"])
         keep = {k: v for k, v in r.items()
                 if not k.startswith(("score_", "why_", "lined_up_", "independent_", "levels_"))
-                and k not in ("engine_code", "regime_1d")}
+                and k not in ("engine_code", "regime_1d", "priority_1d")}    # Reflex's ranking: S6's, not the read's
         out.append({**keep, "side": side, "score": r[f"score_{side}"], "why": r[f"why_{side}"],
                     "lined_up": r[f"lined_up_{side}"], "independent": r[f"independent_{side}"],
                     **r[f"levels_{side}"]})
@@ -503,7 +503,8 @@ def candidates(table: dict, n: int = 6, floor: int = 40) -> list[dict]:
 
 
 LOG_KEYS = ("price", "z_1d", "z_4h", "vs_ma200d_pct", "atr_pct", "rs_30d_pct", "rs_rank_30d", "beta_btc",
-            "oi_class_24h", "oi_class_7d", "funding_24h_avg_apr_pct", "volume_24h_usd", "thin", "engine_code")
+            "oi_class_24h", "oi_class_7d", "funding_24h_avg_apr_pct", "volume_24h_usd", "thin", "engine_code",
+            "priority_1d")
 
 
 def log_row(r: dict) -> dict:

@@ -11,6 +11,13 @@ is anything called more than context.
    top candidates and the random controls, each in separate bets, averaged per day. The read adds when its mean beats
    the screen's by a point or more with the lower end of the difference's 95% interval above zero (days resampled),
    over 60 bets each; the same test, screen against random.
+3. Amendment 1 (declared 4 November 2026, before any of it was computed): the screen against Reflex's own ranking.
+   Each day, among coins not too thin that carry both scores and a price 3 days later: the rank correlation of the
+   screen's long score and of Reflex's priority score (its daily scan, 0-100, the default sort of its scanner) with the
+   coin's next 3-day move up, on the same coins. Reflex's score ranks longs only, so the comparison is on longs. The
+   difference (screen minus Reflex) per day, its mean and t over days. The screen ranks longs better when the mean
+   difference is 0.02 or more with t of 2 or more over 60 days or more; Reflex's ranks them better at -0.02 or less
+   with t of -2 or less; otherwise context, not a signal. Each ranking also gets question 1's bar on its own.
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ from . import journal
 
 H_DAYS = 3
 MIN_COINS = 8          # a day ranks only with this many coins scored and priced 3 days later
-BAR = {"days": 60, "ic": 0.03, "t": 2.0, "bets": 60, "edge_pct": 1.0}
+BAR = {"days": 60, "ic": 0.03, "t": 2.0, "bets": 60, "edge_pct": 1.0, "diff": 0.02}
 
 
 def _ranks(xs: list[float]) -> list[float]:
@@ -58,15 +65,19 @@ def _day(d: str, plus: int) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(t))
 
 
-def _summary(ics: list[float]) -> dict:
+def _mean_t(xs: list[float]) -> tuple[float, float | None]:
+    m = statistics.fmean(xs)
+    sd = statistics.stdev(xs) if len(xs) > 1 else 0.0
+    return m, (m / sd * math.sqrt(len(xs)) if sd else None)
+
+
+def _summary(ics: list[float], word: str = "the screen ranks") -> dict:
     if not ics:
         return {"days": 0}
-    m = statistics.fmean(ics)
-    sd = statistics.stdev(ics) if len(ics) > 1 else 0.0
-    t = m / sd * math.sqrt(len(ics)) if sd else None
+    m, t = _mean_t(ics)
     ok = len(ics) >= BAR["days"] and m >= BAR["ic"] and t is not None and t >= BAR["t"]
     return {"days": len(ics), "mean_ic": round(m, 3), "t": round(t, 2) if t is not None else None,
-            "verdict": "the screen ranks" if ok else "context, not a signal"}
+            "verdict": word if ok else "context, not a signal"}
 
 
 def screen_ranking(store) -> dict:
@@ -115,6 +126,56 @@ def screen_ranking(store) -> dict:
     return out
 
 
+def against_reflex(store) -> dict:
+    """Question 3 (Amendment 1): the screen's long score and Reflex's priority score as rankings of the next 3-day
+    move up, on the same days and the same coins."""
+    rows = [r for r in store.screen_log() if r["coin"] != "*"]
+    price = {(r["coin"], r["day"]): r.get("price") for r in rows}
+    by_day: dict[str, list[dict]] = {}
+    for r in rows:
+        by_day.setdefault(r["day"], []).append(r)
+    ours: list[float] = []
+    theirs: list[float] = []
+    diffs: list[float] = []
+    spread: list[float] = []
+    for d, rs in sorted(by_day.items()):
+        later = _day(d, H_DAYS)
+        pts = []
+        for r in rs:
+            p0, p1, pr = r.get("price"), price.get((r["coin"], later)), r.get("priority_1d")
+            ours_score = (r.get("long") or {}).get("score")
+            if r.get("thin") or not p0 or not p1 or pr is None or ours_score is None:
+                continue
+            pts.append((float(ours_score), float(pr), p1 / p0 - 1))
+        if len(pts) < MIN_COINS:
+            continue
+        fwd = [f for _, _, f in pts]
+        a, b = spearman([o for o, _, _ in pts], fwd), spearman([t for _, t, _ in pts], fwd)
+        if a is None or b is None:
+            continue
+        ours.append(a)
+        theirs.append(b)
+        diffs.append(a - b)
+        ranked = sorted(pts, key=lambda p: p[1])
+        k = max(1, len(ranked) // 5)
+        spread.append(statistics.fmean(f for *_, f in ranked[-k:]) - statistics.fmean(f for *_, f in ranked[:k]))
+    out = {"days": len(diffs), "screen": _summary(ours, "the screen ranks longs"),
+           "reflex": _summary(theirs, "Reflex's priority ranks longs")}
+    if spread:
+        out["reflex"]["top_minus_bottom_pct"] = round(100 * statistics.fmean(spread), 2)
+    verdict = "context, not a signal"
+    if diffs:
+        m, t = _mean_t(diffs)
+        if len(diffs) >= BAR["days"] and t is not None:
+            if m >= BAR["diff"] and t >= BAR["t"]:
+                verdict = "the screen ranks longs better"
+            elif m <= -BAR["diff"] and t <= -BAR["t"]:
+                verdict = "Reflex's priority ranks longs better"
+        out.update(diff=round(m, 3), diff_t=round(t, 2) if t is not None else None)
+    out["verdict"] = verdict
+    return out
+
+
 def _arm(picks: list[dict]) -> tuple[int, dict[str, list[float]]]:
     by_day: dict[str, list[float]] = {}
     n = 0
@@ -156,7 +217,7 @@ def arms(store, since: float = journal.S5_SETUPS_FROM) -> dict:
 
 
 def report(store) -> dict:
-    return {"screen": screen_ranking(store), "arms": arms(store)}
+    return {"screen": screen_ranking(store), "arms": arms(store), "reflex": against_reflex(store)}
 
 
 def text(rep: dict) -> str:
@@ -177,4 +238,13 @@ def text(rep: dict) -> str:
     if rs["diff_pct"] is not None:
         second += f" · read beyond the code {rs['diff_pct']:+.1f} points, at worst {rs['low_pct']:+.1f}"
     second += f" · {rs['verdict']}"
-    return first + "\n" + second
+    rf = rep.get("reflex") or {}
+    if not rf.get("days"):
+        third = f"S6, the screen against Reflex's priority (longs): no day scored yet ({BAR['days']} needed)."
+    else:
+        ic = lambda s: f"{s['mean_ic']:+.2f}" if s.get("days") else "-"  # noqa: E731
+        t = rf["diff_t"] if rf.get("diff_t") is not None else "-"
+        third = (f"S6, the screen against Reflex's priority (longs): {rf['days']} days of {BAR['days']} · screen "
+                 f"{ic(rf['screen'])} · Reflex {ic(rf['reflex'])} · difference {rf['diff']:+.2f} (t {t}; bar "
+                 f"+{BAR['diff']:.2f}, t 2) · {rf['verdict']}")
+    return first + "\n" + second + "\n" + third

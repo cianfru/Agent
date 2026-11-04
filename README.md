@@ -169,7 +169,8 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   signal. Each read and `/record` show how far the setups are from that bar, with the raw share right beside it, the
   return after a taker round trip and the funding paid, how often the setup's own off level was touched before the
   horizon, and the move beyond the coin's beta to BTC. `/record` also shows study S6: whether the screen ranks coins,
-  and whether the read beats the code's own picks and random coins.
+  whether the read beats the code's own picks and random coins, and whether the screen ranks longs better than
+  Reflex's own priority score.
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
   list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
@@ -298,6 +299,8 @@ days, and for each side a score with the reasons and a risk frame.
   risk frames, band, z, strength) goes into `screen_log`, and at each read the code's top two candidates and a random
   liquid coin on each view's side are logged as shadow picks (never sent). Study S6 (declared 4 November 2026)
   would test from these whether the screen ranks and whether the read adds anything over the code and over chance.
+  Its Amendment 1 (4 November 2026) also tests the screen's long ranking against Reflex's own `priority_score`, kept
+  daily per coin from Reflex's scan list (`priority_1d` in the screen log) and left out of the read's candidates.
 
 ### Open interest, funding, the 200-day average and the support band
 
