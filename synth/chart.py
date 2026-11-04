@@ -85,7 +85,7 @@ def _signed(n: int) -> str:
     return f"+{n}" if n > 0 else f"−{-n}" if n < 0 else "0"
 
 
-def pulse_chart(points: list[dict], grid: dict, now: float, title: str = "Smart money pulse · Hyperliquid") -> bytes:
+def pulse_chart(points: list[dict], grid: dict, now: float, title: str = "Crowd pulse · profitable traders on Hyperliquid") -> bytes:
     """The live pulse for Telegram: share of profitable traders' positions that are long over 24h, and the coins
     with the most movement, cell by cell for the last 1h, 6h and 24h. Pure; returns PNG bytes."""
     coins = grid["coins"]
@@ -241,7 +241,7 @@ def _band_series(bars: list[list[float]], start: int) -> tuple[list[float | None
 
 def setup_chart(coin: str, side: str, strength: str, bars: list[list[float]], risk: dict | None = None,
                 z_hist: list[tuple[float, float]] | None = None, entries: list[tuple[float, float, str]] | None = None,
-                show: int = 120) -> bytes:
+                show: int = 120, patterns: list[dict] | None = None) -> bytes:
     """A setup on its daily chart: the last `show` days of candles, the bull market support band as it stood each day,
     the 200-day average, where the setup is wrong and the next level the other way, tracked traders' entries, and the
     engine's daily z-score with the owner's lines under it when its history is long enough to draw."""
@@ -284,12 +284,27 @@ def setup_chart(coin: str, side: str, strength: str, bars: list[list[float]], ri
         if 0 <= i < len(view):
             ax.scatter([i], [px], s=34, color=DOWN if s == "short" else UP, edgecolor=GROUND, linewidth=0.7,
                        zorder=4, marker="v" if s == "short" else "^")
-    levels_y = [float(v) for v in (low.min(), h.max())]
+    pat_note = ""
+    pat_items: list[tuple[float, str, str]] = []
+    for p in (patterns or [])[:2]:                # Reflex's chart patterns: their shape, break level and fail level
+        pts = [((t * 1000 - view[0][0]) / DAY_MS, v) for t, v in p.get("anchors") or [] if t and v]
+        pts = [(i, v) for i, v in pts if -5 <= i <= len(view) + 5]
+        if len(pts) >= 2:
+            ax.plot([i for i, _ in pts], [v for _, v in pts], color=ACCENT, linewidth=1.1, alpha=0.75,
+                    marker="o", markersize=2.5)
+        pcol = UP if p.get("direction") == "up" else DOWN if p.get("direction") == "down" else MUTED
+        for v in p.get("break_level") or []:
+            ax.axhline(v, color=pcol, linewidth=0.9, alpha=0.8)
+            pat_items.append((v, f"break {_fmt(v)}", pcol))
+        if not pat_note and p.get("pattern"):
+            pat_note = f"{p['pattern']} ({p.get('status')})" + (f": break {_fmt(p['break_level'][0])}"
+                                                               if p.get("break_level") else "")
+    levels_y = [float(v) for v in (low.min(), h.max())] + [v for v, _, _ in pat_items]
     recent = len(view) - 60                                     # the band and the 200-day near today stay in view
     levels_y += [v for i, v in enumerate(blo) if v is not None and i >= recent]
     levels_y += [v for i, v in enumerate(bhi) if v is not None and i >= recent]
     levels_y += [v for i, v in enumerate(ma200) if v is not None and i >= recent]
-    items: list[tuple[float, str, str]] = [(float(c[-1]), f"now {_fmt(float(c[-1]))}", TEXT)]
+    items: list[tuple[float, str, str]] = [(float(c[-1]), f"now {_fmt(float(c[-1]))}", TEXT)] + pat_items[:2]
     off, nxt = (risk or {}).get("off"), (risk or {}).get("next")
     if off:
         ax.axhline(off["level"], color=ACCENT, linewidth=1.2, linestyle="--")
@@ -329,6 +344,9 @@ def setup_chart(coin: str, side: str, strength: str, bars: list[list[float]], ri
     col = DOWN if side == "short" else UP
     fig.text(0.03, 0.955, f"{coin} {side} · {strength}", color=col, fontsize=14, fontweight="bold", va="center")
     sub = "Band shaded · 200-day dashed · off level orange · next dotted"
+    if pat_note:
+        ax.text(0.01, 0.02, pat_note, transform=ax.transAxes, color=TEXT, fontsize=8.5,
+                bbox={"facecolor": SURFACE, "edgecolor": "none", "pad": 1})
     if not with_z and zs:
         sub += f" · daily z {zs[-1][1]:.1f}"
     fig.text(0.03, 0.905, sub, color=MUTED, fontsize=8.5, va="center")
@@ -428,5 +446,105 @@ def journal_chart(picks: list[dict], bar: dict, since: float, label: str = "Setu
              va="center")
     fig.text(0.03, 0.905, "Meets the declared bar" if met else "Context, not a signal: under the declared bar",
              color=UP if met else MUTED, fontsize=9, va="center")
+    fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
+    return _png(fig)
+
+
+def cycle_chart(hist: dict, turns: dict | None = None) -> bytes | None:
+    """The market cycle from Reflex's history: the share of coins in an uptrend each day with the broad-uptrend line,
+    past runs shaded faint and the current one in orange, BTC beside it; under it the median z-score."""
+    import datetime as _dt
+    rows = [r for r in hist.get("rows") or [] if r and r[0] and r[1] is not None]
+    if len(rows) < 30:
+        return None
+    day = lambda d: _dt.datetime.strptime(str(d)[:10], "%Y-%m-%d")   # noqa: E731
+    t = [day(r[0]) for r in rows]
+    share = [r[1] for r in rows]
+    z = [(day(r[0]), r[3]) for r in rows if len(r) > 3 and r[3] is not None]
+    cyc = hist.get("cycle") or {}
+    fig = Figure(figsize=(W_IN, 4.6), dpi=DPI)
+    fig.patch.set_facecolor(GROUND)
+    if len(z) >= 30:
+        gs = fig.add_gridspec(2, 1, height_ratios=[2.4, 1], hspace=0.1, left=0.1, right=0.88, top=0.84, bottom=0.1)
+        ax, zx = fig.add_subplot(gs[0]), fig.add_subplot(gs[1])
+        _style(zx)
+    else:
+        ax, zx = fig.add_axes((0.1, 0.1, 0.78, 0.74)), None
+    _style(ax)
+    for r in cyc.get("runs") or []:
+        try:
+            a = day(r[0])
+            b = a + _dt.timedelta(days=int(r[1] or 0))
+            ax.axvspan(a, b, color=UP, alpha=0.08, linewidth=0)
+        except (TypeError, ValueError):
+            continue
+    if cyc.get("start"):
+        ax.axvspan(day(cyc["start"]), t[-1], color=ACCENT, alpha=0.14, linewidth=0)
+    ax.plot(t, share, color=TEXT, linewidth=1.4)
+    if cyc.get("threshold") is not None:
+        ax.axhline(cyc["threshold"], color=MUTED, linewidth=0.9, linestyle="--")
+    ax.set_ylim(0, 100)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    btc = [(day(r[0]), r[2]) for r in rows if len(r) > 2 and r[2]]
+    if btc:
+        bx = ax.twinx()
+        bx.plot([a for a, _ in btc], [b for _, b in btc], color=MUTED, linewidth=0.9, alpha=0.8)
+        bx.set_yscale("log")
+        bx.tick_params(colors=MUTED, labelsize=8.5)
+        bx.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v / 1000:.0f}K"))
+        for sp in bx.spines.values():
+            sp.set_color(BORDER)
+    if zx is not None:
+        zx.plot([a for a, _ in z], [b for _, b in z], color=ACCENT, linewidth=1.2)
+        zx.axhline(0, color=MUTED, linewidth=0.8, linestyle=":")
+        zx.set_ylabel("median z", color=MUTED, fontsize=9)
+        ax.tick_params(labelbottom=False)
+        target = zx
+    else:
+        target = ax
+    target.xaxis.set_major_formatter(mdates.DateFormatter("%b %y"))
+    target.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    state = (turns or {}).get("state")
+    head = "Market cycle" + (f" · {state}" if state else "")
+    if state == "broad uptrend" and turns.get("run_day") is not None:
+        head += f", day {turns['run_day']}"
+    elif state == "broad downturn" and turns.get("downturn_day") is not None:
+        head += f", day {turns['downturn_day']}"
+    fig.text(0.03, 0.955, head, color=TEXT, fontsize=13, fontweight="bold", va="center")
+    fig.text(0.03, 0.905, "Share of coins in an uptrend · dashed: the broad-uptrend line · grey: BTC", color=MUTED,
+             fontsize=8.5, va="center")
+    fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
+    return _png(fig)
+
+
+def breadth_chart(days: list[dict]) -> bytes | None:
+    """The market's breadth day by day: the share of coins over their band and over their 200-day average, and the
+    share inside the band shaded."""
+    import datetime as _dt
+    days = [d for d in days if d.get("coins")]
+    if len(days) < 10:
+        return None
+    t = [_dt.datetime.strptime(d["day"], "%Y-%m-%d") for d in days]
+    over = [100 * d["over"] / d["coins"] for d in days]
+    inside = [100 * d["inside"] / d["coins"] for d in days]
+    o200 = [100 * d["over_200d"] / d["with_200d"] if d["with_200d"] else None for d in days]
+    fig = Figure(figsize=(W_IN, 3.8), dpi=DPI)
+    fig.patch.set_facecolor(GROUND)
+    ax = fig.add_axes((0.1, 0.12, 0.86, 0.68))
+    _style(ax)
+    ax.fill_between(t, over, [a + b for a, b in zip(over, inside)], color=ACCENT, alpha=0.18, linewidth=0,
+                    label="inside the band")
+    ax.plot(t, over, color=UP, linewidth=1.6, label="over the band")
+    ax.plot([a for a, b in zip(t, o200) if b is not None], [b for b in o200 if b is not None], color=TEXT,
+            linewidth=1.1, linestyle="--", label="over the 200-day")
+    ax.axhline(50, color=MUTED, linewidth=0.8, linestyle=":")
+    ax.set_ylim(0, 100)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+    ax.legend(loc="upper left", fontsize=8.5, frameon=False, labelcolor=TEXT, ncol=3)
+    fig.text(0.03, 0.94, f"Breadth · {days[-1]['coins']} coins", color=TEXT, fontsize=13, fontweight="bold",
+             va="center")
+    fig.text(0.03, 0.875, "Today's most traded coins, rebuilt from their own candles (survivorship: coins that fell "
+             "out are missing)", color=MUTED, fontsize=8.5, va="center")
     fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
     return _png(fig)

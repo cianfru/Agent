@@ -152,7 +152,14 @@
 </header>
 <main>
   <section id="desk" class="on">
-    <div class="hero"><h1 id="headline">Reading the market…</h1><p id="subline"></p></div>
+    <div class="hero"><h1 id="headline">Reading the market…</h1><p id="subline" style="white-space:pre-line"></p></div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Outrider's setups</h2>
+      <p class="hint">Each setup a read sent in the last 14 days: where it was logged and where it is now (its way), where it is wrong, and how it scored at 1, 3 and 7 days. Study S5: context, not a signal, until its declared bar is met.</p>
+      <div class="panel scroll"><table id="setuptable"><thead><tr>
+        <th>When</th><th>Setup</th><th>Entry</th><th>Now</th><th>Its way</th><th>Off</th><th>1d</th><th>3d</th><th>7d</th><th>Watch</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
     <div class="kpis" id="kpis"></div>
     <div class="card" style="margin-bottom:16px">
       <h2>Direction: BTC and ETH</h2>
@@ -242,18 +249,18 @@
   </section>
 
   <section id="journal">
-    <div class="seg" id="jtabs"><button data-j="brief" class="on">Brief</button><button data-j="picks">Picks</button><button data-j="posts">Posts</button></div>
-    <div id="j-brief">
+    <div class="seg" id="jtabs"><button data-j="picks" class="on">Picks</button><button data-j="posts">Posts</button><button data-j="brief">Brief (reads off)</button></div>
+    <div id="j-brief" style="display:none">
       <div style="margin-bottom:12px"><button class="btn primary" id="mkbrief">Write brief now</button> <span class="muted" id="briefinfo"></span></div>
       <div class="panel" id="briefbody"><div class="empty">No brief yet.</div></div>
     </div>
-    <div id="j-picks" style="display:none">
+    <div id="j-picks">
       <div class="panel scroll" style="margin-bottom:12px"><table id="rectable"><thead><tr>
         <th style="min-width:210px">Every pick logged, by kind</th><th>Logged</th><th>1d</th><th>3d</th><th>7d</th><th>14d</th><th>30d</th><th>Longs right</th><th>Shorts right</th>
       </tr></thead><tbody></tbody></table>
       <div class="muted" style="margin-top:8px">Right: the price moved the pick's way by then (share, count, median move its way). Below it, against the market: the pick beat the market when its move its way was better than the market's (the 50 most traded Hyperliquid coins, equal-weight) over the same days, so a market that falls everywhere cannot make shorts look smart. Longs and shorts at the study's horizon (or the longest scored so far).</div>
       <div id="readsline" style="margin-top:8px"></div></div>
-      <div class="seg" id="pickfrom" style="margin-bottom:10px"><button data-o="" class="on">All</button><button data-o="read">Outrider</button><button data-o="position">Tracked traders</button><button data-o="group">Groups</button><button data-o="alert">Alerts</button></div>
+      <div class="seg" id="pickfrom" style="margin-bottom:10px"><button data-o="" class="on">All</button><button data-o="read">Outrider</button><button data-o="screen">Code's picks</button><button data-o="random">Random</button><button data-o="position">Tracked traders</button><button data-o="group">Groups</button><button data-o="alert">Alerts</button></div>
       <div class="panel scroll"><table id="picktable"><thead><tr>
         <th>#</th><th>When</th><th>From</th><th>Coin</th><th>Side</th><th>Entry</th><th>1d</th><th>3d</th><th>7d</th><th>Why</th>
       </tr></thead><tbody></tbody></table></div>
@@ -450,26 +457,21 @@ document.querySelectorAll("#movewin button").forEach((b) => b.onclick = () => {
   document.querySelectorAll("#movewin button").forEach((x) => x.classList.toggle("on", x === b)); moveMode = b.dataset.m; renderMoving(); });
 
 async function loadDesk() {
-  const [d, p] = await Promise.all([api("/desk"), api("/pulse?hours=4").catch(() => ({}))]);
+  const [d, p, b] = await Promise.all([api("/desk"), api("/pulse?hours=4").catch(() => ({})), api("/board").catch(() => ({}))]);
   deskData = d; $("#read").textContent = (d.read && d.read.text) || p.text || "";
   const k = d.kpi, c = k.crowd || {}, bm = k.big_money || {}, cy = k.cycle, tr = k.tracked || {};
-  const leanWord = (s) => s == null ? "unknown" : s >= 60 ? "long" : s <= 40 ? "short" : "balanced";
   const cls = (s) => s == null ? "" : s >= 55 ? "up" : s <= 45 ? "down" : "";
-  $("#headline").innerHTML = c.share_long == null ? "Waiting for the first readings." :
-    `Profitable traders are <span class="${cls(c.share_long)}">${c.share_long.toFixed(0)}% long</span>` +
-    (bm.share_long != null ? (leanWord(bm.share_long) === "balanced" ? `; big money is <span>balanced</span>` : `; big money leans <span class="${cls(bm.share_long)}">${leanWord(bm.share_long)}</span>`) : "") +
-    (cy && cy.type ? `; market <span class="acc">risk-${cy.type}</span> for ${cy.age_days} days.` : ".");
-  $("#subline").textContent = [
-    c.change_24h != null ? `Crowd ${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} points in 24h.` : "",
-    bm.share_long != null ? `Big money (accounts of $500K+ in profit all-time, one vote per owner): ${bm.share_long.toFixed(0)}% of their positions long, ${usd(bm.long_usd)} long against ${usd(bm.short_usd)} short.` : "",
-    cy && cy.median_days ? `Past risk-${cy.type} runs lasted ${Math.round(cy.median_days)} days on the median; ${cy.lasted_30_more} of ${cy.reached_age} that reached day ${cy.age_days} lasted 30 more.` : "",
-    `${k.alerts_24h} alerts in 24 hours.`].filter(Boolean).join(" ");
+  // the desk leads with what the read said and the board, the same lines as the morning read; the crowd's lean is
+  // in its own card below (study S2: it leans against the move)
+  $("#headline").textContent = (b.read && b.read.headline) || "Waiting for the first read.";
+  $("#subline").textContent = (b.board || "") + (b.read && b.read.ts ? `\nLast read ${ago(b.read.ts)} ago (${b.read.reason || ""}).` : "");
+  renderSetups(b.setups || []);
   const tile = (label, v, d, dir, sp) => `<div class="kpi ${dir}"><b>${label}</b><div class="v">${v}</div><div class="d">${d}</div>${sp || ""}</div>`;
   $("#kpis").innerHTML =
     tile("Crowd long", c.share_long == null ? "-" : c.share_long.toFixed(1) + "%", c.change_24h == null ? "profitable traders" : `${c.change_24h >= 0 ? "+" : ""}${c.change_24h.toFixed(1)} pts 24h`, cls(c.share_long), spark(c.spark, cssv("--crowd"))) +
     tile("Big money long", bm.share_long == null ? "-" : bm.share_long.toFixed(0) + "%", bm.ts ? `${bm.owners ? bm.owners + " owners" : "owners"} · ${ago(bm.ts)} ago` : "first scan pending", cls(bm.share_long)) +
     tile("Tracked long", tr.share_long == null ? "-" : tr.share_long.toFixed(0) + "%", `${tr.traders} traders · ${tr.riding} riding`, cls(tr.share_long)) +
-    tile("Uptrend share", cy && cy.uptrend != null ? cy.uptrend.toFixed(0) + "%" : "-", cy && cy.type ? `risk-${cy.type} · day ${cy.age_days}` : "Reflex history pending", cy && cy.type === "on" ? "up" : cy && cy.type === "off" ? "down" : "") +
+    tile("Uptrend share", cy && cy.uptrend != null ? cy.uptrend.toFixed(0) + "%" : "-", k.turns && k.turns.state ? k.turns.state : cy && cy.type ? `day ${cy.age_days}` : "Reflex history pending", k.turns && k.turns.state === "broad uptrend" ? "up" : k.turns && k.turns.state === "broad downturn" ? "down" : "") +
     tile("BTC", k.btc && k.btc.price ? px(k.btc.price) : "-", k.btc && k.btc.change_24h != null ? pct(k.btc.change_24h) + " 24h" : "", k.btc && k.btc.change_24h > 0 ? "up" : k.btc && k.btc.change_24h < 0 ? "down" : "") +
     tile("Alerts, 24h", k.alerts_24h, "build-ups, conviction, groups", k.alerts_24h ? "acc" : "");
   renderDirection(); renderCrowd(); renderMoving();
@@ -478,6 +480,18 @@ async function loadDesk() {
     return `<tr><td><b>${esc(r.coin)}</b></td><td class="n">${px(r.price)}</td><td>${lensCell(r.crowd)}</td><td>${lensCell(r.tracked)}</td><td>${lensCell(r.big_money)}</td>
       <td><span class="agree ${a[0]}">${a[1]}</span></td></tr>`; }).join("")
     : '<tr><td colspan="6" class="empty">No positions read yet.</td></tr>';
+}
+function renderSetups(rows) {
+  const r3 = (x) => x == null ? '<span class="muted">-</span>' : `<span class="${x > 0 ? "long" : "short"}">${x > 0 ? "+" : ""}${(100 * x).toFixed(1)}%</span>`;
+  const word = { 1: "light", 2: "firm", 3: "strong" };
+  $("#setuptable tbody").innerHTML = rows.length ? rows.map((s) => `<tr><td class="muted">${new Date(s.ts * 1000).toISOString().slice(5, 16).replace("T", " ")}</td>
+    <td><b>${esc(s.coin)}</b> <span class="${s.side}">${s.side}</span> <span class="muted">${word[s.strength] || ""}</span></td>
+    <td class="n">${px(s.entry)}</td><td class="n">${s.now ? px(s.now) : "-"}</td>
+    <td class="n">${s.move_pct == null ? "-" : `<span class="${s.move_pct > 0 ? "long" : "short"}">${s.move_pct > 0 ? "+" : ""}${s.move_pct.toFixed(1)}%</span>`}</td>
+    <td class="n">${s.off ? `${px(s.off.level)} <span class="muted">${esc(s.off.name)}</span>` : "-"}</td>
+    <td class="n">${r3(s.ret_1d)}</td><td class="n">${r3(s.ret_3d)}</td><td class="n">${r3(s.ret_7d)}</td>
+    <td class="muted" style="max-width:260px">${esc(s.chart || s.why || "")}</td></tr>`).join("")
+    : '<tr><td colspan="10" class="empty">No setups yet. Each setup Outrider sends lands here and is scored after 1, 3 and 7 days.</td></tr>';
 }
 function alertCard(a) {
   const kc = a.kind === "build-up" ? "build" : a.kind === "conviction" ? "conviction" : a.kind === "convergence" ? "convergence" : "smart";
@@ -811,8 +825,8 @@ async function loadPicks() {
     <td class="n">${p.id}</td><td class="n">${new Date(p.ts * 1000).toISOString().slice(5, 16).replace("T", " ")}</td>
     <td>${esc(p.origin)}</td><td><b>${esc(p.coin)}</b></td><td>${side(p.direction)}</td><td class="n">${px(p.entry_price)}</td>
     <td class="n">${r(p.ret_1d)}</td><td class="n">${r(p.ret_3d)}</td><td class="n">${r(p.ret_7d)}</td>
-    <td class="muted" style="min-width:240px">${esc(p.thesis)}</td></tr>`).join("")
-    : `<tr><td colspan="10" class="empty">No picks yet. Alerts with conviction 3+, brief setups and desk posts land here.</td></tr>`;
+    <td class="muted" style="min-width:240px">${esc(p.thesis)}${p.state && p.state.chart ? `<br>Watch: ${esc(p.state.chart)}` : ""}${p.state && p.state.risk && p.state.risk.off ? `<br>Off ${p.direction === "long" ? "below" : "above"} ${px(p.state.risk.off.level)} (${esc(p.state.risk.off.name)})` : ""}</td></tr>`).join("")
+    : `<tr><td colspan="10" class="empty">No picks yet. Outrider's setups, tracked traders' new positions, groups and alerts land here.</td></tr>`;
 }
 
 

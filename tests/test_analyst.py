@@ -340,3 +340,15 @@ def test_a_read_carries_open_interest_funding_and_the_trend_levels(tmp_path, mon
     sui = next(r for r in scan["coins"] if r["coin"] == "SUI")
     assert sui["oi_funding"]["oi_change_24h_pct"] == 25.0 and sui["oi_funding"]["funding_apr_pct"] == -17.5
     assert sui["trend"]["ma200d"] == 249.5 and sui["trend"]["bull_market_support_band"]["price_vs_band"] == "below"
+
+
+def test_mine_lists_positions_in_code_with_only_what_counts_against_them(tmp_path, monkeypatch):
+    agent, _ = make(tmp_path, monkeypatch, [])
+    now = time.time()
+    seed(agent.store, now)
+    text = analyst.mine_text(agent, now)
+    lines = text.splitlines()
+    assert lines[0] == "Your positions"
+    assert lines[1].startswith("SUI long 1.95 → 1.80 (-7.7%) · $20,000, 40% of the account · 3x · liquidation 1.20")
+    assert lines[2] == "  against it: 4 tracked traders added shorts in 24h"     # their lean alone is not listed
+    assert "tracked traders lean" not in text and text.endswith("/mine more for my read on them.")

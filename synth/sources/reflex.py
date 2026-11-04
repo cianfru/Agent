@@ -227,7 +227,10 @@ async def chart_patterns(rc: ReflexClient, coin: str, now: float | None = None) 
                     "direction": {1: "up", -1: "down"}.get(p.get("direction"), "either way"),
                     "break_level": [_sig(v) for v in p.get("levels") or []], "fails_beyond": _sig(p.get("invalidation")),
                     "formed": day(p.get("formed")), "resolved": day(p.get("end")) if status != "forming" else None,
-                    "track_record": p.get("track_record")})
+                    "track_record": p.get("track_record"),
+                    # its shape (time, price), for the chart only: left out of what the model reads
+                    "anchors": [[a.get("time"), _sig(a.get("value"))] for a in p.get("anchors") or []
+                                if a.get("time") and a.get("value")]})
     return out
 
 

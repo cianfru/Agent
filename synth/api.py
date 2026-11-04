@@ -400,6 +400,32 @@ def list_reads(days: float = 3):
     return {"reads": agent.store.briefs_since("read", time.time() - days * 86400), "record": record(agent.store)}
 
 
+@app.get("/board", dependencies=[Depends(auth)])
+def board():
+    """The desk's top: the board built in code, the latest read, and Outrider's setups of the last 14 days with where
+    each stands now (entry, price now, move its way, its scores, what it said to watch and where it is wrong)."""
+    from .analyst import board_text, scan
+    from . import journal
+    now = time.time()
+    last = agent.store.latest_brief("read") or {}
+    setups = []
+    for p in agent.store.picks(limit=200, origin="read", since=max(journal.S5_SETUPS_FROM, now - 14 * 86400)):
+        px_now = agent.price_now(p["coin"], now)
+        sign = 1 if p["direction"] == "long" else -1
+        st = p.get("state") or {}
+        setups.append({"id": p["id"], "ts": p["ts"], "coin": p["coin"], "side": p["direction"],
+                       "strength": p.get("conviction"), "entry": p["entry_price"], "now": px_now,
+                       "move_pct": round(100 * sign * (px_now / p["entry_price"] - 1), 2)
+                       if px_now and p["entry_price"] else None,
+                       "ret_1d": p.get("ret_1d"), "ret_3d": p.get("ret_3d"), "ret_7d": p.get("ret_7d"),
+                       "mkt_3d": p.get("mkt_3d"), "why": p.get("thesis"), "chart": st.get("chart"),
+                       "off": (st.get("risk") or {}).get("off"), "next": (st.get("risk") or {}).get("next"),
+                       "status": "scored" if p.get("ret_7d") is not None else "open"})
+    return {"board": board_text(scan(agent, now)),
+            "read": {k: last.get(k) for k in ("ts", "headline", "read", "text", "reason")} if last else None,
+            "setups": setups}
+
+
 @app.get("/screen", dependencies=[Depends(auth)])
 def get_screen(sort: str = "band", band: str = "any", trend: str = "any", side: str = "any", limit: int = 120):
     """Every liquid coin against its band, its 200-day average and its last leg, with positioning and setup scores."""
