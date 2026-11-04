@@ -30,13 +30,15 @@ def z_history(store, coin: str, now: float) -> list[tuple[float, float]]:
     return out
 
 
-def entries(agent, coin: str, now: float) -> list[tuple[float, float, str]]:
-    """Tracked traders' open positions on the coin with a known open time: (when, entry, side)."""
+def entries(agent, coin: str, now: float) -> list[dict]:
+    """Tracked traders' open positions on the coin: {since, entry, side, value, tier}. `since` is None when the
+    position was opened before tracking began; it still counts in the crowd's totals and average entries."""
     out = []
     for t in agent.positions.board(now).get("traders") or []:
         for p in t.get("positions") or []:
-            if p["coin"] == coin.upper() and p.get("since") and p.get("entry"):
-                out.append((p["since"], p["entry"], p["side"]))
+            if p["coin"] == coin.upper() and p.get("entry"):
+                out.append({"since": p.get("since"), "entry": p["entry"], "side": p["side"],
+                            "value": p.get("value") or 0, "tier": t.get("tier")})
     return out
 
 
