@@ -102,3 +102,28 @@ def test_the_board_and_header_are_built_in_code():
     assert analyst.header(now, "market changed", {"market_lean": "short"}, ch) == (
         "Outrider · 14:05 UTC · market changed: BTC -4.2% since the last read · leaning short")
     assert analyst.header(now, "morning", {"market_lean": "neutral"}) == "Outrider · 14:05 UTC · morning"
+
+
+def test_patterns_cycle_and_breadth_draw_for_a_phone():
+    b = bars()
+    t0 = b[-40][0] / 1000
+    pats = [{"pattern": "inverse head and shoulders", "status": "forming", "direction": "up",
+             "break_level": [b[-1][4] * 1.05], "fails_beyond": b[-1][4] * 0.9,
+             "anchors": [[t0 + i * 6 * 86400, b[-40 + i * 6][4]] for i in range(5)]}]
+    assert size(chart.setup_chart("SOL", "long", "firm", b, None, None, None, 120, pats))[0] == 1200
+    import datetime as dt
+    day0 = dt.date(2025, 9, 1)
+    hist = {"rows": [[(day0 + dt.timedelta(days=i)).isoformat(), 40 + 20 * math.sin(i / 30), 60_000 + 50 * i,
+                      math.sin(i / 20)] for i in range(400)],
+            "cycle": {"start": (day0 + dt.timedelta(days=380)).isoformat(), "threshold": 55,
+                      "runs": [[(day0 + dt.timedelta(days=100)).isoformat(), 40, 70]]}}
+    png = chart.cycle_chart(hist, {"state": "broad uptrend", "run_day": 20})
+    assert size(png)[0] == 1200 and chart.cycle_chart({"rows": hist["rows"][:5]}) is None
+    days = [{"day": (day0 + dt.timedelta(days=i)).isoformat(), "below": 30, "inside": 10, "over": 60 - i % 5,
+             "over_200d": 50, "with_200d": 90, "coins": 100} for i in range(90)]
+    assert size(chart.breadth_chart(days))[0] == 1200 and chart.breadth_chart(days[:3]) is None
+
+
+def test_the_pattern_shapes_never_reach_the_model():
+    cur = {"coins": [{"coin": "SOL", "patterns": [{"pattern": "cup and handle", "anchors": [[1, 2.0]]}]}]}
+    assert analyst._no_anchors(cur) == {"coins": [{"coin": "SOL", "patterns": [{"pattern": "cup and handle"}]}]}

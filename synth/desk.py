@@ -40,7 +40,8 @@ def compact_history(body: dict, keep_days: int = 400) -> dict:
     ix = {c: i for i, c in enumerate(cols)}
     days = body.get("days") or []
     rows = [[_day(d[ix["day"]]), round(100 * (d[ix["uptrend"]] + d[ix["overheated"]]), 1),
-             d[ix["btc"]] if "btc" in ix else None] for d in days[-keep_days:]]
+             d[ix["btc"]] if "btc" in ix else None, d[ix["median_z"]] if "median_z" in ix else None]
+            for d in days[-keep_days:]]                           # day, uptrend share, BTC, the median z-score
     cyc = body.get("cycle") or {}
     today = body.get("today") or {}
     return {

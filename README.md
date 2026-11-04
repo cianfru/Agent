@@ -207,8 +207,21 @@ shared plotting state.
 - **The record against its bar**, with `/record`: the setups' running share right and share that beat the market
   against S5's 62% and 60 needed, and each setup's 3-day move with the running median against +1%. Never a summed
   return curve.
+- **Chart patterns** Reflex finds on a setup's coin are drawn on its chart: the pattern's shape, its break level
+  (labelled) and its name; the shapes never reach the model.
+- **The market cycle** (`/cycle`, and on Monday's morning read): the share of coins in an uptrend from Reflex's daily
+  history, past runs shaded, BTC beside it, the median z-score under it.
+- **Breadth over time** (`/breadth`, and on Monday's morning read): the share of coins over their band and over their
+  200-day for the last 90 days, rebuilt from each coin's own candles.
 - A read's text and its pictures go as one message (an album; a long text first, the pictures silently under it), and
   count once against the daily cap. Dashboard: `GET /map.png`, `/setup/{coin}.png`, `/journal.png`.
+
+### Your positions, in code
+
+`/mine` lists his wallet positions and watch list in code, at once and at no cost: entry to now, size and share of the
+account, leverage, how far the liquidation is, where the price sits against its band and its z-score, and under each
+only what the studies count against it (a conviction bet the other way in 7 days, two or more tracked traders adding
+the other way). `/mine more` asks the model for its read on them.
 
 ### The board and why a read came
 
@@ -365,8 +378,9 @@ The agent has no token. Launching one on Orbio waits until the posts show they a
 Open the service's root URL (`/`). If `SYNTH_API_KEY` is set, the page asks for the key once and keeps it in the
 browser. Bright, chart-first, dark and light, phone and desktop (`synth/static/dashboard.html`, `synth/desk.py`).
 
-- **Desk** (home, `GET /desk`):
-  - a one-line read of the market;
+- **Desk** (home, `GET /desk`, `GET /board`):
+  - the latest read's headline and the board (the same lines as the morning read), then Outrider's setups of the
+    last 14 days: entry, price now, the move its way, where each is wrong, and its 1, 3 and 7-day results;
   - six tiles (crowd long, big money long, tracked long, uptrend share and run age, BTC, alerts in 24 hours);
   - **direction of BTC and ETH**: each lens's share of heads long as a gauge around 50% (dollars on hover), whether they agree, the
     crowd's share over 7 days against price, and what tracked traders added in 24 hours (the majors as one directional

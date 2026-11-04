@@ -124,8 +124,8 @@ def summary(wins: dict[int, dict]) -> str:
     """Two short lines for a caption: the overall lean now and how the crowd moved in 1h and 6h."""
     w = wins.get(1) or next(iter(wins.values()))
     t = w["totals"]
-    lines = [f"Smart money: {t['long_n']} long · {t['short_n']} short ({t['long_share']}% long)"
-             if t.get("long_share") is not None else "Smart money: no positions yet"]
+    lines = [f"Crowd: {t['long_n']} long · {t['short_n']} short ({t['long_share']}% long)"
+             if t.get("long_share") is not None else "Crowd: no positions yet"]
     for h in (1, 6):
         if h not in wins or not wins[h]["covered_h"]:
             continue

@@ -11,7 +11,7 @@ HISTORY = {"columns": ["day", "n", "uptrend", "overheated", "downtrend", "basing
 
 def test_compact_history_keeps_share_and_cycle():
     c = desk.compact_history(HISTORY)
-    assert c["rows"][-1] == ["2026-09-24", 81.0, 83000.0]
+    assert c["rows"][-1] == ["2026-09-24", 81.0, 83000.0, 1.2]          # day, uptrend share, BTC, median z
     assert c["cycle"]["start"] == "2026-08-20" and c["cycle"]["age_days"] == 36 and c["cycle"]["lasted_30_more"] == 5
     assert c["cycle"]["runs"] == [["2024-10-04", 40, 0.9]] and c["today"]["percentile"] == 75
 

@@ -70,5 +70,5 @@ def test_mine_asks_outrider_for_a_briefing_without_instructions(tmp_path, monkey
     agent = type("A", (), {})()
     agent.s = type("S", (), {"telegram_chat_id": "1", "telegram_token": "t"})()
     agent.store = None
-    asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/mine"}}))
+    asyncio.run(bot.handle(agent, {"message": {"chat": {"id": 1}, "text": "/mine more"}}))   # /mine alone is code
     assert asked == [bot.MINE] and "no instructions" in bot.MINE

@@ -7,7 +7,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /positions  what the proven position traders hold now, by coin
   /help       what each alert means and the words in them
   /draft      one of Outrider's X posts now, as a draft (off the menu while X drafts are off)
-  /read       Outrider's read of the market now;  /record  how its past views did;  /mine  his positions, briefed
+  /read       Outrider's read of the market now;  /record  how its setups did;  /mine  his positions, in code
   /watch      the watch list, or /watch ENA long 0.09 5k to add;  /unwatch ENA  to take it off
   /reset      start the conversation afresh;  /cost  what talking and reads have cost today;  /held  held back
 Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
@@ -25,44 +25,30 @@ from . import notify
 
 log = logging.getLogger(__name__)
 
-HELP = """Outrider watches profitable traders on Hyperliquid and Derive's options, and tells you what it makes of them.
-Write to me in plain words and I answer from the data (ask about a coin, a trader, who is sitting on big winners, what I'd do with your position). Reply to any of my messages to ask about it.
+HELP = """Outrider reads Hyperliquid's traders, Reflex's engine and Derive's options, and writes when it is worth it. Write to me in plain words, or reply to any of my messages to ask about it.
 
-What I send you
-My morning read: what is happening and up to two setups worth a look, with what to see on the chart (each scored after 1, 3 and 7 days; /record shows how they did). At most two more a day when the market really changes.
-Conviction: a proven trader opens a position at least 2x their usual size.
-A short note when a conviction bet or a build-up goes against one of your positions. Otherwise your positions are yours: /mine when you want a briefing.
-Updates on groups you follow.
-
-What I keep without pinging (in my reads, the dashboard and /record)
-Building: 3+ tracked traders add to one coin within 3 days while its price hardly moved.
-Group: several profitable traders open the same coin and side together.
-Smart-money events and toxic flow.
+What I send (at most 6 unprompted a day; /held shows what the cap held back)
+The morning read: the board, what is happening, up to two setups with where each is wrong, and their charts. At most two more reads a day when something real changes.
+Conviction: a proven trader opens a position 2x their usual size, with where the coin sits.
+A note when a conviction bet or a build-up goes against one of your positions.
 
 Words
-Proven: 5+ trades held 3+ days, in profit, winning at least $1.5 for every $1 lost.
-Riding a winner: $250K+ profit in open trades now.
-Still open: profit not yet taken, in trades still running.
-Usual size: the size of a typical position of theirs.
+Crowd: Reflex's profitable traders (their lean moves against the last move: context).
+Tracked: proven traders (5+ trades held 3+ days, in profit, $1.5 won per $1 lost) and riders ($250K+ open profit).
 Big money: accounts of $500K+ in profit all-time, one vote per owner.
-Scored after 14 and 30 days: the move since the alert, kept as a record.
+Z: the engine's daily z-score; 2.5 blow-off, 3 trim, 3.5 hard trim, -1 capitulation.
+Band: the bull market support band; inside it is a zone to watch, under it the trend is lost.
+Off: where a setup is wrong. Every setup is scored after 1, 3 and 7 days (study S5).
 
-/read  my read of the market now
-/board  the market at a glance: the cycle, BTC and ETH, breadth, the z-score's extremes
-/map  every coin by its band and its z-score
-/chart SOL  a coin's daily chart with its band, 200-day, off level and z (/chart SOL short)
-/mine  a briefing on your positions and watch list
-/record  how my views and every other kind of pick did
-/watch  your watch list; /watch ENA long 0.09 5k adds one (side, entry and size optional)
-/unwatch ENA  takes it off
-/now  live pulse (1h, 6h, 24h)
-/positions  what tracked traders hold
-/following  groups you follow
-/groups  latest groups
-/reset  start our conversation afresh
-/cost  what talking and reads have cost today, and messages sent
-/held  messages the daily cap of unprompted messages held back
-/status  is everything running: sources, jobs, data age"""
+/read  a read now        /board  the market at a glance
+/map  every coin by band and z        /chart SOL  a coin's chart and levels
+/cycle  the market cycle        /breadth  breadth over 90 days
+/mine  your positions (/mine more for my read on them)
+/watch ENA long 0.09 5k  follow a position        /unwatch ENA
+/record  how setups and every other pick did, against their bars
+/now  who opened and closed in 1h, 6h, 24h        /positions  what tracked traders hold
+/status  is everything running        /held  held back        /cost  spend today
+/following  /groups  /reset"""
 
 MINE = ("Brief me on my positions and my watch list: for each, where it stands (price against my entry and the levels "
         "that matter), who is on which side and what changed lately. The picture, no instructions.")
@@ -71,7 +57,9 @@ COMMANDS = [{"command": "read", "description": "Outrider's read of the market no
             {"command": "board", "description": "The market at a glance"},
             {"command": "map", "description": "Every coin by its band and its z-score"},
             {"command": "chart", "description": "A coin's daily chart with its levels (/chart SOL)"},
-            {"command": "mine", "description": "A briefing on your positions and watch list"},
+            {"command": "cycle", "description": "The market cycle"},
+            {"command": "breadth", "description": "Breadth over 90 days"},
+            {"command": "mine", "description": "Your positions and watch list (/mine more for a read on them)"},
             {"command": "watch", "description": "Your watch list (/watch ENA long 0.09 5k adds one)"},
             {"command": "unwatch", "description": "Take a coin off the watch list (/unwatch ENA)"},
             {"command": "record", "description": "How Outrider's views and the other picks did"},
@@ -164,7 +152,20 @@ async def handle(agent, update: dict) -> None:
         await notify.telegram(s.telegram_token, chat, notify.held_text(store))
         return
     if cmd == ["/mine"]:                                  # his positions, on request only (owner, 3 November 2026)
-        await _talk(agent, chat, MINE)
+        if reply_text.split()[1:2] == ["more"]:          # the model's picture of them, when he wants it
+            await _talk(agent, chat, MINE)
+            return
+        from .analyst import mine_text
+        await notify.telegram(s.telegram_token, chat, await asyncio.to_thread(mine_text, agent))
+        return
+    if cmd in (["/cycle"], ["/breadth"]):
+        from . import pictures
+        got = await (pictures.cycle_png(agent) if cmd == ["/cycle"] else pictures.breadth_png(agent))
+        if got:
+            await notify.telegram_photo(s.telegram_token, chat, got[0], got[1])
+        else:
+            await notify.telegram(s.telegram_token, chat, "Not enough history yet: Reflex's market history comes once a "
+                                                          "day, the breadth once the levels are read.")
         return
     if cmd == ["/reset"]:
         store.chat_reset(chat)

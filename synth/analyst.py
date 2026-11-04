@@ -635,6 +635,60 @@ def parse_watch(words: list[str]) -> dict | None:
     return out
 
 
+def mine_text(agent, now: float | None = None) -> str:
+    """His positions and watch list in code (no model, no cost), one line each: entry to now, size and share of the
+    account, leverage and how far the liquidation is, where the price sits against its band and its z-score; and
+    under it only what the studies count against it (a conviction bet the other way in 7 days, two or more tracked
+    traders adding the other way). Facts, never what to do: his positions are his decisions."""
+    from .groups import px
+    s = scan(agent, now)
+    items = s["my_positions"]
+    if not items:
+        return ("No positions in your wallets (SYNTH_OWNER_WALLETS) and an empty watch list. /watch ENA long 0.09 5k "
+                "adds one.")
+    by_coin = {r["coin"]: r for r in s["coins"] + s["direction"]}
+    table = {r["coin"]: r for r in screen.build(agent, now)["rows"]}
+    lines = ["Your positions"]
+    for m in items:
+        side = m.get("side")
+        head = f"{m['coin']}" + (f" {side}" if side else "")
+        if m.get("entry"):
+            head += f" {px(m['entry'])}"
+        head += f" → {px(m['price'])}" if m.get("price") else " · no price"
+        if m.get("move_pct") is not None:
+            head += f" ({m['move_pct']:+.1f}%)"
+        bits = [head]
+        if m.get("value"):
+            bits.append(f"${m['value']:,.0f}" + (f", {round(100 * m['share_of_account'])}% of the account"
+                                                 if m.get("share_of_account") else ""))
+        if m.get("lev"):
+            bits.append(f"{m['lev']:g}x")
+        if m.get("liq") and m.get("price"):
+            bits.append(f"liquidation {px(m['liq'])} ({100 * (m['liq'] / m['price'] - 1):+.0f}%)")
+        q = table.get(m["coin"]) or {}
+        if q.get("band"):
+            st = q["band"]["state"]
+            bits.append(f"{st} band" if st in ("inside", "below") else f"{st} its band")
+        if q.get("z_1d") is not None:
+            bits.append(f"z {q['z_1d']:.1f}")
+        if m["source"] == "watch list":
+            bits.append("watched")
+        lines.append(" · ".join(bits))
+        if side:
+            other = "short" if side == "long" else "long"
+            ctx = []
+            conv = (q.get("conviction_7d") or {}).get(other, 0)
+            if conv:
+                ctx.append(f"{conv} conviction bet{'s' if conv > 1 else ''} {other} in 7 days")
+            add = (((by_coin.get(m["coin"]) or {}).get("tracked_24h") or {}).get(other) or {}).get("adders", 0)
+            if add >= 2:
+                ctx.append(f"{add} tracked traders added {other}s in 24h")
+            if ctx:
+                lines.append("  against it: " + "; ".join(ctx))
+    lines.append("Ask me about any of them, or /mine more for my read on them.")
+    return "\n".join(lines)
+
+
 def watch_text(agent, now: float | None = None) -> str:
     """The watch list built in code, one line each: the price and move since entry, the groups, what is against it."""
     from .groups import px
@@ -808,6 +862,16 @@ def record_text(rec: dict) -> str | None:
 
 
 # --------------------------------------------------------------------- read --
+
+
+def _no_anchors(obj):
+    """The scan without the patterns' shapes (drawn on the charts, not read by the model: they would only cost
+    tokens)."""
+    if isinstance(obj, dict):
+        return {k: _no_anchors(v) for k, v in obj.items() if k != "anchors"}
+    if isinstance(obj, list):
+        return [_no_anchors(v) for v in obj]
+    return obj
 
 
 def board_text(cur: dict) -> str:
@@ -1036,25 +1100,34 @@ class Analyst:
                                       "changes": [c["text"] for c in ch], "logged": logged})
         msg = None
         if send:   # a read he asked for answers him: it does not count against the unprompted messages
-            pngs = await self.pictures(out["views"], now, reason)
+            pngs = await self.pictures(out["views"], now, reason, cur)
             msg = await notify.push(self.agent.s, self.store, text, "read", must=reason == "morning" or force_send,
                                     reply=reason == "asked", pngs=pngs)
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged,
                 "delivered": msg is not None}
 
-    async def pictures(self, views: list[dict], now: float, reason: str) -> list[bytes]:
-        """The read's pictures, sent with it as one message: each setup on its daily chart, and on the morning read the
-        market map. None of them holds the read up."""
+    async def pictures(self, views: list[dict], now: float, reason: str, cur: dict | None = None) -> list[bytes]:
+        """The read's pictures, sent with it as one message: each setup on its daily chart (with the chart patterns
+        Reflex found on it), on the morning read the market map, and on Monday's morning read the market cycle and the
+        breadth. None of them holds the read up."""
         from . import pictures
         out: list[bytes] = []
+        rows = (cur or {}).get("candidates", []) + (cur or {}).get("direction", []) + (cur or {}).get("coins", [])
         for v in views[:2]:
-            png = await pictures.setup_png(self.agent, v["coin"], v["lean"], v["strength"], v.get("risk"), now)
+            pats = next((r.get("patterns") for r in rows if r.get("coin") == v["coin"] and r.get("patterns")), None)
+            png = await pictures.setup_png(self.agent, v["coin"], v["lean"], v["strength"], v.get("risk"), now,
+                                           patterns=pats)
             if png:
                 out.append(png)
         if reason == "morning":
             m = await pictures.map_png(self.agent, now, [v["coin"] for v in views])
             if m:
                 out.append(m[0])
+            if time.gmtime(now).tm_wday == 0:           # Monday: where the cycle and the breadth stand
+                for make in (pictures.cycle_png, pictures.breadth_png):
+                    got = await make(self.agent)
+                    if got:
+                        out.append(got[0])
         return out
 
     async def fill_reflex(self, cur: dict) -> None:
@@ -1104,8 +1177,8 @@ class Analyst:
             prev["views"] = [{k: v.get(k) for k in ("coin", "lean", "strength", "why")} for v in prev["views"] or []]
             prev["when"] = time.strftime("%a %H:%M UTC", time.gmtime(last["ts"]))
         # his positions are his decisions (owner, 3 November 2026): the read sees what he holds, not a briefing on it
-        scan_for_read = {**cur, "my_positions": [{k: m.get(k) for k in ("coin", "side", "source")}
-                                                 for m in cur.get("my_positions") or []]}
+        scan_for_read = {**_no_anchors(cur), "my_positions": [{k: m.get(k) for k in ("coin", "side", "source")}
+                                                               for m in cur.get("my_positions") or []]}
         market_changes = [c for c in ch if not c.get("owner")]
         parts = [f"Why this read runs: {reason}." + (" This is the morning read: always send it and set up the day."
                                                      if reason == "morning" else ""),

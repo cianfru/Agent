@@ -58,7 +58,7 @@ def test_grid_series_summary_and_picture():
     pts = flow.series(rows, 24, NOW)
     assert pts[-1]["long_n"] == 14 and pts[0]["long_share"] == round(100 * 13 / 38, 2)
     text = flow.summary(g["windows"])
-    assert text.splitlines()[0] == "Smart money: 14 long · 26 short (35.0% long)"
+    assert text.splitlines()[0] == "Crowd: 14 long · 26 short (35.0% long)"
     assert "1h: longs +1, shorts +0 · moving: BTC long" in text
     png = chart.pulse_chart(pts, g, NOW)
     assert png[:4] == b"\x89PNG"
