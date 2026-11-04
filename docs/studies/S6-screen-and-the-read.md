@@ -41,3 +41,43 @@ among its candidates, or from the market's direction. The owner pays a few cents
 - The universe is today's most traded coins plus wherever traders are: coins that fell out of it are missing.
 - The random control draws from the same screen, so it shares the screen's universe and its liquidity floor.
 - 60 days of `screen_log` is the earliest a verdict can come (early January 2027).
+
+## Amendment 1 (declared 4 November 2026): the screen against Reflex's ranking
+
+Asked by the owner on 4 November 2026 ("the way we list priorities for coins is superior to what we use on Reflex"),
+declared before anything was computed: no day carries both scores yet, and nothing below had been run on real data.
+
+**Why.** Reflex ranks its scanner by `priority_score` (`backend/scanner.py`, `_compute_priority`): a fixed sum out of
+100 (signal tier 40, share of conditions met 20, distance above the band 10, floor confirmed 8, momentum 7, low heat 5,
+CVD or spot-led 5, volume or absorption 5). Neither ranking has been tested; the screen's design differs (both sides,
+two independent families, the owner's band rule, the risk frame), but a better design is not a better ranking until
+the data says so.
+
+**What is kept (from 4 November 2026, no extra requests).** Reflex's daily `priority_score` per coin, read with the
+hourly engine reading from its scan's list view (`engine_all`, as `priority_1d`) and logged in `screen_log` with each
+coin's row, at the same moment as the screen's scores. It is kept out of the read's candidates, so the read does not
+change.
+
+**Question 3, and its bar.** Each day, among coins not too thin that carry both scores and a price 3 days later (at
+least 8): the Spearman correlation of the screen's long score with the coin's next 3-day move, and of Reflex's
+priority score with the same move, on the same coins. Reflex's score ranks longs only (a short signal scores below
+accumulation), so the comparison is on longs; the screen's short side has no Reflex counterpart. Reported: each
+ranking's mean correlation and t over days (and Reflex's top fifth against its bottom fifth), and the daily difference
+(screen minus Reflex) with its mean and t = mean / standard deviation x square root of the number of days.
+- **The screen ranks longs better** only when the mean difference is at least 0.02 with t of at least 2, over at
+  least 60 days.
+- **Reflex's priority ranks longs better** only when the mean difference is -0.02 or lower with t of -2 or lower,
+  over at least 60 days.
+- Otherwise context, not a signal. Each ranking also meets question 1's bar on its own or not (mean 0.03, t 2, 60
+  days), reported beside.
+
+A verdict that the screen ranks better is a case for porting it to Reflex, which stays the owner's decision; Reflex is
+not changed by this study.
+
+**Known limits.**
+- The screen's long score already uses Reflex's engine (15 points for its daily setup that way), so the two rankings
+  are not independent: the test is of the whole ordering, not of the engine.
+- Reflex's score includes its ranking-policy adjustment as Reflex shows it (zero while that policy is in shadow).
+- Only coins both rank, on days both were read: Reflex's scan list and the screen's universe (the most traded perps and
+  wherever traders are) overlap but are not the same.
+- The earliest verdict is 60 days after the first day carrying both scores, about early January 2027.

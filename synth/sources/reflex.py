@@ -186,6 +186,8 @@ async def engine_all(rc: ReflexClient) -> dict[str, dict]:
                 d[f"z_{tf}"] = round(float(row["zscore"]), 2)
             d[f"signal_{tf}"], d[f"regime_{tf}"] = row.get("signal"), row.get("regime")
             if tf == "1d":                     # the daily row's context, already in the list (no extra request)
+                if row.get("priority_score") is not None:      # Reflex's own ranking, kept for study S6
+                    d["priority_1d"] = round(float(row["priority_score"]), 1)
                 if row.get("heat") is not None:
                     d["heat_1d"] = row["heat"]
                 if row.get("sector"):
