@@ -476,6 +476,11 @@ def _money(v: float, sized: bool = True) -> str:
     return _usd(a).lstrip("+")
 
 
+def _short_price(x: float) -> str:
+    """A pinned triangle's price, short enough to sit beside it: 104K, 2,599, 0.0412."""
+    return f"{x / 1000:,.0f}K" if x >= 10_000 else _fmt(x)
+
+
 def _share(pct: float) -> str:
     """A share in percent that never rounds a minority away: >99, <1."""
     return ">99" if 99 < pct < 100 else "<1" if 0 < pct < 1 else f"{pct:.0f}"
@@ -660,6 +665,7 @@ def _crowd_marks(ax, s: dict, n: int, v0: float, ylo: float, yhi: float, panel_p
     # each side's average entry: a line from the day half its money was in (the earlier column when that is before
     # the days shown or before tracking), thin for a side holding under a tenth of the money
     tot = s["long"]["usd"] + s["short"]["usd"]
+    lines: list[tuple[float, float]] = []                # (x0, price) of each average line drawn
     for side, col, mark in (("long", UP, "▲"), ("short", DOWN, "▼")):
         d = s[side]
         if not d["avg"]:
@@ -672,6 +678,7 @@ def _crowd_marks(ax, s: dict, n: int, v0: float, ylo: float, yhi: float, panel_p
         x0 = xlo
         if d["half_in"] and d["half_in"] >= v0:
             x0 = min((d["half_in"] - v0) / 86400 - 0.5, n - 0.5)
+        lines.append((x0, d["avg"]))
         minor = d["usd"] < 0.1 * tot
         ax.hlines(d["avg"], x0, xhi, color=col, linewidth=1.0 if minor else 2.0, alpha=0.75 if minor else 1.0,
                   zorder=4.5, path_effects=None if minor else _glow(col, 6, 0.22))
@@ -700,36 +707,55 @@ def _crowd_marks(ax, s: dict, n: int, v0: float, ylo: float, yhi: float, panel_p
                 fontsize=8.5, ha="center", va="top" if at_top else "bottom", path_effects=_outline(), zorder=6)
         placed.append((gpx - 18, h_pt - 15, gpx + 18, h_pt) if at_top else (gpx - 18, 0, gpx + 18, 15))
 
-    def free(b, own):
-        inside = 0 <= b[0] and b[2] <= w_pt and 0 <= b[1] and b[3] <= h_pt
-        hits = any(b[0] < o[2] and o[0] < b[2] and b[1] < o[3] and o[1] < b[3]
-                   for k, o in enumerate(boxes) if k != own) or \
-            any(b[0] < o[2] and o[0] < b[2] and b[1] < o[3] and o[1] < b[3] for o in placed)
-        return inside and not hits
+    def cost(b, own):
+        """0 for a clear spot; outside the panel costs most, then covering a triangle, then a label or a line."""
+        hit = lambda o: b[0] < o[2] and o[0] < b[2] and b[1] < o[3] and o[1] < b[3]  # noqa: E731
+        out = not (0 <= b[0] and b[2] <= w_pt and 0 <= b[1] and b[3] <= h_pt)
+        return 100 * out + 10 * sum(hit(o) for k, o in enumerate(boxes) if k != own) + sum(map(hit, placed))
 
+    if early:                          # the earlier column's heading: at its top, or its foot when a triangle is there
+        gpx = (gx - xlo) * ppd
+        tops = [to_pt_final(x, y)[1] + a / 2 for side, c, a, x, y, _ in tris if x < xd0]
+        at_top = not any(t > h_pt - 18 for t in tops)
+        ax.text(gx, 0.985 if at_top else 0.015, "earlier", transform=ax.get_xaxis_transform(), color=MUTED,
+                fontsize=8.5, ha="center", va="top" if at_top else "bottom", path_effects=_outline(), zorder=6)
+        placed.append((gpx - 18, h_pt - 15, gpx + 18, h_pt) if at_top else (gpx - 18, 0, gpx + 18, 15))
+
+    for x0, v in lines:                                  # the average lines: labels keep off them too
+        lx, ly = to_pt_final(x0, v)
+        placed.append((lx, ly - 4, w_pt, ly + 4))
     for i in order:
         side, c, a, x, y, arrow = tris[i]
-        text = " · ".join(([str(c["n"])] if c["n"] > 1 else []) + ([f"{arrow}{_fmt(c['y'])}"] if arrow else []))
-        if not text:
-            continue
         col = UP if side == "long" else DOWN
         px, py = to_pt_final(x, y)
-        tw, th = 5.6 * len(text) + 3, 11.0
+        count = str(c["n"]) if c["n"] > 1 else ""
+        pin = f"{arrow}{_short_price(c['y'])}" if arrow else ""
+        th = 11.0
         dy = -a * 0.12 if side == "long" else a * 0.12
-        spots = []
-        if c["n"] > 1 and not arrow and a >= 22:
-            spots.append(("in", (0, dy), "center", "center", (px - tw / 2, py + dy - th / 2, px + tw / 2, py + dy + th / 2)))
-        g = a / 2 + 2
-        spots += [("r", (g, 0), "left", "center", (px + g, py - th / 2, px + g + tw, py + th / 2)),
-                  ("l", (-g, 0), "right", "center", (px - g - tw, py - th / 2, px - g, py + th / 2)),
-                  ("u", (0, g), "center", "bottom", (px - tw / 2, py + g, px + tw / 2, py + g + th)),
-                  ("d", (0, -g), "center", "top", (px - tw / 2, py - g - th, px + tw / 2, py - g))]
-        pick = next((sp for sp in spots if free(sp[4], i)), spots[0])
-        where, off, ha, va, box = pick
+        if count and a >= 22:                           # the count inside a big triangle, when nothing covers it
+            tw = 5.6 * len(count) + 3
+            box = (px - tw / 2, py + dy - th / 2, px + tw / 2, py + dy + th / 2)
+            if not any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3]
+                       for k, o in enumerate(boxes) if k != i):
+                ax.annotate(count, (x, y), xytext=(0, dy), textcoords="offset points", ha="center", va="center",
+                            color=TEXT, fontsize=9, fontweight="bold", zorder=6, path_effects=_outline(2.6),
+                            annotation_clip=False)
+                count = ""
+        text = " · ".join(t for t in (count, pin) if t)
+        if not text:
+            continue
+        tw, g = 5.6 * len(text) + 3, a / 2 + 2
+        sx = min(max(0.0, tw / 2 - px), w_pt - tw / 2 - px)  # above or below: slid sideways to stay in the panel
+        spot = {"r": ((g, 0), "left", "center", (px + g, py - th / 2, px + g + tw, py + th / 2)),
+                "l": ((-g, 0), "right", "center", (px - g - tw, py - th / 2, px - g, py + th / 2)),
+                "u": ((sx, g), "center", "bottom", (px + sx - tw / 2, py + g, px + sx + tw / 2, py + g + th)),
+                "d": ((sx, -g), "center", "top", (px + sx - tw / 2, py - g - th, px + sx + tw / 2, py - g))}
+        prefer = "udrl" if (x < xd0 or arrow) else "rlud"   # the earlier column and pinned ones: above or below
+        key = min(prefer, key=lambda k: (cost(spot[k][3], i), prefer.index(k)))   # the clearest, in that order
+        off, ha, va, box = spot[key]
         placed.append(box)
-        ax.annotate(text, (x, y), xytext=off, textcoords="offset points", ha=ha, va=va,
-                    color=TEXT if where == "in" else col, fontsize=9, fontweight="bold", zorder=6,
-                    path_effects=_outline(2.6), annotation_clip=False)
+        ax.annotate(text, (x, y), xytext=off, textcoords="offset points", ha=ha, va=va, color=col, fontsize=9,
+                    fontweight="bold", zorder=6, path_effects=_outline(2.6), annotation_clip=False)
     return xlo, xd0, xhi, gx
 
 
