@@ -170,7 +170,9 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   return after a taker round trip and the funding paid, how often the setup's own off level was touched before the
   horizon, and the move beyond the coin's beta to BTC. `/record` also shows study S6: whether the screen ranks coins,
   whether the read beats the code's own picks and random coins, and whether the screen ranks longs better than
-  Reflex's own priority score.
+  Reflex's own priority score. `/studies` (and `GET /studies`) lists every study against its declared bar: the
+  finished ones with their result, and for each one still collecting, its live count and the date its verdict can
+  come at the pace so far, plus the horizon its outcome needs (`synth/studies.py`).
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
   list is added to them.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`

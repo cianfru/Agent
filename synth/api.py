@@ -559,6 +559,13 @@ def position_traders():
     return agent.positions.board()
 
 
+@app.get("/studies", dependencies=[Depends(auth)])
+def studies_report():
+    """Every study against its declared bar, and when its verdict can come at the pace so far (as /studies)."""
+    from . import studies
+    return studies.report(agent.store)
+
+
 @app.get("/study", dependencies=[Depends(auth)])
 def study_report():
     """S1 Part L: convergences by whether the engine agreed when they formed, and how they went."""

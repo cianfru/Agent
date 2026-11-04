@@ -8,6 +8,7 @@ Long-polls getUpdates (no webhook, no public endpoint). Only the configured chat
   /help       what each alert means and the words in them
   /draft      one of Outrider's X posts now, as a draft (off the menu while X drafts are off)
   /read       Outrider's read of the market now;  /record  how its setups did;  /mine  his positions, in code
+  /studies    each study against its bar, and when its verdict can come
   /watch      the watch list, or /watch ENA long 0.09 5k to add;  /unwatch ENA  to take it off
   /reset      start the conversation afresh;  /cost  what talking and reads have cost today;  /held  held back
 Any other message is a question for Outrider (synth/chat.py), answered from the agent's data.
@@ -46,6 +47,7 @@ Off: where a setup is wrong. Every setup is scored after 1, 3 and 7 days (study 
 /mine  your positions (/mine more for my read on them)
 /watch ENA long 0.09 5k  follow a position        /unwatch ENA
 /record  how setups and every other pick did, against their bars
+/studies  each study's progress and when its verdict can come
 /now  who opened and closed in 1h, 6h, 24h        /positions  what tracked traders hold
 /status  is everything running        /held  held back        /cost  spend today
 /following  /groups  /reset"""
@@ -63,6 +65,7 @@ COMMANDS = [{"command": "read", "description": "Outrider's read of the market no
             {"command": "watch", "description": "Your watch list (/watch ENA long 0.09 5k adds one)"},
             {"command": "unwatch", "description": "Take a coin off the watch list (/unwatch ENA)"},
             {"command": "record", "description": "How Outrider's views and the other picks did"},
+            {"command": "studies", "description": "Each study's progress and when its verdict can come"},
             {"command": "now", "description": "Live pulse: who opened and closed in 1h, 6h, 24h"},
             {"command": "positions", "description": "What the proven position traders hold now"},
             {"command": "following", "description": "Groups you follow"},
@@ -220,6 +223,11 @@ async def handle(agent, update: dict) -> None:
         text = await asyncio.to_thread(journal.full_text, store)
         png = await pictures.journal_png(store)
         await notify.send_with_pictures(s.telegram_token, chat, text, [png] if png else [])
+        return
+    if cmd == ["/studies"]:
+        from . import studies
+        await notify.telegram(s.telegram_token, chat,
+                              await asyncio.to_thread(lambda: studies.text(studies.report(store))))
         return
     if cmd == ["/board"]:
         from .analyst import board_text, scan
