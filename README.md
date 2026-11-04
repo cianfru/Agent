@@ -194,16 +194,20 @@ With a model key, Outrider reads the market instead of posting the same numbers 
 
 ### Pictures, at no cost
 
-`synth/chart.py` and `synth/pictures.py` draw in code (matplotlib, no paid service), sized for a phone: 1,200 px
-wide, the long side under Telegram's 1,280, no text under 8.5 points; rendered off the poll in a worker thread with no
-shared plotting state.
+`synth/chart.py` and `synth/pictures.py` draw in code (matplotlib, no paid service), sized for a phone: 1,800 px
+wide, the long side under Telegram's 2,560 for a photo, no text under 8.5 points, in Inter (installed in the image);
+rendered off the poll in a worker thread with no shared plotting state. The look: a deep indigo background with light
+from the top, vivid mint and coral candles, the band in violet, the 200-day in sky blue, the off level in amber, the
+next level in cyan, each level labelled on a tag at the right edge.
 - **A setup on its daily chart**, with every read that carries one: the last 120 days of candles, the support band as
-  it stood each day, the 200-day average, where the setup is wrong (orange) and the next level (dotted), tracked
-  traders' entries, and under it the daily z-score against the owner's lines once enough of its history is kept (from
-  the daily screen log, so it fills over the weeks). One candle request per coin. `/chart SOL` (or `/chart SOL
+  it stood each day, the 200-day average, where the setup is wrong (amber) and the next level (cyan), the price now,
+  and under it the daily z-score against the owner's lines once enough of its history is kept (from the daily screen
+  log, so it fills over the weeks). Traders' entries are not drawn: their average entries do not sit on the candles of
+  the day they opened, and read as noise. One candle request per coin. `/chart SOL` (or `/chart SOL
   short`) for any coin.
 - **The market map**, with the morning read: every screened coin by where it sits against its band and its daily
-  z-score, the owner's lines drawn, long candidates green and short red, sized by open interest. `/map`.
+  z-score, the owner's lines drawn, the corners named (stretched over the band, washed out under it), long candidates
+  mint and short coral with a halo, sized by open interest, names placed so none covers another. `/map`.
 - **The record against its bar**, with `/record`: the setups' running share right and share that beat the market
   against S5's 62% and 60 needed, and each setup's 3-day move with the running median against +1%. Never a summed
   return curve.

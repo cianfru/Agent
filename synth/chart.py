@@ -15,13 +15,17 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.dates as mdates  # noqa: E402
+import matplotlib.lines  # noqa: E402,F401
 import matplotlib.patches  # noqa: E402,F401
 import matplotlib.ticker  # noqa: E402,F401
 from matplotlib.figure import Figure  # noqa: E402
 
-GROUND, SURFACE, BORDER = "#0e0d0b", "#161412", "#3b352f"
-TEXT, MUTED = "#f7f3ed", "#8f877c"
-UP, DOWN, ACCENT = "#9fe6c7", "#f4968b", "#ff5e00"
+GROUND, SURFACE, BORDER = "#0B1030", "#121A3C", "#33417A"     # deep indigo, a lighter panel, its edge
+TEXT, MUTED = "#F4F6FF", "#A3AFD6"
+UP, DOWN, ACCENT = "#2EF2A6", "#FF4D7D", "#FFB627"           # vivid mint, coral, amber
+matplotlib.rcParams["font.family"] = ["Inter", "DejaVu Sans"]   # Inter where installed (the image has it)
+logging_ = __import__("logging")
+logging_.getLogger("matplotlib.font_manager").setLevel(logging_.ERROR)
 
 
 def _fmt(x: float) -> str:
@@ -31,7 +35,7 @@ def _fmt(x: float) -> str:
 def group_chart(coin: str, side: str, candles: list[list[float]], members: list[dict],
                 all_losing: float | None, title: str) -> bytes:
     """candles: [[t_ms, o, h, l, c]]; members: [{entry_px, opened_ts, status}]."""
-    fig = Figure(figsize=(8, 4.5), dpi=150)
+    fig = Figure(figsize=(8, 4.5), dpi=225)
     ax = fig.subplots()
     fig.patch.set_facecolor(GROUND)
     ax.set_facecolor(SURFACE)
@@ -91,7 +95,7 @@ def pulse_chart(points: list[dict], grid: dict, now: float, title: str = "Crowd 
     coins = grid["coins"]
     rows_h = 0.42 * max(len(coins), 3) + 0.5
     height = 1.0 + 2.2 + rows_h + 0.55
-    fig = Figure(figsize=(8, height), dpi=150)
+    fig = Figure(figsize=(8, height), dpi=225)
     fig.patch.set_facecolor(GROUND)
     gs = fig.add_gridspec(2, 1, height_ratios=[2.2, rows_h], hspace=0.18,
                           left=0.07, right=0.97, top=1 - 1.0 / height, bottom=0.55 / height)
@@ -185,29 +189,77 @@ WINDOW_KEYS = (1, 6, 24)
 
 
 # --------------------------------------------------------------- phone-sized charts --
-W_IN, DPI = 5.0, 240       # 1,200 px wide: a chart he reads on a phone without zooming
+W_IN, DPI = 5.0, 360       # 1,800 px wide: sharp on a phone, under Telegram's 2,560 for a photo
 DAY_MS = 86_400_000
+BG_TOP, BG_BOTTOM = "#0B1030", "#17204A"          # deep indigo, lighter toward the foot: depth behind the panels
+PANEL, GRID, EDGE = "#121A3C", "#26325E", "#33417A"
+BAND, BAND_EDGE = "#8B5CF6", "#B9A2FF"            # the bull market support band: violet
+MA200 = "#38BDF8"                                 # the 200-day average: sky blue
+OFF = "#FFB627"                                   # where a setup is wrong: amber
+NEXT = "#67E8F9"                                  # the next level the other way: cyan
+DIM = "#5D6B9E"                                   # coins with nothing to say on the map
+FONT = ["Inter", "DejaVu Sans"]
+
+
+def _canvas(fig) -> None:
+    """A deep background with a little light from the top: a vertical gradient and a soft glow behind the title."""
+    import numpy as np
+    from matplotlib.colors import LinearSegmentedColormap
+    bg = fig.add_axes((0, 0, 1, 1), zorder=-10)
+    bg.axis("off")
+    grad = np.linspace(0, 1, 512).reshape(-1, 1)
+    bg.imshow(grad, aspect="auto", extent=(0, 1, 0, 1), origin="upper",
+              cmap=LinearSegmentedColormap.from_list("bg", [BG_TOP, BG_BOTTOM]))
+    yy, xx = np.mgrid[0:1:200j, 0:1:200j]
+    glow = np.exp(-(((xx - 0.25) / 0.45) ** 2 + ((yy - 0.0) / 0.35) ** 2))      # top left
+    rgba = np.zeros((200, 200, 4))
+    rgba[..., :3] = matplotlib.colors.to_rgb("#3B4BA8")
+    rgba[..., 3] = 0.35 * glow
+    bg.imshow(rgba, aspect="auto", extent=(0, 1, 0, 1), origin="upper")
+    bg.set_xlim(0, 1)
+    bg.set_ylim(0, 1)
 
 
 def _style(ax) -> None:
-    ax.set_facecolor(SURFACE)
+    ax.set_facecolor((*matplotlib.colors.to_rgb(PANEL), 0.72))
     for sp in ax.spines.values():
-        sp.set_color(BORDER)
-    ax.tick_params(colors=MUTED, labelsize=9)
-    ax.grid(color=BORDER, linewidth=0.5, alpha=0.6)
+        sp.set_color(EDGE)
+        sp.set_linewidth(0.8)
+    ax.tick_params(colors=MUTED, labelsize=9, length=0, pad=4)
+    ax.grid(color=GRID, linewidth=0.6, alpha=0.9)
+    ax.set_axisbelow(True)
+
+
+def _glow(color: str, width: float = 5.0, alpha: float = 0.28) -> list:
+    """A soft halo under a line or a point, so the levels that matter stand out from the panel."""
+    from matplotlib import patheffects as pe
+    return [pe.Stroke(linewidth=width, foreground=color, alpha=alpha), pe.Normal()]
+
+
+def _outline(width: float = 3.0) -> list:
+    """Text readable over anything: a thin dark edge around the letters."""
+    from matplotlib import patheffects as pe
+    return [pe.withStroke(linewidth=width, foreground=BG_TOP)]
 
 
 def _png(fig) -> bytes:
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", facecolor=GROUND)
+    fig.savefig(buf, format="png", facecolor=BG_TOP)
     return buf.getvalue()
 
 
+def _header(fig, title: str, sub: str = "", color: str | None = None, y: float = 0.955) -> None:
+    fig.text(0.04, y, title, color=color or TEXT, fontsize=15, fontweight="bold", va="center")
+    if sub:
+        fig.text(0.04, y - 0.046, sub, color=MUTED, fontsize=9, va="center")
+    fig.text(0.96, 0.018, "Outrider", color=MUTED, fontsize=8.5, ha="right", va="bottom", alpha=0.85)
+
+
 def _labels(ax, items: list[tuple[float, str, str]], lo: float, hi: float) -> None:
-    """Labels at the right edge for horizontal levels, nudged apart so none overlaps another."""
+    """Labels at the right edge for horizontal levels, on a dark tag of their colour, nudged apart so none overlaps."""
     fig = ax.get_figure()
     height_pt = ax.get_position().height * fig.get_figheight() * 72
-    gap = (hi - lo) * 12.5 / max(height_pt, 1)            # one line of 8.5-point text, in data units
+    gap = (hi - lo) * 19.0 / max(height_pt, 1)            # one tag of 9-point text with its frame, in data units
     items = sorted(items, key=lambda t: t[0])
     ys: list[float] = []
     for y, _, _ in items:                                  # upwards: each at least a line over the one below
@@ -217,8 +269,10 @@ def _labels(ax, items: list[tuple[float, str, str]], lo: float, hi: float) -> No
         ys[i] = min(ys[i], cap)
         cap = ys[i] - gap
     for yy, (_, text, col) in zip(ys, items):
-        ax.text(1.01, yy, text, transform=ax.get_yaxis_transform(), color=col, fontsize=8.5, va="center",
-                ha="left", clip_on=False)
+        ax.text(1.015, yy, text, transform=ax.get_yaxis_transform(), color=col, fontsize=9, fontweight="semibold",
+                va="center", ha="left", clip_on=False,
+                bbox={"boxstyle": "round,pad=0.28,rounding_size=0.35", "facecolor": BG_TOP, "edgecolor": col,
+                      "linewidth": 0.8, "alpha": 0.95})
 
 
 def _band_series(bars: list[list[float]], start: int) -> tuple[list[float | None], list[float | None]]:
@@ -239,12 +293,29 @@ def _band_series(bars: list[list[float]], start: int) -> tuple[list[float | None
     return lo, hi
 
 
+def _legend(fig, items: list[tuple[str, str, str]], y: float) -> None:
+    """A row of small keys under the title: a swatch of each line's colour and style, then its name."""
+    x = 0.04
+    for kind, col, name in items:
+        if kind == "fill":
+            fig.patches.append(matplotlib.patches.FancyBboxPatch(
+                (x, y - 0.007), 0.03, 0.014, boxstyle="round,pad=0,rounding_size=0.004", transform=fig.transFigure,
+                facecolor=col, alpha=0.55, edgecolor=BAND_EDGE, linewidth=0.6))
+        else:
+            ls = {"dash": (0, (3, 1.6)), "dot": (0, (1, 1.6)), "line": "-"}[kind]
+            fig.add_artist(matplotlib.lines.Line2D([x, x + 0.03], [y, y], transform=fig.transFigure, color=col,
+                                                   linewidth=1.6, linestyle=ls))
+        fig.text(x + 0.037, y, name, color=MUTED, fontsize=8.5, va="center")
+        x += 0.065 + 0.0145 * len(name)
+
+
 def setup_chart(coin: str, side: str, strength: str, bars: list[list[float]], risk: dict | None = None,
-                z_hist: list[tuple[float, float]] | None = None, entries: list[tuple[float, float, str]] | None = None,
+                z_hist: list[tuple[float, float]] | None = None, entries: list | None = None,
                 show: int = 120, patterns: list[dict] | None = None) -> bytes:
     """A setup on its daily chart: the last `show` days of candles, the bull market support band as it stood each day,
-    the 200-day average, where the setup is wrong and the next level the other way, tracked traders' entries, and the
-    engine's daily z-score with the owner's lines under it when its history is long enough to draw."""
+    the 200-day average, where the setup is wrong and the next level the other way, a chart pattern Reflex found, and
+    the engine's daily z-score with the owner's lines under it once its history is long enough. (Traders' entries
+    are not drawn: their average entries do not sit on the candles of the day they opened.)"""
     import numpy as np
     closes = [b[4] for b in bars]
     start = max(0, len(bars) - show)
@@ -255,108 +326,142 @@ def setup_chart(coin: str, side: str, strength: str, bars: list[list[float]], ri
     zs = [(t, z) for t, z in (z_hist or []) if z is not None and t >= view[0][0] / 1000]
     with_z = len(zs) >= 10
     fig = Figure(figsize=(W_IN, 5.3), dpi=DPI)
-    fig.patch.set_facecolor(GROUND)
+    _canvas(fig)
     if with_z:
-        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1.25], hspace=0.08, left=0.03, right=0.78, top=0.86,
-                              bottom=0.08)
+        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1.2], hspace=0.07, left=0.12, right=0.79, top=0.83,
+                              bottom=0.07)
         ax, zx = fig.add_subplot(gs[0]), fig.add_subplot(gs[1])
         _style(zx)
-        zx.yaxis.tick_right()
     else:
-        ax = fig.add_axes((0.03, 0.08, 0.75, 0.78))
+        ax = fig.add_axes((0.12, 0.07, 0.67, 0.76))
         zx = None
     _style(ax)
-    ax.yaxis.tick_right()
     o, h, low, c = (np.array([b[i] for b in view]) for i in (1, 2, 3, 4))
     up = c >= o
     cols = np.where(up, UP, DOWN)
-    ax.vlines(x, low, h, color=cols, linewidth=0.7, alpha=0.85)
-    span = float(h.max() - low.min()) or 1.0
-    ax.bar(x, np.maximum(abs(c - o), span * 0.003), bottom=np.minimum(o, c), color=cols, width=0.7, linewidth=0)
     bx = [i for i, v in enumerate(blo) if v is not None]
-    if bx:
-        ax.fill_between(bx, [blo[i] for i in bx], [bhi[i] for i in bx], color=ACCENT, alpha=0.22, linewidth=0)
+    if bx:                                         # the band under the candles: a violet ribbon with lit edges
+        ax.fill_between(bx, [blo[i] for i in bx], [bhi[i] for i in bx], color=BAND, alpha=0.30, linewidth=0,
+                        zorder=1)
+        for edge in (blo, bhi):
+            ax.plot(bx, [edge[i] for i in bx], color=BAND_EDGE, linewidth=0.7, alpha=0.8, zorder=1)
     mx = [i for i, v in enumerate(ma200) if v is not None]
     if mx:
-        ax.plot(mx, [ma200[i] for i in mx], color=TEXT, linewidth=1.1, linestyle=(0, (4, 2)))
-    for t, px, s in entries or []:
-        i = int(round((t * 1000 - view[0][0]) / DAY_MS))
-        if 0 <= i < len(view):
-            ax.scatter([i], [px], s=34, color=DOWN if s == "short" else UP, edgecolor=GROUND, linewidth=0.7,
-                       zorder=4, marker="v" if s == "short" else "^")
+        ax.plot(mx, [ma200[i] for i in mx], color=MA200, linewidth=1.6, linestyle=(0, (4, 1.8)), zorder=2)
+    ax.vlines(x, low, h, color=cols, linewidth=0.9, zorder=3)
+    span = float(h.max() - low.min()) or 1.0
+    ax.bar(x, np.maximum(abs(c - o), span * 0.004), bottom=np.minimum(o, c), color=cols, width=0.72,
+           edgecolor=cols, linewidth=0.3, zorder=3)
     pat_note = ""
     pat_items: list[tuple[float, str, str]] = []
-    for p in (patterns or [])[:2]:                # Reflex's chart patterns: their shape, break level and fail level
+    for p in (patterns or [])[:2]:                # Reflex's chart patterns: their shape and break level
         pts = [((t * 1000 - view[0][0]) / DAY_MS, v) for t, v in p.get("anchors") or [] if t and v]
         pts = [(i, v) for i, v in pts if -5 <= i <= len(view) + 5]
         if len(pts) >= 2:
-            ax.plot([i for i, _ in pts], [v for _, v in pts], color=ACCENT, linewidth=1.1, alpha=0.75,
-                    marker="o", markersize=2.5)
+            ax.plot([i for i, _ in pts], [v for _, v in pts], color="#F472B6", linewidth=1.4, alpha=0.95,
+                    marker="o", markersize=3.2, zorder=4, path_effects=_glow("#F472B6", 4, 0.25))
         pcol = UP if p.get("direction") == "up" else DOWN if p.get("direction") == "down" else MUTED
         for v in p.get("break_level") or []:
-            ax.axhline(v, color=pcol, linewidth=0.9, alpha=0.8)
+            ax.axhline(v, color=pcol, linewidth=1.0, alpha=0.9, zorder=2)
             pat_items.append((v, f"break {_fmt(v)}", pcol))
         if not pat_note and p.get("pattern"):
-            pat_note = f"{p['pattern']} ({p.get('status')})" + (f": break {_fmt(p['break_level'][0])}"
-                                                               if p.get("break_level") else "")
+            pat_note = f"{p['pattern']} ({p.get('status')})"
     levels_y = [float(v) for v in (low.min(), h.max())] + [v for v, _, _ in pat_items]
     recent = len(view) - 60                                     # the band and the 200-day near today stay in view
     levels_y += [v for i, v in enumerate(blo) if v is not None and i >= recent]
     levels_y += [v for i, v in enumerate(bhi) if v is not None and i >= recent]
     levels_y += [v for i, v in enumerate(ma200) if v is not None and i >= recent]
-    items: list[tuple[float, str, str]] = [(float(c[-1]), f"now {_fmt(float(c[-1]))}", TEXT)] + pat_items[:2]
+    last = float(c[-1])
+    items: list[tuple[float, str, str]] = [(last, f"now {_fmt(last)}", TEXT)] + pat_items[:2]
     off, nxt = (risk or {}).get("off"), (risk or {}).get("next")
     if off:
-        ax.axhline(off["level"], color=ACCENT, linewidth=1.2, linestyle="--")
-        items.append((off["level"], f"off {_fmt(off['level'])}", ACCENT))
+        ax.axhline(off["level"], color=OFF, linewidth=1.6, linestyle=(0, (5, 2)), zorder=4)
+        items.append((off["level"], f"off {_fmt(off['level'])}", OFF))
         levels_y.append(off["level"])
     if nxt:
-        ax.axhline(nxt["level"], color=MUTED, linewidth=1.0, linestyle=":")
-        items.append((nxt["level"], f"next {_fmt(nxt['level'])}", MUTED))
+        ax.axhline(nxt["level"], color=NEXT, linewidth=1.2, linestyle=(0, (1, 1.8)), zorder=4)
+        items.append((nxt["level"], f"next {_fmt(nxt['level'])}", NEXT))
         levels_y.append(nxt["level"])
+    ax.axhline(last, color=TEXT, linewidth=0.6, alpha=0.35, zorder=2)
+    ax.scatter([x[-1]], [last], s=26, color=TEXT, zorder=6, edgecolor=BG_TOP, linewidth=0.8,
+               path_effects=_glow(TEXT, 7, 0.25))
     ylo, yhi = min(levels_y), max(levels_y)
-    pad = (yhi - ylo) * 0.06
+    pad = (yhi - ylo) * 0.07
     ax.set_ylim(ylo - pad, yhi + pad)
     ax.set_xlim(-1, len(view) + 1)
-    ax.tick_params(labelright=False)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: _fmt(v)))
+    ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(6))
     _labels(ax, items, ylo - pad, yhi + pad)
-    ticks = [i for i in range(0, len(view), 30)]
+    ticks = [i for i in range(len(view) % 30, len(view), 30)]
     fmt = lambda i: dt.datetime.fromtimestamp(view[i][0] / 1000, dt.timezone.utc).strftime("%d %b")  # noqa: E731
     target = zx if zx is not None else ax
+    if pat_note:
+        ax.text(0.015, 0.03, pat_note, transform=ax.transAxes, color="#F9A8D4", fontsize=9, fontweight="semibold",
+                path_effects=_outline())
     if zx is not None:
         ax.set_xticks(ticks)
         ax.tick_params(labelbottom=False)
         zxs = [(t * 1000 - view[0][0]) / DAY_MS for t, _ in zs]
-        zx.plot(zxs, [z for _, z in zs], color=TEXT, linewidth=1.3)
-        zx.scatter([zxs[-1]], [zs[-1][1]], s=24, color=ACCENT, zorder=4)
-        for v, col in ((3.5, DOWN), (3.0, DOWN), (2.5, ACCENT), (-1.0, UP)):
-            zx.axhline(v, color=col, linewidth=0.8, linestyle="--", alpha=0.9)
-        zlo = min(-1.5, min(z for _, z in zs) - 0.3)
+        zlo = min(-1.6, min(z for _, z in zs) - 0.3)
         zhi = max(3.8, max(z for _, z in zs) + 0.3)
+        zx.axhspan(2.5, zhi, color=DOWN, alpha=0.10, linewidth=0)           # stretched
+        zx.axhspan(zlo, -1.0, color=UP, alpha=0.10, linewidth=0)            # washed out
+        lines = ((3.5, DOWN), (3.0, DOWN), (2.5, OFF), (-1.0, UP))
+        for v, col in lines:
+            zx.axhline(v, color=col, linewidth=0.9 if v in (3.0, -1.0) else 0.7, linestyle=(0, (3, 2)),
+                       alpha=0.95 if v in (3.0, -1.0) else 0.7)
+        zx.plot(zxs, [z for _, z in zs], color=TEXT, linewidth=1.6)
+        zx.scatter([zxs[-1]], [zs[-1][1]], s=30, color=TEXT, zorder=4, edgecolor=BG_TOP, linewidth=0.8)
         zx.set_ylim(zlo, zhi)
         zx.set_xlim(-1, len(view) + 1)
-        zx.tick_params(labelright=False)
-        _labels(zx, [(3.5, "3.5", DOWN), (3.0, "3", DOWN), (2.5, "2.5", ACCENT), (-1.0, "-1", UP)], zlo, zhi)
-        zx.text(0.01, 0.06, f"daily z {zs[-1][1]:.1f}", transform=zx.transAxes, color=TEXT, fontsize=9, va="bottom",
-                bbox={"facecolor": SURFACE, "edgecolor": "none", "pad": 1})
+        zx.set_yticks([-1.0, 0.0, 2.5, 3.5])                # the lines close together are named on the left
+        zx.set_yticklabels(["-1", "0", "2.5", "3.5"])
+        for t, col in zip(zx.get_yticklabels(), (UP, MUTED, OFF, DOWN)):
+            t.set_color(col)
+        _labels(zx, [(3.0, "3 trim", DOWN), (zs[-1][1], f"z {zs[-1][1]:.1f}", TEXT)], zlo, zhi)
     target.set_xticks(ticks)
     target.set_xticklabels([fmt(i) for i in ticks])
     col = DOWN if side == "short" else UP
-    fig.text(0.03, 0.955, f"{coin} {side} · {strength}", color=col, fontsize=14, fontweight="bold", va="center")
-    sub = "Band shaded · 200-day dashed · off level orange · next dotted"
-    if pat_note:
-        ax.text(0.01, 0.02, pat_note, transform=ax.transAxes, color=TEXT, fontsize=8.5,
-                bbox={"facecolor": SURFACE, "edgecolor": "none", "pad": 1})
-    if not with_z and zs:
+    sub = f"now {_fmt(last)}"
+    if zs:
         sub += f" · daily z {zs[-1][1]:.1f}"
-    fig.text(0.03, 0.905, sub, color=MUTED, fontsize=8.5, va="center")
-    fig.text(0.97, 0.02, "UTC · Outrider", color=MUTED, fontsize=8.5, ha="right")
+    if off:
+        sub += f" · off {off['pct']:+.1f}%"
+    if nxt:
+        sub += f" · next {nxt['pct']:+.1f}%"
+    _header(fig, f"{coin} {side} · {strength}", sub, col)
+    _legend(fig, [("fill", BAND, "band"), ("dash", MA200, "200-day"), ("dash", OFF, "off"), ("dot", NEXT, "next")],
+            0.862)
     return _png(fig)
+
+
+def _place_labels(ax, pts: list[tuple[float, float, str, str]], fontsize: float = 9.0) -> None:
+    """Coin names beside their points, each moved to the first free spot around its point (no name over another)."""
+    fig = ax.get_figure()
+    scale = fig.dpi / 72
+    taken: list[tuple[float, float, float, float]] = []
+    offsets = [(7, 6), (7, -13), (-7, 6), (-7, -13), (0, 12), (0, -18), (12, -3), (-12, -3), (16, 14), (-16, 14),
+               (16, -22), (-16, -22)]
+    for x, y, name, col in sorted(pts, key=lambda p: -p[1]):
+        px, py = ax.transData.transform((x, y))
+        w, hgt = 0.62 * fontsize * len(name) * scale, 1.25 * fontsize * scale
+        for dx, dy in offsets:
+            left = px + dx * scale if dx >= 0 else px + dx * scale - w
+            if dx == 0:
+                left = px - w / 2
+            box = (left, py + dy * scale, left + w, py + dy * scale + hgt)
+            if not any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3] for b in taken):
+                taken.append(box)
+                ax.annotate(name, (x, y), xytext=(dx, dy), textcoords="offset points", fontsize=fontsize,
+                            fontweight="semibold", color=col, zorder=7, path_effects=_outline(3.2),
+                            ha="left" if dx > 0 else "right" if dx < 0 else "center", va="bottom")
+                break
 
 
 def market_map(rows: list[dict], cands: list[dict], label: list[str] = (), title: str | None = None) -> bytes:
     """Every screened coin by where it sits against its band (x, % from the band's middle) and its daily z-score (y),
-    with the owner's lines; long candidates green, short red, the rest grey; size by open interest."""
+    with the owner's lines and the corners named; long candidates mint, short coral, the rest dim; size by open
+    interest."""
     import math
     pts = []
     for r in rows:
@@ -368,32 +473,43 @@ def market_map(rows: list[dict], cands: list[dict], label: list[str] = (), title
     side = {c["coin"]: c["side"] for c in cands}
     top_oi = max([r.get("open_interest_usd") or 0 for r, _, _ in pts] + [1])
     fig = Figure(figsize=(W_IN, 5.3), dpi=DPI)
-    fig.patch.set_facecolor(GROUND)
-    ax = fig.add_axes((0.12, 0.1, 0.84, 0.76))
+    _canvas(fig)
+    ax = fig.add_axes((0.12, 0.1, 0.84, 0.73))
     _style(ax)
-    ax.axvspan(-4, 4, color=ACCENT, alpha=0.10, linewidth=0)
-    ax.axvline(0, color=ACCENT, linewidth=0.8, alpha=0.6)
-    for v, txt, col in ((3.0, "3 trim", DOWN), (2.5, "2.5 blow-off", ACCENT), (-1.0, "-1 capitulation", UP)):
-        ax.axhline(v, color=col, linewidth=0.9, linestyle="--")
-        ax.text(0.99, v, txt, transform=ax.get_yaxis_transform(), color=col, fontsize=8.5, ha="right", va="bottom")
-    want = set(label) | {c["coin"] for c in cands[:6]} | {"BTC", "ETH"}
-    for r, x, y in sorted(pts, key=lambda p: p[0]["coin"] in side):
-        s = side.get(r["coin"])
-        size = 10 + 240 * math.sqrt((r.get("open_interest_usd") or 0) / top_oi)
-        ax.scatter([x], [y], s=size, color=UP if s == "long" else DOWN if s == "short" else MUTED,
-                   alpha=0.85 if s else 0.35, edgecolor=GROUND, linewidth=0.5, zorder=3 if s else 2)
-        if r["coin"] in want:
-            ax.annotate(r["coin"], (x, y), xytext=(5, 4), textcoords="offset points", color=TEXT, fontsize=8.5,
-                        zorder=5)
     ax.set_xlim(-42, 62)
     ax.set_ylim(-2.7, 4.7)
+    # the corners that matter: stretched over the band (a fade), under it and washed out
+    ax.add_patch(matplotlib.patches.Rectangle((4, 2.5), 58, 2.2, color=DOWN, alpha=0.10, linewidth=0, zorder=0))
+    ax.add_patch(matplotlib.patches.Rectangle((-42, -2.7), 38, 1.7, color=UP, alpha=0.10, linewidth=0, zorder=0))
+    ax.text(61, 4.55, "stretched over the band", color=DOWN, fontsize=8.5, ha="right", va="top", alpha=0.95,
+            path_effects=_outline())
+    ax.text(-41, -1.12, "under the band, washed out", color=UP, fontsize=8.5, ha="left", va="top", alpha=0.95,
+            path_effects=_outline())
+    ax.axvspan(-4, 4, color=BAND, alpha=0.22, linewidth=0, zorder=0)
+    ax.text(0, 4.55, "band", color=BAND_EDGE, fontsize=8.5, ha="center", va="top")
+    for v, txt, col in ((3.0, "3 trim", DOWN), (2.5, "2.5 blow-off", OFF), (-1.0, "-1 capitulation", UP)):
+        ax.axhline(v, color=col, linewidth=0.9, linestyle=(0, (4, 2)), alpha=0.9, zorder=1)
+        ax.text(61, v + 0.05, txt, color=col, fontsize=8.5, ha="right", va="bottom", path_effects=_outline())
+    want = set(label) | {c["coin"] for c in cands[:8]} | {"BTC", "ETH"}
+    extremes = sorted(pts, key=lambda p: -abs(p[2]))[:4]                 # and the most stretched or washed out
+    want |= {r["coin"] for r, _, _ in extremes}
+    names = []
+    for r, x, y in sorted(pts, key=lambda p: p[0]["coin"] in side):
+        s = side.get(r["coin"])
+        size = 14 + 300 * math.sqrt((r.get("open_interest_usd") or 0) / top_oi)
+        col = UP if s == "long" else DOWN if s == "short" else DIM
+        if s:
+            ax.scatter([x], [y], s=size * 2.6, color=col, alpha=0.18, linewidth=0, zorder=3)   # a halo
+        ax.scatter([x], [y], s=size, color=col, alpha=0.95 if s else 0.55,
+                   edgecolor="#E6EBFF" if s else "#8C9AD0", linewidth=0.7 if s else 0.3, zorder=4 if s else 2)
+        if r["coin"] in want:
+            names.append((x, y, r["coin"], col if s else TEXT))
+    _place_labels(ax, names)
     ax.set_xlabel("Price against its bull market support band (%)", color=MUTED, fontsize=9)
     ax.set_ylabel("Daily z-score", color=MUTED, fontsize=9)
-    fig.text(0.03, 0.955, title or f"Market map · {len(pts)} coins", color=TEXT, fontsize=14, fontweight="bold",
-             va="center")
-    fig.text(0.03, 0.91, "Green: long candidate · red: short · grey: none · size: open interest", color=MUTED,
-             fontsize=8.5, va="center")
-    fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
+    n_long = sum(1 for v in side.values() if v == "long")
+    _header(fig, title or f"Market map · {len(pts)} coins",
+            f"{n_long} long and {len(side) - n_long} short candidates · size: open interest")
     return _png(fig)
 
 
@@ -414,13 +530,13 @@ def journal_chart(picks: list[dict], bar: dict, since: float, label: str = "Setu
     moves = [(i, max(-15.0, min(15.0, 100 * x))) for i, x in xs]
     med = [(i, statistics.median(m for _, m in moves[:k])) for k, (i, _) in enumerate(moves, 1)]
     fig = Figure(figsize=(W_IN, 5.0), dpi=DPI)
-    fig.patch.set_facecolor(GROUND)
+    _canvas(fig)
     gs = fig.add_gridspec(2, 1, height_ratios=[1.4, 1], hspace=0.12, left=0.12, right=0.95, top=0.84, bottom=0.1)
     ax, mx = fig.add_subplot(gs[0]), fig.add_subplot(gs[1])
     _style(ax)
     _style(mx)
     if beat:
-        ax.plot([i for i, _ in beat], [v for _, v in beat], color=ACCENT, linewidth=1.8, label="beat the market")
+        ax.plot([i for i, _ in beat], [v for _, v in beat], color=OFF, linewidth=2.2, label="beat the market")
     ax.plot(n, right, color=MUTED, linewidth=1.2, linestyle="--", label="right (raw)")
     ax.axhline(bar["right_pct"], color=UP, linewidth=1, linestyle="--")
     ax.axhline(50, color=MUTED, linewidth=0.8, linestyle=":")
@@ -442,11 +558,8 @@ def journal_chart(picks: list[dict], bar: dict, since: float, label: str = "Setu
     mx.set_ylabel("beyond the market %", color=MUTED, fontsize=9)
     mx.set_xlabel("separate bet", color=MUTED, fontsize=9)
     met = s5(got, bar=bar)["verdict"] == "meets the declared bar"
-    fig.text(0.03, 0.955, f"{label}: {len(got)} bets scored", color=TEXT, fontsize=13, fontweight="bold",
-             va="center")
-    fig.text(0.03, 0.905, "Meets the declared bar" if met else "Context, not a signal: under the declared bar",
-             color=UP if met else MUTED, fontsize=9, va="center")
-    fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
+    _header(fig, f"{label}: {len(got)} bets scored",
+            "Meets the declared bar" if met else "Context, not a signal: under the declared bar")
     return _png(fig)
 
 
@@ -463,7 +576,7 @@ def cycle_chart(hist: dict, turns: dict | None = None) -> bytes | None:
     z = [(day(r[0]), r[3]) for r in rows if len(r) > 3 and r[3] is not None]
     cyc = hist.get("cycle") or {}
     fig = Figure(figsize=(W_IN, 4.6), dpi=DPI)
-    fig.patch.set_facecolor(GROUND)
+    _canvas(fig)
     if len(z) >= 30:
         gs = fig.add_gridspec(2, 1, height_ratios=[2.4, 1], hspace=0.1, left=0.1, right=0.88, top=0.84, bottom=0.1)
         ax = fig.add_subplot(gs[0])
@@ -483,8 +596,8 @@ def cycle_chart(hist: dict, turns: dict | None = None) -> bytes | None:
             continue                                        # runs before the window would stretch it
         ax.axvspan(max(a, t[0]), min(b, t[-1]), color=shade, alpha=0.08, linewidth=0)
     if cyc.get("start"):
-        ax.axvspan(max(day(cyc["start"]), t[0]), t[-1], color=ACCENT, alpha=0.14, linewidth=0)
-    ax.plot(t, share, color=TEXT, linewidth=1.4)
+        ax.axvspan(max(day(cyc["start"]), t[0]), t[-1], color=BAND, alpha=0.22, linewidth=0)
+    ax.plot(t, share, color=TEXT, linewidth=1.8)
     ax.set_xlim(t[0], t[-1])
     if cyc.get("threshold") is not None:
         thr = float(cyc["threshold"])                      # Reflex sends a fraction (0.55); the axis is in percent
@@ -494,14 +607,15 @@ def cycle_chart(hist: dict, turns: dict | None = None) -> bytes | None:
     btc = [(day(r[0]), r[2]) for r in rows if len(r) > 2 and r[2]]
     if btc:
         bx = ax.twinx()
-        bx.plot([a for a, _ in btc], [b for _, b in btc], color=MUTED, linewidth=0.9, alpha=0.8)
+        bx.plot([a for a, _ in btc], [b for _, b in btc], color=MA200, linewidth=1.0, alpha=0.85)
         bx.set_yscale("log")
-        bx.tick_params(colors=MUTED, labelsize=8.5)
+        bx.tick_params(which="both", colors=MA200, labelcolor=MA200, labelsize=8.5, length=0)
         bx.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v / 1000:.0f}K"))
+        bx.yaxis.set_minor_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v / 1000:.0f}K"))
         for sp in bx.spines.values():
             sp.set_color(BORDER)
     if zx is not None:
-        zx.plot([a for a, _ in z], [b for _, b in z], color=ACCENT, linewidth=1.2)
+        zx.plot([a for a, _ in z], [b for _, b in z], color=OFF, linewidth=1.4)
         zx.axhline(0, color=MUTED, linewidth=0.8, linestyle=":")
         zx.set_ylabel("median z", color=MUTED, fontsize=9)
         ax.tick_params(labelbottom=False)
@@ -516,10 +630,7 @@ def cycle_chart(hist: dict, turns: dict | None = None) -> bytes | None:
         head += f", day {turns['run_day']}"
     elif state == "broad downturn" and turns.get("downturn_day") is not None:
         head += f", day {turns['downturn_day']}"
-    fig.text(0.03, 0.955, head, color=TEXT, fontsize=13, fontweight="bold", va="center")
-    fig.text(0.03, 0.905, "Share of coins in an uptrend · dashed: the broad-uptrend line · grey: BTC", color=MUTED,
-             fontsize=8.5, va="center")
-    fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
+    _header(fig, head, "Share of coins in an uptrend · dashed: the broad-uptrend line · blue: BTC")
     return _png(fig)
 
 
@@ -535,22 +646,19 @@ def breadth_chart(days: list[dict]) -> bytes | None:
     inside = [100 * d["inside"] / d["coins"] for d in days]
     o200 = [100 * d["over_200d"] / d["with_200d"] if d["with_200d"] else None for d in days]
     fig = Figure(figsize=(W_IN, 3.8), dpi=DPI)
-    fig.patch.set_facecolor(GROUND)
+    _canvas(fig)
     ax = fig.add_axes((0.1, 0.12, 0.86, 0.68))
     _style(ax)
-    ax.fill_between(t, over, [a + b for a, b in zip(over, inside)], color=ACCENT, alpha=0.18, linewidth=0,
+    ax.fill_between(t, over, [a + b for a, b in zip(over, inside)], color=BAND, alpha=0.35, linewidth=0,
                     label="inside the band")
-    ax.plot(t, over, color=UP, linewidth=1.6, label="over the band")
-    ax.plot([a for a, b in zip(t, o200) if b is not None], [b for b in o200 if b is not None], color=TEXT,
-            linewidth=1.1, linestyle="--", label="over the 200-day")
+    ax.plot(t, over, color=UP, linewidth=2.0, label="over the band")
+    ax.plot([a for a, b in zip(t, o200) if b is not None], [b for b in o200 if b is not None], color=MA200,
+            linewidth=1.4, linestyle="--", label="over the 200-day")
     ax.axhline(50, color=MUTED, linewidth=0.8, linestyle=":")
     ax.set_ylim(0, 100)
     ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
     ax.legend(loc="upper left", fontsize=8.5, frameon=False, labelcolor=TEXT, ncol=3)
-    fig.text(0.03, 0.94, f"Breadth · {days[-1]['coins']} coins", color=TEXT, fontsize=13, fontweight="bold",
-             va="center")
-    fig.text(0.03, 0.875, "Today's most traded coins, rebuilt from their own candles (survivorship: coins that fell "
-             "out are missing)", color=MUTED, fontsize=8.5, va="center")
-    fig.text(0.97, 0.02, "Outrider", color=MUTED, fontsize=8.5, ha="right")
+    _header(fig, f"Breadth · {days[-1]['coins']} coins", "Today's most traded coins, rebuilt from their candles",
+            y=0.94)
     return _png(fig)
