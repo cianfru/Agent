@@ -143,3 +143,26 @@ def test_his_kucoin_positions_reach_mine_and_survive_an_outage(tmp_path, monkeyp
     agent.store.put_snapshot("owner_positions", {"ts": now, "wallets": {}, "kucoin_error": "HTTP 401"})
     assert "KuCoin could not be read: HTTP 401" in analyst.mine_text(agent, now)
     assert json.dumps(own)                                   # the snapshot stays plain data
+
+
+def test_mine_always_says_how_kucoin_was_read(tmp_path, monkeypatch):
+    agent, _ = _agent(tmp_path, monkeypatch)
+    now = time.time()
+    agent.store.watch_add("SOL", "long", 150.0, 1000.0, None, now)           # a watch list, so /mine has lines
+    assert "KuCoin: not read yet" in analyst.mine_text(agent, now)
+    agent.store.put_snapshot("owner_positions", {"ts": now, "wallets": {},
+                                                 "kucoin_error": "HTTP 401, code 400004: Invalid KC-API-PASSPHRASE"})
+    txt = analyst.mine_text(agent, now)
+    assert "SOL long" in txt and "KuCoin could not be read: HTTP 401, code 400004" in txt
+    assert "Check the passphrase and the secret" in txt
+    agent.store.put_snapshot("owner_positions", {"ts": now, "wallets": {
+        "kucoin": {"venue": "KuCoin", "equity": 1234.0, "positions": {}}}})
+    assert "KuCoin: connected, no open futures positions (futures equity $1,234)" in analyst.mine_text(agent, now)
+
+
+def test_quotes_pasted_around_a_secret_are_ignored(monkeypatch):
+    monkeypatch.setenv("KUCOIN_API_PASSPHRASE", ' "my pass" ')
+    monkeypatch.setenv("KUCOIN_API_SECRET", "'abc'")
+    monkeypatch.setenv("KUCOIN_API_KEY", 'k"ey')
+    s = Settings()
+    assert (s.kucoin_passphrase, s.kucoin_secret, s.kucoin_key) == ("my pass", "abc", 'k"ey')

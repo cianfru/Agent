@@ -15,6 +15,12 @@ def _float(name: str, default: float) -> float:
     return float(raw) if raw else default
 
 
+def _secret(name: str) -> str:
+    """A credential as pasted into Railway: spaces and one pair of surrounding quotes taken off."""
+    v = _env(name)
+    return v[1:-1].strip() if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
+
+
 def _list(name: str, default: str = "") -> list[str]:
     return [p.strip() for p in _env(name, default).split(",") if p.strip()]
 
@@ -56,9 +62,9 @@ class Settings:
     owner_wallets: list[str] = field(default_factory=lambda: _list("SYNTH_OWNER_WALLETS"))
     # His KuCoin futures account, read each poll beside his wallets (synth/kucoin.py): a key with the General
     # permission only. The key version is found by trying 2 then 3 unless set.
-    kucoin_key: str = field(default_factory=lambda: _env("KUCOIN_API_KEY"))
-    kucoin_secret: str = field(default_factory=lambda: _env("KUCOIN_API_SECRET"))
-    kucoin_passphrase: str = field(default_factory=lambda: _env("KUCOIN_API_PASSPHRASE"))
+    kucoin_key: str = field(default_factory=lambda: _secret("KUCOIN_API_KEY"))
+    kucoin_secret: str = field(default_factory=lambda: _secret("KUCOIN_API_SECRET"))
+    kucoin_passphrase: str = field(default_factory=lambda: _secret("KUCOIN_API_PASSPHRASE"))
     kucoin_key_version: str = field(default_factory=lambda: _env("KUCOIN_API_KEY_VERSION"))
     # Outrider's posts on X (synth/persona.py): the model that writes them, the UTC hours a draft is made (empty
     # disables), and "draft" (to your Telegram, Post or Skip) or "live" (published as written).
