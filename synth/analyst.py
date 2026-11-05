@@ -669,11 +669,10 @@ def mine_text(agent, now: float | None = None) -> str:
     from .groups import px
     s = scan(agent, now)
     items = s["my_positions"]
+    kc = kucoin_line(agent)
     if not items:
-        own = agent.store.get_snapshot("owner_positions") or {}
-        why = f" KuCoin could not be read: {own['kucoin_error'][:120]}." if own.get("kucoin_error") else ""
         return ("No open positions on KuCoin or in your wallets, and an empty watch list. /watch ENA long 0.09 5k "
-                "adds one." + why)
+                "adds one." + (f"\n{kc}" if kc else ""))
     by_coin = {r["coin"]: r for r in s["coins"] + s["direction"]}
     table = {r["coin"]: r for r in screen.build(agent, now)["rows"]}
     lines = ["Your positions"]
@@ -720,8 +719,35 @@ def mine_text(agent, now: float | None = None) -> str:
                 ctx.append(f"{add} tracked traders added {other}s in 24h")
             if ctx:
                 lines.append("  against it: " + "; ".join(ctx))
+    if kc:
+        lines.append(kc)
     lines.append("Ask me about any of them, or /mine more for my read on them.")
     return "\n".join(lines)
+
+
+def kucoin_line(agent) -> str:
+    """How his KuCoin account was last read, when it is set up: refused (and why, with what to check), read with
+    no open futures positions, or nothing to add when its positions are listed above."""
+    st = agent.s
+    if not (st.kucoin_key and st.kucoin_secret and st.kucoin_passphrase):
+        return ""
+    own = agent.store.get_snapshot("owner_positions") or {}
+    err = own.get("kucoin_error")
+    if err:
+        hint = {"400003": "the key (or the KuCoin site it belongs to)",
+                "400004": "the passphrase and the secret (KuCoin checks the passphrase with the secret)",
+                "400005": "the secret", "400006": "the key's IP restriction (remove it)",
+                "400007": "the key's permissions (General)"}
+        what = next((v for k, v in hint.items() if k in err), "")
+        return f"KuCoin could not be read: {err[:120]}." + (f" Check {what} in Railway." if what else "")
+    kc = [w for a, w in (own.get("wallets") or {}).items() if a.startswith("kucoin")]
+    if not kc:
+        return "KuCoin: not read yet (each poll, about every 5 minutes)."
+    if not any(w.get("positions") for w in kc):
+        eq = sum(w.get("equity") or 0 for w in kc)
+        return (f"KuCoin: connected, no open futures positions" + (f" (futures equity ${eq:,.0f})" if eq else "")
+                + ". Positions in a unified trading account or a sub-account are not read yet.")
+    return ""
 
 
 def watch_text(agent, now: float | None = None) -> str:
