@@ -506,7 +506,9 @@ class Chat:
         mine = scan(self.agent, now)["my_positions"]
         return {"wallets_connected": bool(own),
                 "wallets_read_at": time.strftime("%d %b %H:%M UTC", time.gmtime(own["ts"])) if own else None,
-                "accounts": {a[:6]: round(w.get("equity") or 0) for a, w in ((own or {}).get("wallets") or {}).items()},
+                "accounts": {(w.get("venue") or a[:6]): round(w.get("equity") or 0)
+                             for a, w in ((own or {}).get("wallets") or {}).items()},
+                "kucoin_error": (own or {}).get("kucoin_error"),
                 "positions": mine, "notes": notes}
 
     def t_latest_read(self, now: float) -> dict:

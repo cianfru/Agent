@@ -333,11 +333,15 @@ def scan(agent, now: float | None = None) -> dict:
         for c, p in (w.get("positions") or {}).items():
             r = by_coin.get(c) or row(c)
             value = round(p.get("notional") or 0)
-            mine.append({"source": f"wallet {addr[:6]}", "coin": c, "side": p["side"], "value": value,
-                         "share_of_account": round(value / eq, 2) if eq else None, "upnl": round(p.get("upnl") or 0),
-                         "entry": _sig(p.get("entry_px")), "price": r.get("price"),
-                         "move_pct": _move(p["side"], r.get("price"), p.get("entry_px")), "lev": p.get("lev"),
-                         "roe": p.get("roe"), "liq": _sig(p.get("liq")), "against": _against(p["side"], r)})
+            price = r.get("price") or _sig(p.get("mark"))   # a coin Hyperliquid does not list: the venue's own mark
+            m = {"source": w.get("venue") or f"wallet {addr[:6]}", "coin": c, "side": p["side"], "value": value,
+                 "share_of_account": round(value / eq, 2) if eq else None, "upnl": round(p.get("upnl") or 0),
+                 "entry": _sig(p.get("entry_px")), "price": price,
+                 "move_pct": _move(p["side"], price, p.get("entry_px")), "lev": p.get("lev"),
+                 "roe": p.get("roe"), "liq": _sig(p.get("liq")), "against": _against(p["side"], r)}
+            if p.get("funding_apr_pct") is not None:     # the venue's funding, as a year's rate (+: longs pay)
+                m["funding_apr_pct"] = p["funding_apr_pct"]
+            mine.append(m)
     for w in watch:
         r = by_coin.get(w["coin"]) or row(w["coin"])
         m = _move(w["side"], r.get("price"), w["entry"])
@@ -666,8 +670,10 @@ def mine_text(agent, now: float | None = None) -> str:
     s = scan(agent, now)
     items = s["my_positions"]
     if not items:
-        return ("No positions in your wallets (SYNTH_OWNER_WALLETS) and an empty watch list. /watch ENA long 0.09 5k "
-                "adds one.")
+        own = agent.store.get_snapshot("owner_positions") or {}
+        why = f" KuCoin could not be read: {own['kucoin_error'][:120]}." if own.get("kucoin_error") else ""
+        return ("No open positions on KuCoin or in your wallets, and an empty watch list. /watch ENA long 0.09 5k "
+                "adds one." + why)
     by_coin = {r["coin"]: r for r in s["coins"] + s["direction"]}
     table = {r["coin"]: r for r in screen.build(agent, now)["rows"]}
     lines = ["Your positions"]
@@ -685,6 +691,13 @@ def mine_text(agent, now: float | None = None) -> str:
                                                  if m.get("share_of_account") else ""))
         if m.get("lev"):
             bits.append(f"{m['lev']:g}x")
+        if m.get("funding_apr_pct") is not None and side:
+            f = m["funding_apr_pct"]
+            pays = (f > 0) == (side == "long")
+            q0 = table.get(m["coin"]) or {}
+            hl_f = q0.get("funding_apr_pct")
+            bits.append(f"{m['source']} funding {f:+.0f}% a year ({'you pay' if pays else 'you receive'})"
+                        + (f", Hyperliquid {hl_f:+.0f}%" if hl_f is not None else ""))
         if m.get("liq") and m.get("price"):
             bits.append(f"liquidation {px(m['liq'])} ({100 * (m['liq'] / m['price'] - 1):+.0f}%)")
         q = table.get(m["coin"]) or {}
@@ -1032,23 +1045,43 @@ class Analyst:
         return await self.run(reason, now, cur, ch)
 
     async def read_owner(self, now: float) -> None:
-        wallets = self.agent.s.owner_wallets
-        if not wallets:
+        """His Hyperliquid wallets and his KuCoin futures account, each poll; one that fails keeps its last reading."""
+        s = self.agent.s
+        wallets = s.owner_wallets
+        on_kucoin = bool(s.kucoin_key and s.kucoin_secret and s.kucoin_passphrase)
+        if not wallets and not on_kucoin:
             return
-        hl = HL()
-        try:
-            got = {}
-            for a in wallets:
-                try:
-                    got[a.lower()] = await hl.account(a)
-                except Exception as e:  # noqa: BLE001 - one wallet down keeps the last reading
-                    log.warning("owner wallet read failed: %s", e)
-                    old = ((self.store.get_snapshot("owner_positions") or {}).get("wallets") or {}).get(a.lower())
-                    if old:
-                        got[a.lower()] = old
-            self.store.put_snapshot("owner_positions", {"ts": now, "wallets": got})
-        finally:
-            await hl.aclose()
+        before = self.store.get_snapshot("owner_positions") or {}
+        old = before.get("wallets") or {}
+        got: dict[str, dict] = {}
+        snap: dict[str, Any] = {"ts": now, "wallets": got}
+        if wallets:
+            hl = HL()
+            try:
+                for a in wallets:
+                    try:
+                        got[a.lower()] = await hl.account(a)
+                    except Exception as e:  # noqa: BLE001 - one wallet down keeps the last reading
+                        log.warning("owner wallet read failed: %s", e)
+                        if old.get(a.lower()):
+                            got[a.lower()] = old[a.lower()]
+            finally:
+                await hl.aclose()
+        if on_kucoin:
+            from . import kucoin
+            known = set(((self.store.get_snapshot("hl_ctx") or {}).get("c") or {}))
+            kc = kucoin.KuCoin(s.kucoin_key, s.kucoin_secret, s.kucoin_passphrase, s.kucoin_key_version)
+            try:
+                got.update(kucoin.accounts(await kc.account(known)))
+                self.agent.mark("kucoin", True, now=now)
+            except Exception as e:  # noqa: BLE001 - KuCoin down or the key refused: the last reading stays
+                log.warning("KuCoin read failed: %s", e)
+                self.agent.mark("kucoin", False, e, now=now)
+                got.update({a: w for a, w in old.items() if a.startswith("kucoin")})
+                snap["kucoin_error"] = str(e)[:200]
+            finally:
+                await kc.aclose()
+        self.store.put_snapshot("owner_positions", snap)
 
     # ----------------------------------------------------------------- read --
     async def run(self, reason: str, now: float | None = None, cur: dict | None = None,
