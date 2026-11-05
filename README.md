@@ -486,8 +486,13 @@ If `SYNTH_API_KEY` is set, every route except `/health` needs the header `X-API-
   minutes, one retry), one at a time; `/read` while one runs says so. A morning read that fails three times says so
   once. Telegram updates are handled as they come: a long answer never holds up a button or a command, and answers go
   out in the order asked.
-- **Backups:** once a day a copy of the database goes beside it (`backups/outrider-YYYYMMDD.db`, the last 7 kept);
-  `GET /backup` takes one off the machine. The S5 record, the reads and the trader lists cannot be rebuilt.
+- **Backups:** once a day a compacted, gzipped copy of the database goes beside it
+  (`backups/outrider-YYYYMMDD.db.gz`, the last 3 kept; until 5 November 2026 they were 7 full copies, which filled
+  the volume, and are removed); `GET /backup` takes one off the machine. The S5 record, the reads and the trader
+  lists cannot be rebuilt. To restore: `gunzip` the copy and point `SYNTH_DB` at it.
+- **Disk:** after the backup the database is compacted when pruning has left at least a fifth of it (and 20 MB) free
+  inside, and its write-ahead log is emptied. `/status` shows the volume's use, the database and how much of it is
+  free inside, the backups and the biggest tables.
 - **Missed market hours:** when the agent was down for more than two hours, the market index fills the gap from
   hourly candles, bent to land on the readings around it, so picks in the gap get their market move.
 

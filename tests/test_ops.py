@@ -131,13 +131,58 @@ def test_a_failed_backup_leaves_no_file_and_is_tried_again(tmp_path, monkeypatch
         open(path, "wb").close()
         raise OSError("disk full")
 
-    monkeypatch.setattr(a.store, "backup", broken)
+    (tmp_path / "backups").mkdir()
+    for d in ("20261031", "20261101"):                    # the full daily copies kept before 5 November
+        (tmp_path / "backups" / f"outrider-{d}.db").write_bytes(b"x")
+    monkeypatch.setattr(a.store, "backup_compact", broken)
     api._daily_backup(a)
     api._daily_backup(a)
-    assert len(calls) == 2 and not os.listdir(tmp_path / "backups")    # nothing kept, tried again
+    assert len(calls) == 2                                                # tried again
+    assert os.listdir(tmp_path / "backups") == ["outrider-20261101.db"]   # room made; the newest copy kept
     monkeypatch.undo()
     api._daily_backup(a)
-    assert [f for f in os.listdir(tmp_path / "backups") if f.endswith(".db")]
+    assert [f for f in os.listdir(tmp_path / "backups") if f.endswith(".db.gz")]
+
+
+def test_backups_are_compressed_few_and_the_old_full_copies_go(tmp_path, monkeypatch):
+    import gzip
+    import sqlite3
+    from synth import api, bot
+    s = Settings(db_path=str(tmp_path / "t.db"))
+    a = service.Agent(s, Store(s.db_path))
+    a.store.add_pick("read", "SOL", "long", 2, 100.0, "why", {})
+    for i in range(400):                                   # bulk that compresses well, then mostly pruned
+        a.store.add_series("reflex", {"c": {"BTC": [1, 2, 3, 4, 5]}, "pad": "x" * 2000}, ts=time.time() - 30 * 86400)
+    folder = tmp_path / "backups"
+    folder.mkdir()
+    for d in ("20261029", "20261030", "20261031", "20261101"):          # the full daily copies kept before
+        (folder / f"outrider-{d}.db").write_bytes(b"x" * 1000)
+    for d in ("20261102", "20261103", "20261104"):
+        (folder / f"outrider-{d}.db.gz").write_bytes(b"x")
+    api._daily_backup(a)
+    names = sorted(os.listdir(folder))
+    assert not [f for f in names if f.endswith(".db")]                  # the full copies are gone
+    assert len(names) == 3 and names[-1] == time.strftime("outrider-%Y%m%d.db.gz", time.gmtime())
+    with gzip.open(folder / names[-1]) as g:                            # today's copy opens and holds the picks
+        (tmp_path / "restored.db").write_bytes(g.read())
+    con = sqlite3.connect(tmp_path / "restored.db")
+    assert con.execute("SELECT coin FROM picks").fetchone()[0] == "SOL"
+    assert os.path.getsize(folder / names[-1]) < os.path.getsize(tmp_path / "t.db") / 3
+    assert a.disk["backups"] == 3 and a.disk["db_bytes"] > 0 and a.disk.get("volume_total")
+    assert "Disk: volume" in bot.status_text(a) and "3 backups" in bot.status_text(a)
+
+
+def test_the_database_hands_back_what_pruning_freed(tmp_path):
+    store = Store(str(tmp_path / "t.db"))
+    for i in range(3000):
+        store.add_series("reflex", {"pad": "x" * 3000}, ts=1.0)
+    store.compact(min_bytes=0)                             # folded into the file, nothing free yet
+    full = os.path.getsize(tmp_path / "t.db")
+    store.prune_series(10.0)                               # every row gone: the file keeps its size...
+    assert store.compact(min_ratio=0.99, min_bytes=0)["vacuumed"] is False   # ...under the bar, left as it is
+    res = store.compact(min_bytes=0)
+    assert res["vacuumed"] and res["bytes"] < full / 5 and os.path.getsize(tmp_path / "t.db") < full / 5
+    assert store.compact(min_bytes=0)["vacuumed"] is False  # nothing left to hand back
 
 
 def test_a_read_he_asked_for_while_one_ran_follows_unless_that_one_reached_him(tmp_path, monkeypatch):

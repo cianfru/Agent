@@ -72,33 +72,81 @@ def _spawn(coro) -> None:
     t.add_done_callback(TASKS.discard)
 
 
-def _daily_backup(agent: Agent, keep: int = 7) -> None:
-    """Once a day, a copy of the database beside it (backups/outrider-YYYYMMDD.db, the last 7 kept): the picks and
-    reads cannot be rebuilt. GET /backup takes one off the machine."""
+def _daily_backup(agent: Agent, keep: int = 3) -> None:
+    """Once a day, a compressed copy of the database beside it (backups/outrider-YYYYMMDD.db.gz, the last 3 kept):
+    the picks and reads cannot be rebuilt. The copy is compacted first (no free pages) and gzipped, a few times
+    smaller than the file; the uncompressed daily copies kept before 5 November 2026 are removed. Then the database
+    itself is compacted when pruning has left enough free inside it, and the disk's use is measured for /status.
+    GET /backup takes a copy off the machine."""
+    import gzip
+    import shutil
     db = agent.s.db_path
     if not db or db == ":memory:":
         return
     folder = os.path.join(os.path.dirname(os.path.abspath(db)), "backups")
-    name = os.path.join(folder, time.strftime("outrider-%Y%m%d.db", time.gmtime()))
+    name = os.path.join(folder, time.strftime("outrider-%Y%m%d.db.gz", time.gmtime()))
     if os.path.exists(name):
         return
-    tmp = name + ".tmp"
+    raw, tmp = name[:-3] + ".raw", name + ".tmp"
     try:
         os.makedirs(folder, exist_ok=True)
-        agent.store.backup(tmp)
+        full = sorted(f for f in os.listdir(folder) if f.startswith("outrider-") and f.endswith(".db"))
+        for f in full[:-1]:      # on a full disk, room first: only the newest full copy waits for today's to succeed
+            os.remove(os.path.join(folder, f))
+        agent.store.backup_compact(raw)
+        with open(raw, "rb") as src, gzip.open(tmp, "wb", compresslevel=6) as dst:
+            shutil.copyfileobj(src, dst, 1 << 20)
         os.replace(tmp, name)                 # only a finished copy takes the day's name
-        done = sorted(f for f in os.listdir(folder) if f.startswith("outrider-") and f.endswith(".db"))
+        os.remove(raw)
+        for f in os.listdir(folder):          # the full uncompressed copies kept before
+            if f.startswith("outrider-") and f.endswith(".db"):
+                os.remove(os.path.join(folder, f))
+        done = sorted(f for f in os.listdir(folder) if f.startswith("outrider-") and f.endswith(".db.gz"))
         for old in done[:-keep]:
             os.remove(os.path.join(folder, old))
         agent.mark("backup", True)
     except Exception as e:  # noqa: BLE001 - tried again the next poll
         log.warning("backup failed: %s", e)
         agent.mark("backup", False, e)
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except OSError:
-            pass
+        for f in (raw, tmp):
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+            except OSError:
+                pass
+        return
+    try:
+        res = agent.store.compact()
+        if res.get("vacuumed"):
+            log.info("database compacted: %.0f MB -> %.0f MB", res["bytes_before"] / 1e6, res["bytes"] / 1e6)
+        agent.mark("compact", True)
+    except Exception as e:  # noqa: BLE001 - another statement was running: tried again tomorrow
+        log.warning("compaction failed: %s", e)
+        agent.mark("compact", False, e)
+    agent.disk = disk_report(agent)
+
+
+def disk_report(agent: Agent) -> dict:
+    """What the agent's disk holds: the database (and its write-ahead log), how much of it is free inside, its biggest
+    tables, the backups, and the volume's own size and use."""
+    import shutil
+    db = os.path.abspath(agent.s.db_path)
+    folder = os.path.join(os.path.dirname(db), "backups")
+    size = lambda p: os.path.getsize(p) if os.path.exists(p) else 0  # noqa: E731
+    backups = [f for f in os.listdir(folder) if f.startswith("outrider-")] if os.path.isdir(folder) else []
+    out = {"ts": time.time(), "db_bytes": size(db), "wal_bytes": size(db + "-wal"),
+           "backups": len(backups), "backups_bytes": sum(size(os.path.join(folder, f)) for f in backups)}
+    try:
+        rep = agent.store.size_report()
+        out.update(free_ratio=rep["free_ratio"], tables=rep.get("tables", []))
+    except Exception as e:  # noqa: BLE001 - the sizes stand without it
+        log.warning("size report failed: %s", e)
+    try:
+        u = shutil.disk_usage(os.path.dirname(db))
+        out.update(volume_total=u.total, volume_used=u.used)
+    except OSError:
+        pass
+    return out
 
 
 async def _fill_market_gap(agent: Agent) -> None:
@@ -331,7 +379,7 @@ def backup():
     from starlette.background import BackgroundTask
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    agent.store.backup(path)
+    agent.store.backup_compact(path)
     name = time.strftime("outrider-%Y%m%d-%H%M.db", time.gmtime())
     return FR(path, media_type="application/octet-stream", filename=name,
               background=BackgroundTask(lambda: os.path.exists(path) and os.remove(path)))
