@@ -54,6 +54,12 @@ class Settings:
     read_quiet_utc: str = field(default_factory=lambda: _env("SYNTH_READ_QUIET_UTC", "22-6"))
     # His own Hyperliquid wallets (comma-separated addresses), read each poll so the reads can speak to his positions.
     owner_wallets: list[str] = field(default_factory=lambda: _list("SYNTH_OWNER_WALLETS"))
+    # His KuCoin futures account, read each poll beside his wallets (synth/kucoin.py): a key with the General
+    # permission only. The key version is found by trying 2 then 3 unless set.
+    kucoin_key: str = field(default_factory=lambda: _env("KUCOIN_API_KEY"))
+    kucoin_secret: str = field(default_factory=lambda: _env("KUCOIN_API_SECRET"))
+    kucoin_passphrase: str = field(default_factory=lambda: _env("KUCOIN_API_PASSPHRASE"))
+    kucoin_key_version: str = field(default_factory=lambda: _env("KUCOIN_API_KEY_VERSION"))
     # Outrider's posts on X (synth/persona.py): the model that writes them, the UTC hours a draft is made (empty
     # disables), and "draft" (to your Telegram, Post or Skip) or "live" (published as written).
     persona_model: str = field(default_factory=lambda: _env("SYNTH_PERSONA_MODEL", "claude-opus-5-5"))

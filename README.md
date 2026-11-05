@@ -174,7 +174,14 @@ With a model key, Outrider reads the market instead of posting the same numbers 
   finished ones with their result, and for each one still collecting, its live count and the date its verdict can
   come at the pace so far, plus the horizon its outcome needs (`synth/studies.py`).
 - **Your positions:** `SYNTH_OWNER_WALLETS` (comma-separated Hyperliquid addresses) are read each poll, and the watch
-  list is added to them.
+  list is added to them. Your KuCoin futures account too (`synth/kucoin.py`), when `KUCOIN_API_KEY`,
+  `KUCOIN_API_SECRET` and `KUCOIN_API_PASSPHRASE` are set in Railway: a key made with the General permission only
+  (it reads; it cannot trade or withdraw). Each poll reads its open positions and equity (USDT and USDC margined);
+  KuCoin's coins take the agent's names and price units (XBT is BTC; PEPE, priced per coin on KuCoin, is kPEPE, per
+  1,000 on Hyperliquid), so the reads, `/mine` and the note when a trader goes against your position treat them as
+  your wallets. `/mine` adds each position's KuCoin funding as a year's rate, who pays it, and Hyperliquid's beside
+  it. The key version (2 or 3) is found by itself (`KUCOIN_API_KEY_VERSION` sets it). A refused key or KuCoin down
+  keeps the last reading, shows in `/status` and in `/mine`.
 - **Cost:** `SYNTH_READ_MODEL` (default `claude-sonnet-5-5`; `claude-haiku-5-5` is cheaper still, `claude-opus-5-5`
   deeper), `SYNTH_READ_EFFORT` (default `medium`), `SYNTH_READ_DAILY_USD` (default 0.5; the morning read still goes
   out), `SYNTH_READS_PER_DAY` (default 3 sent: the morning read and at most two more). About 2 to 3 cents a read on Sonnet 5.5 (a prompt of about 4,000
