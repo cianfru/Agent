@@ -369,6 +369,19 @@ def status_text(agent) -> str:
     lr = st.get("levels_refresh") or {}
     lines.append(f"Levels: {lr.get('day') or 'not done today'}" + (f", {lr.get('errors')} failed" if lr.get("errors")
                                                                     else ""))
+    d = st.get("disk") or {}
+    if d.get("db_bytes"):
+        mb = lambda b: f"{b / 1e6:,.0f} MB" if b < 1e9 else f"{b / 1e9:.1f} GB"  # noqa: E731
+        line = "Disk: "
+        if d.get("volume_total"):
+            line += f"volume {mb(d['volume_used'])} of {mb(d['volume_total'])} · "
+        line += f"database {mb(d['db_bytes'] + d.get('wal_bytes', 0))}"
+        if d.get("free_ratio") is not None:
+            line += f" ({round(100 * d['free_ratio'])}% free inside)"
+        line += f" · {d['backups']} backups {mb(d['backups_bytes'])}"
+        if d.get("tables"):
+            line += " · biggest: " + ", ".join(f"{t} {mb(b)}" for t, b in d["tables"][:3])
+        lines.append(line)
     lr2 = st.get("last_read") or {}
     if lr2.get("ago_min") is not None:
         lines.append(f"Last read {lr2['ago_min']} min ago ({lr2.get('reason')})" +

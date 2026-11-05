@@ -278,6 +278,44 @@ class Store:
         finally:
             dst.close()
 
+    def backup_compact(self, path: str) -> None:
+        """A compacted copy at `path` (SQLite's VACUUM INTO): the whole database without its free pages, the smallest
+        a full copy can be."""
+        import os
+        if os.path.exists(path):
+            os.remove(path)
+        with self._lock:
+            self._db.execute("VACUUM INTO ?", (path,))
+
+    def size_report(self, top: int = 5) -> dict:
+        """The file's pages and how many are free inside it, and the biggest tables (SQLite's dbstat, when built in)."""
+        page = self._db.execute("PRAGMA page_size").fetchone()[0]
+        pages = self._db.execute("PRAGMA page_count").fetchone()[0]
+        free = self._db.execute("PRAGMA freelist_count").fetchone()[0]
+        out: dict = {"bytes": page * pages, "free_bytes": page * free, "free_ratio": round(free / pages, 3) if pages
+                     else 0.0}
+        try:
+            rows = self._db.execute("SELECT name, SUM(pgsize) AS b FROM dbstat GROUP BY name ORDER BY b DESC LIMIT ?",
+                                    (top,)).fetchall()
+            out["tables"] = [(r[0], int(r[1])) for r in rows]
+        except sqlite3.Error:
+            pass
+        return out
+
+    def compact(self, min_ratio: float = 0.2, min_bytes: float = 20e6) -> dict:
+        """The write-ahead log folded back into the file and emptied, then, when at least `min_ratio` of the file and
+        `min_bytes` sit free inside it (rows pruned since), a VACUUM that hands that space back to the disk."""
+        with self._lock:
+            self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        before = self.size_report(top=0)
+        if before["free_ratio"] < min_ratio or before["free_bytes"] < min_bytes:
+            return {"vacuumed": False, "bytes": before["bytes"], "free_bytes": before["free_bytes"]}
+        with self._lock:
+            self._db.execute("VACUUM")
+            self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        after = self.size_report(top=0)
+        return {"vacuumed": True, "bytes_before": before["bytes"], "bytes": after["bytes"]}
+
     def series_last_ts(self, source: str) -> float | None:
         row = self._db.execute("SELECT MAX(ts) AS t FROM series WHERE source=?", (source,)).fetchone()
         return row["t"] if row else None

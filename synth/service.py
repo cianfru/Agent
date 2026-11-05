@@ -65,6 +65,7 @@ class Agent:
         self._pruned = 0.0
         self._refine: list[tuple[int, str, float]] = []    # scored picks whose path awaits hourly highs and lows
         self.sources: dict[str, dict] = {}   # per source: last success, last error, failures in a row (status)
+        self.disk: dict[str, Any] = {}       # what the disk holds, measured after the daily backup (status)
 
     def mark(self, name: str, ok: bool, err: Exception | str | None = None, now: float | None = None) -> None:
         """Remember how a source or job last went, for /status and /health."""
@@ -98,7 +99,8 @@ class Agent:
                 "market_index": {"ready": self.market.ready,
                                  "last_age_min": round((now - mlast["ts"]) / 60) if mlast else None},
                 "last_read": {"ago_min": round((now - last_read["ts"]) / 60) if last_read.get("ts") else None,
-                              **{k: last_read.get(k) for k in ("reason", "sent", "error", "cost")}}}
+                              **{k: last_read.get(k) for k in ("reason", "sent", "error", "cost")}},
+                "disk": self.disk}
 
     def healthy(self, now: float | None = None) -> tuple[bool, list[str]]:
         """Down when the poll has not run for three polls, or Reflex has not answered for 30 minutes."""
