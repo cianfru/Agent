@@ -291,9 +291,9 @@ async def send_pulse(agent: Agent, text: str | None = None) -> None:
     except Exception as e:  # noqa: BLE001 - the text still goes out without the picture
         log.warning("pulse picture failed: %s", e)
         if text:
-            await notify.push(agent.s, agent.store, text, "pulse")
+            await notify.push(agent.s, agent.store, text, "pulse", public=text)
         return
-    await notify.push(agent.s, agent.store, text or p["summary"], "pulse", png=p["png"])
+    await notify.push(agent.s, agent.store, text or p["summary"], "pulse", png=p["png"], public=text or p["summary"])
 
 
 def _snaps() -> dict:

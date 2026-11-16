@@ -1007,6 +1007,25 @@ def format_read(r: dict, now: float, rec: dict | None = None, held: int = 0, rea
     return "\n".join(lines)
 
 
+_HIS = [re.compile(p, re.I) for p in (
+    r"\byour\s+(?:\w+\s+){0,2}(?:long|short|position|positions|bag|bags|book|entry|stop|holding|holdings|trade|trades)\b",
+    r"\byou(?:'re|\s+are)\s+(?:still\s+)?(?:long|short)\b", r"\byou\s+(?:hold|own|bought|sold)\b",
+    r"\bwatch\s?list\b", r"\b(?:he|his)\s+(?:holds?|positions?|long|short|book)\b")]
+
+
+def mentions_his(r: dict) -> str:
+    """The words in a read that speak of what he holds (so it is not posted to the shared channel), else ''."""
+    texts = [r.get("headline") or "", r.get("read") or ""]
+    for v in r.get("views") or []:
+        texts += [v.get(k) or "" for k in ("why", "chart", "changes_if")]
+    for t in texts:
+        for p in _HIS:
+            m = p.search(t)
+            if m:
+                return m.group(0)
+    return ""
+
+
 def _day_start(now: float) -> float:
     d = dt.datetime.fromtimestamp(now, dt.timezone.utc)
     return d.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
@@ -1183,8 +1202,16 @@ class Analyst:
         msg = None
         if send:   # a read he asked for answers him: it does not count against the unprompted messages
             pngs = await self.pictures(out["views"], now, reason, cur)
+            public = None
+            if self.agent.s.telegram_channel_id:
+                why = mentions_his(out)
+                if why:
+                    self.store.add_brief("share_skipped", {"kind": "read", "why": why})
+                else:
+                    public = format_read(out, now, rec if reason == "morning" else None, 0, reason, ch,
+                                         board_text(cur) if reason == "morning" else "")
             msg = await notify.push(self.agent.s, self.store, text, "read", must=reason == "morning" or force_send,
-                                    reply=reason == "asked", pngs=pngs)
+                                    reply=reason == "asked", pngs=pngs, public=public)
         return {**out, "reason": reason, "sent": send, "text": text, "cost": round(cost, 4), "logged": logged,
                 "delivered": msg is not None}
 
@@ -1274,6 +1301,9 @@ class Analyst:
                  f"<scan>\n{json.dumps(scan_for_read, default=str, separators=(',', ':'))}\n</scan>"]
         if not cur.get("my_positions"):
             parts.append("No wallet positions and an empty watch list: use the notes for what he holds, if any.")
+        if self.agent.s.telegram_channel_id:
+            parts.append("This read is also posted word for word to a channel his friends read: never mention what "
+                         "he holds, his watch list or anything from the notes on him.")
         return "\n\n".join(parts)
 
     def think(self, task: str, now: float) -> tuple[dict, float]:

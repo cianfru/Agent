@@ -95,6 +95,10 @@ def group_lines(store, g: dict) -> list[str]:
 async def handle(agent, update: dict) -> None:
     s, store = agent.s, agent.store
     chat = str(s.telegram_chat_id)
+    mcm = update.get("my_chat_member")
+    if mcm:              # added to a channel or group: tell him its id, so he can share signals there
+        await _added_to(agent, mcm)
+        return
     cq = update.get("callback_query")
     if cq:
         msg = cq.get("message") or {}
@@ -348,6 +352,29 @@ async def _post_button(agent, cq: dict, msg: dict, action: str, pid: int) -> Non
     await notify.telegram(s.telegram_token, str(s.telegram_chat_id), text)
 
 
+async def _added_to(agent, mcm: dict) -> None:
+    """The bot was added to (or made admin of) a channel or group: a note to him alone with its id. Nothing is posted
+    there until he sets TELEGRAM_CHANNEL_ID, so anyone adding the bot somewhere gets nothing from it."""
+    s = agent.s
+    c = mcm.get("chat") or {}
+    status = (mcm.get("new_chat_member") or {}).get("status")
+    if c.get("type") not in ("channel", "supergroup", "group") or status not in ("administrator", "member"):
+        return
+    cid, name = c.get("id"), c.get("title") or c.get("username") or "a chat"
+    by = (mcm.get("from") or {}).get("username")
+    names = {str(cid)} | ({f"@{c['username']}"} if c.get("username") else set())
+    if str(s.telegram_channel_id) in names:
+        text = f"I'm in {name}: every signal I send you is shared there too, without what is yours."
+    elif c.get("type") == "channel" and status != "administrator":
+        text = (f"I was added to the channel {name}, but not as an admin, so I can't post there. Make me an admin "
+                f"with permission to post messages.")
+    else:
+        text = (f"I was added to {name}" + (f" by @{by}" if by else "") + f". Its id is {cid}. To share every signal "
+                f"there (your positions and private commands stay here), set TELEGRAM_CHANNEL_ID to {cid} in "
+                f"Railway.")
+    await notify.telegram(s.telegram_token, str(s.telegram_chat_id), text)
+
+
 def status_text(agent) -> str:
     """Is everything running: each source and job, when it last worked, its last error, and Hyperliquid's budget."""
     st = agent.status()
@@ -382,6 +409,17 @@ def status_text(agent) -> str:
         if d.get("tables"):
             line += " · biggest: " + ", ".join(f"{t} {mb(b)}" for t, b in d["tables"][:3])
         lines.append(line)
+    if agent.s.telegram_channel_id:
+        now = time.time()
+        sent = agent.store.count_briefs("share", now - 86400)
+        failed = agent.store.briefs_since("share_failed", now - 86400)
+        skipped = agent.store.count_briefs("share_skipped", now - 86400)
+        line = f"Channel: {sent} shared in 24h"
+        if skipped:
+            line += f", {skipped} kept private (they spoke of your positions)"
+        if failed:
+            line += f", {len(failed)} failed: {failed[-1]['body'].get('error', '')[:80]}"
+        lines.append(line)
     lr2 = st.get("last_read") or {}
     if lr2.get("ago_min") is not None:
         lines.append(f"Last read {lr2['ago_min']} min ago ({lr2.get('reason')})" +
@@ -406,7 +444,7 @@ async def run(agent) -> None:
     offset = None
     while True:
         try:
-            params = {"timeout": 25, "allowed_updates": ["message", "callback_query"]}
+            params = {"timeout": 25, "allowed_updates": ["message", "callback_query", "my_chat_member"]}
             if offset is not None:
                 params["offset"] = offset
             updates = await notify.tg(agent.s.telegram_token, "getUpdates", http_timeout=35, **params)

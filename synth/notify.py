@@ -26,6 +26,9 @@ def post_buttons(pid: int) -> dict:
                                  {"text": "Skip", "callback_data": f"px:{pid}"}]]}
 
 
+LAST_ERROR = {"text": ""}   # Telegram's reason for the last refused call (kept for /status)
+
+
 async def tg(token: str, method: str, http_timeout: float = 15, files: dict | None = None,
              **params) -> dict | list | None:
     """Call a Bot API method; returns `result` or None (never raises)."""
@@ -41,10 +44,12 @@ async def tg(token: str, method: str, http_timeout: float = 15, files: dict | No
                 r = await c.post(url, json=params)
         body = r.json()
         if not body.get("ok"):
-            log.warning("telegram %s failed: %s", method, str(body.get("description"))[:200])
+            LAST_ERROR["text"] = str(body.get("description"))[:200]
+            log.warning("telegram %s failed: %s", method, LAST_ERROR["text"])
             return None
         return body.get("result")
     except (httpx.HTTPError, ValueError) as e:
+        LAST_ERROR["text"] = str(e)[:200]
         log.warning("telegram %s failed: %s", method, e)
         return None
 
@@ -114,11 +119,13 @@ async def send_with_pictures(token: str, chat_id: str, text: str, pngs: list[byt
 
 
 async def push(s, store, text: str, kind: str, buttons: dict | None = None, png: bytes | None = None,
-               must: bool = False, reply: bool = False, pngs: list[bytes] | None = None) -> dict | None:
+               must: bool = False, reply: bool = False, pngs: list[bytes] | None = None,
+               public: str | None = None) -> dict | None:
     """An unprompted message (anything but a reply to him): at most SYNTH_MAX_PUSHES_PER_DAY in 24 hours. Past that
     it is kept as held (briefs 'push_held', listed by /held and counted in the morning read), not sent. `must` (the
     morning read, a note against his position) always goes and counts; `reply` (a read he asked for) goes and does
-    not count, since it answers him. A send that fails (Telegram down) does not use up the allowance."""
+    not count, since it answers him. A send that fails (Telegram down) does not use up the allowance. `public`: the
+    message as others may read it (nothing of his), posted to TELEGRAM_CHANNEL_ID once it has reached him."""
     import time
     if not reply and not must and store.count_briefs("push", time.time() - 86400) >= s.max_pushes_per_day:
         store.add_brief("push_held", {"kind": kind, "text": text[:1500]})
@@ -131,6 +138,22 @@ async def push(s, store, text: str, kind: str, buttons: dict | None = None, png:
     configured = bool(s.telegram_token and s.telegram_chat_id)
     if not reply and (msg is not None or not configured):
         store.add_brief("push", {"kind": kind})
+    if public and msg is not None and getattr(s, "telegram_channel_id", ""):
+        await share(s, store, public, kind, pics)
+    return msg
+
+
+async def share(s, store, text: str, kind: str, pics: list[bytes] | None = None) -> dict | None:
+    """A signal posted to the shared channel as he got it, minus what is his: no buttons, never a reply."""
+    LAST_ERROR["text"] = ""
+    if pics:
+        msg = await send_with_pictures(s.telegram_token, s.telegram_channel_id, text, list(pics), None)
+    else:
+        msg = await telegram(s.telegram_token, s.telegram_channel_id, text)
+    if msg is not None:
+        store.add_brief("share", {"kind": kind})
+    else:
+        store.add_brief("share_failed", {"kind": kind, "error": LAST_ERROR["text"] or "no answer"})
     return msg
 
 
