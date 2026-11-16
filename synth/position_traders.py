@@ -498,8 +498,10 @@ class PositionTraders:
         capped = sum(1 for b in self.store.briefs_since("pt_alert", now - 86400)
                      if not b["body"].get("capped")) >= MAX_ALERTS_PER_DAY and not against
         if not capped and ("conviction" in self.s.pushes or against):   # one against his position always comes
-            text = conviction_text(t, p, lev, coin_now(self.store, p["coin"])) + against
-            await notify.push(self.s, self.store, text, "conviction", must=bool(against))
+            text = conviction_text(t, p, lev, coin_now(self.store, p["coin"]))
+            # never shared when it goes against him: it may only have come (past the caps) because of his side
+            shared = text if "conviction" in self.s.pushes and not against else None
+            await notify.push(self.s, self.store, text + against, "conviction", must=bool(against), public=shared)
         self.store.add_brief("pt_alert", {"address": t["address"], "coin": p["coin"], "side": p["side"],
                                           "value": round(p["value"]), "lev": round(lev, 1) if lev is not None else None,
                                           "x": round(_cost(p) / t["median_size"], 1) if t.get("median_size") else None,
@@ -560,7 +562,8 @@ class PositionTraders:
                                "against_usd": held.get((b["coin"], other)), "big_money": self.big_money().get(b["coin"])})
             against = self.against_his(b["coin"], b["side"])
             if "build" in self.s.pushes or against:           # muted, except when it builds against his position
-                await notify.push(self.s, self.store, text + against, "build", must=bool(against))
+                await notify.push(self.s, self.store, text + against, "build", must=bool(against),
+                                  public=text if "build" in self.s.pushes and not against else None)
             self.store.add_brief("pt_build", {"key": key, "text": text, "coin": b["coin"], "side": b["side"],
                                               "traders": b["strong_adders"], "added_usd": b["net_usd"], "move": move})
             sent += 1

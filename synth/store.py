@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS screen_log (
 """
 
 # brief kinds that are bookkeeping, kept 90 days; reads, picks and the trader records are never pruned
-PRUNE_BRIEFS = ("push", "push_held", "alert_sent", "persona_slot", "pulse")
+PRUNE_BRIEFS = ("push", "push_held", "alert_sent", "persona_slot", "pulse", "share", "share_failed", "share_skipped")
 
 
 class Store:

@@ -53,6 +53,7 @@ Every convergence becomes a numbered group (`#7 STRK short`), and every trader i
 - **Followed groups** message you when a trader cuts size by half or more or closes (exit, result, time held), and with a summary when all are out. Unfollowed groups are recorded only.
 - **On the dashboard:** the Groups tab shows every group trader by trader, with a Follow toggle and the scoreboard (closed in profit, average result).
 - **In Telegram:** `/now` sends the live pulse; `/positions` what the tracked traders hold and are adding; `/following` lists followed groups; `/groups` shows the latest five; `/help` explains each alert and the words in them. Alerts are written in plain words (a trader's record reads "6 won, +$85K ($55K of it still open), wins $2.2 per $1 lost"; above $20 per $1 it says "hardly any losses", since the ratio then only says the losses were tiny). The bot only obeys `TELEGRAM_CHAT_ID`.
+- **Shared channel:** with `TELEGRAM_CHANNEL_ID` set (a channel's id, `-100...`, or its `@username`; the bot an admin there that can post), every signal sent to you is posted there too, once it has reached you: the reads, conviction bets, build-ups, groups opening together, smart-money alerts, the pulse and the daily brief, with their pictures. Never there: anything of yours (your positions, KuCoin, the watch list, /mine, the notes on you), the Follow buttons, the /held line, status and incident notes, drafts, followed groups, and any alert that goes against your position (it may only have come because of your side). The read's model is told the read is shared, and a read that still speaks of your book ("your SOL long", "you hold", the watch list) stays yours alone (`share_skipped`). Messages held by the daily cap are not shared. Add the bot to a channel and it tells you, here, the id to set. `/status` counts what was shared, kept private or refused in 24 hours.
 
 Alerts are built in code. Set `SYNTH_LLM_ALERTS=1` only if you want the model to word them.
 
@@ -513,6 +514,7 @@ Deploy: the `Dockerfile` runs `python -m synth serve`. On Railway, mount a volum
 - `ANTHROPIC_API_KEY`: without it the agent still detects and pushes plain-text alerts.
 - `REFLEX_ACCESS_CODE`: a dedicated, revocable invite code (Reflex owner: `POST /api/owner/invites`). Without it only Cowboy is read.
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: optional, for push (and for receiving draft posts).
+- `TELEGRAM_CHANNEL_ID`: optional, a channel where every signal is shared for others to read (see Shared channel).
 - `ORBIO_API_KEY`: only when publishing desk posts.
 
 Reflex counts every request as activity, which raises its Railway cost, so keep `SYNTH_POLL_SECONDS` at a few minutes. ETag/304 is used to keep egress low.

@@ -293,7 +293,7 @@ class GroupTracker:
                                   text.splitlines()[0])
             except Exception as e:  # noqa: BLE001 - fall back to text
                 log.warning("group chart failed: %s", e)
-        await notify.push(self.s, self.store, text, "group", buttons, png)
+        await notify.push(self.s, self.store, text, "group", buttons, png, public=text)   # shared without Follow
         self.store.update_group(g["id"], alerted=1)
         self.store.add_brief("alert_sent", {"group_id": g["id"]})
 

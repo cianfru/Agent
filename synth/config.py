@@ -127,6 +127,9 @@ class Settings:
     # Optional Telegram push.
     telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
     telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))
+    # A channel (or group) where every signal sent to him is also posted for others to read, without what is his
+    # (synth/notify.py share): its numeric id (-100...) or @username; the bot must be an admin that can post there.
+    telegram_channel_id: str = field(default_factory=lambda: _env("TELEGRAM_CHANNEL_ID"))
 
     coins: list[str] = field(default_factory=lambda: _list("SYNTH_COINS"))
 
